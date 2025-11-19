@@ -1,0 +1,8 @@
+numpy
+scikit-learn
+requests
+ijson
+tqdm
+fastapi
+uvicorn
+apscheduler
