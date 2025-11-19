@@ -1,4 +1,3 @@
-from .cli import main
-
 if __name__ == "__main__":
-    main()
+    print("CLI interface has been removed. Please use the API server instead:")
+    print("  uvicorn mtg_search.api:app --reload")

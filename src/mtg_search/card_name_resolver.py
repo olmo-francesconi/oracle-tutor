@@ -7,9 +7,11 @@ from sklearn.metrics.pairwise import linear_kernel
 
 class CardNameResolver:
     def __init__(self, card_entries: Sequence[Mapping[str, object]]):
+        self.card_ids = [entry["id"] for entry in card_entries]
         self.card_names = [entry["name"] for entry in card_entries]
-        self.rank_scores = np.array(
-            [self._rank_score(entry.get("edhrec_rank")) for entry in card_entries],
+        self.card_ranks = [entry["edhrec_rank"] for entry in card_entries]
+        self.card_rank_scores = np.array(
+            [self._rank_score(rank) for rank in self.card_ranks],
             dtype=np.float32,
         )
         self.vectorizer = TfidfVectorizer(
@@ -43,23 +45,33 @@ class CardNameResolver:
         min_score: float = 0.2,
         rank_weight: float = 0.2,
         rank_power: float = 1.0,
-    ) -> Sequence[Tuple[str, float, float]]:
+    ) -> Sequence[dict]:
+        """
+        Return a list of dicts, each representing a card match with useful fields
+        for API/JSON serialization.
+        Each dict contains: name, id, rank, similarity, combined.
+        """
         q_vec = self.vectorizer.transform([text])
         sims = linear_kernel(q_vec, self.name_matrix).flatten()
         adjusted = self._apply_rank_weight(sims, rank_weight, rank_power)
-        if limit >= len(self.card_names):
-            candidate_idx = np.argsort(adjusted)[::-1]
-        else:
-            idx_part = np.argpartition(adjusted, -limit)[-limit:]
-            candidate_idx = idx_part[np.argsort(adjusted[idx_part])[::-1]]
 
-        results: list[Tuple[str, float, float]] = []
-        for idx in candidate_idx:
+        sorted_idx = np.argsort(adjusted)[::-1]
+        print(sorted_idx)
+        results: list[dict] = []
+        for idx in sorted_idx:
             similarity = float(sims[idx])
             if similarity < min_score:
                 continue
             combined = float(adjusted[idx])
-            results.append((self.card_names[idx], similarity, combined))
+            results.append({
+                "name": self.card_names[idx],
+                "id": self.card_ids[idx],
+                "rank": self.card_ranks[idx] if self.card_ranks[idx] else None,
+                "similarity": similarity,
+                "combined": combined,
+            })
+            if len(results) == limit:
+                break
         return results
 
     @staticmethod
@@ -73,4 +85,4 @@ class CardNameResolver:
     def _apply_rank_weight(self, sims: np.ndarray, rank_weight: float, rank_power: float = 1.0) -> np.ndarray:
         if not rank_weight:
             return sims
-        return (1 - rank_weight) * sims + rank_weight * pow(self.rank_scores, rank_power)
+        return sims + (1 - sims) * rank_weight * pow(self.card_rank_scores, rank_power)
