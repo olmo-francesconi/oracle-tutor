@@ -1,0 +1,25 @@
+services:
+  api:
+    build: ./api
+    # We removed the 'ports' section here.
+    # This means localhost:8000 will NOT work on your machine,
+    # but the frontend container can still reach it at http://api:8000
+    expose:
+      - "8000"
+    volumes:
+      - ./api/data:/app/data
+    environment:
+      - MANASEEK_API_UPDATE_HOUR=2
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000" # Only the frontend is exposed to the outside world
+    environment:
+      # IMPORTANT: This must use the service name 'api', not 'localhost'
+      # The frontend server uses this to proxy requests internally.
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
