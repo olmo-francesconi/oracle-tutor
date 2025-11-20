@@ -13,7 +13,7 @@ from .data_builder import update_scryfall_data, ensure_data_dir
 from .config import DATA_DIR
 from .logging_config import setup_loggers
 
-logger = logging.getLogger("mtg_search.update")
+logger = logging.getLogger("manaseek_api.update")
 
 
 def main() -> int:

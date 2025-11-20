@@ -207,7 +207,7 @@ marimo/_lsp/
 __marimo__/
 
 # data
-data/*
+api/data/*
 
 # Node.js
 node_modules/

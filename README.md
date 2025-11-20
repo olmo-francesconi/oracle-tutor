@@ -12,7 +12,11 @@ A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
 ## Installation
 
 1.  Clone the repository.
-2.  Install the dependencies:
+2.  Navigate to the API directory:
+    ```bash
+    cd api
+    ```
+3.  Install the dependencies:
     ```bash
     pip install -r requirements.txt
     ```
@@ -24,7 +28,8 @@ A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
 Before searching, you need to download the card database from Scryfall and build the local index.
 
 ```bash
-python -m mtg_search.data_builder
+# From the api directory
+python -m manaseek_api.data_builder
 ```
 
 This creates `data/cards.json` and `data/card_names.json`. The database can be automatically updated daily (see [Daily Updates](#daily-updates) below).
@@ -33,7 +38,8 @@ This creates `data/cards.json` and `data/card_names.json`. The database can be a
 Start the HTTP API using Uvicorn:
 
 ```bash
-uvicorn mtg_search.api:app --reload
+# From the api directory
+uvicorn manaseek_api.api:app --reload
 ```
 
 **Endpoints:**
@@ -80,50 +86,53 @@ The card database can be automatically updated daily to stay in sync with Scryfa
 
 The scheduler is enabled by default and runs daily at 2:00 AM local time. You can configure it using environment variables:
 
-```bash
-# Set custom update time (24-hour format)
-export MTG_SEARCH_UPDATE_HOUR=3
-export MTG_SEARCH_UPDATE_MINUTE=30
-
-# Disable the scheduler if you prefer manual updates
-export MTG_SEARCH_DISABLE_SCHEDULER=1
-
-# Start the API (scheduler starts automatically)
-uvicorn mtg_search.api:app --reload
-```
-
-### Cron Job
-
-Add a cron job to run the update script daily. Edit your crontab:
-
-```bash
-crontab -e
-```
-
-Add a line to run the update daily at 2:00 AM:
-
-```
-0 2 * * * cd /path/to/mtg-search && python -m mtg_search.daily_update >> data/update.log 2>&1
-```
-
-Replace `/path/to/mtg-search` with the actual path to your project directory.
-
-### Manual Update
-
-You can also run the update manually at any time:
-
-```bash
-python -m mtg_search.daily_update
-```
-
-### Reloading API Data
-
-After an update, restart the API server to reload the data:
-
-```bash
-# Stop the server (Ctrl+C) and restart
-uvicorn mtg_search.api:app --reload
-```
+    ```bash
+    # Set custom update time (24-hour format)
+    export MANASEEK_API_UPDATE_HOUR=3
+    export MANASEEK_API_UPDATE_MINUTE=30
+    
+    # Disable the scheduler if you prefer manual updates
+    export MANASEEK_API_DISABLE_SCHEDULER=1
+    
+    # Start the API (scheduler starts automatically)
+    # From the api directory
+    uvicorn manaseek_api.api:app --reload
+    ```
+    
+    ### Cron Job
+    
+    Add a cron job to run the update script daily. Edit your crontab:
+    
+    ```bash
+    crontab -e
+    ```
+    
+    Add a line to run the update daily at 2:00 AM:
+    
+    ```
+    0 2 * * * cd /path/to/mtg-search/api && python -m manaseek_api.daily_update >> data/update.log 2>&1
+    ```
+    
+    Replace `/path/to/mtg-search/api` with the actual path to your project's api directory.
+    
+    ### Manual Update
+    
+    You can also run the update manually at any time:
+    
+    ```bash
+    # From the api directory
+    python -m manaseek_api.daily_update
+    ```
+    
+    ### Reloading API Data
+    
+    After an update, restart the API server to reload the data:
+    
+    ```bash
+    # Stop the server (Ctrl+C) and restart
+    # From the api directory
+    uvicorn manaseek_api.api:app --reload
+    ```
 
 ## How It Works
 
