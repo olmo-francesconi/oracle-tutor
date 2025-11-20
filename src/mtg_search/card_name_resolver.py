@@ -21,19 +21,6 @@ class CardNameResolver:
         )
         self.name_matrix = self.vectorizer.fit_transform(self.card_names)
 
-    def best_match(
-        self,
-        text: str
-    ) -> Tuple[str, float]:
-        matches = self.top_matches(
-            text,
-            limit=1
-        )
-        if not matches:
-            return "", 0.0
-        match = matches[0]
-        return match["name"], match["similarity"]
-
     def top_matches(
         self,
         text: str,

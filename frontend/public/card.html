@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="card.css">
 </head>
 <body class="card-page">
+    <canvas id="backgroundCanvas"></canvas>
     <div class="container card-page-container">
         <div class="card-page-layout">
             <!-- Sidebar with selected card -->
@@ -47,11 +48,12 @@
             
             <!-- Main content area with similar cards grid -->
             <main class="cards-main-content">
-                <h1 class="similar-cards-title">Similar Cards</h1>
-                
-                <!-- Filters Section -->
-                <div class="filters-section">
-                    <div class="filter-group">
+                <div class="cards-main-content-scrollable">
+                    <div class="cards-main-content-header">
+                        <!-- Filters Section -->
+                        <div class="filters-section">
+                            <h1 class="similar-cards-title">Similar Cards</h1>
+                        <div class="filter-group">
                         <label>Card Type:</label>
                         <div class="dropdown-checkbox">
                             <button type="button" class="dropdown-checkbox-toggle" id="cardTypeToggle">
@@ -166,10 +168,12 @@
                     </div>
                     
                     <button id="clearFilters" class="clear-filters-btn">Clear Filters</button>
+                    </div>
                 </div>
                 
                 <div id="similarCardsGrid" class="cards-grid">
                     <!-- Cards will be inserted here -->
+                </div>
                 </div>
             </main>
         </div>

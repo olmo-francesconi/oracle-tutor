@@ -70,7 +70,6 @@ if (document.readyState === 'loading') {
 // DOM elements
 const searchInput = document.getElementById('searchInput');
 const suggestionsContainer = document.getElementById('suggestions');
-const loadingIndicator = document.getElementById('loading');
 
 // State
 let debounceTimer = null;
@@ -80,7 +79,7 @@ let abortController = null;
 const originalPlaceholder = searchInput ? searchInput.placeholder : 'Search for a card name...';
 
 // Initialize
-if (searchInput && suggestionsContainer && loadingIndicator) {
+if (searchInput && suggestionsContainer) {
     searchInput.addEventListener('input', handleInput);
     searchInput.addEventListener('keydown', handleKeyDown);
     searchInput.addEventListener('focus', handleFocus);

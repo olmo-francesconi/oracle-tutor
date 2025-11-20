@@ -185,18 +185,6 @@ h1 {
     background-color: transparent;
 }
 
-.loading {
-    text-align: center;
-    color: #1a1a1a;
-    margin-top: 20px;
-    font-size: 0.9rem;
-    font-weight: 500;
-}
-
-.loading.hidden {
-    display: none;
-}
-
 /* Scrollbar styling */
 .suggestions::-webkit-scrollbar {
     width: 8px;

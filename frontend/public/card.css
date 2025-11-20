@@ -1,27 +1,40 @@
 /* Card Detail Page Styles */
 
+/* Ensure canvas is visible on card page */
+body.card-page #backgroundCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    display: block;
+    visibility: visible;
+}
+
 body.card-page {
     overflow: hidden;
     display: block;
     align-items: stretch;
     justify-content: flex-start;
     padding: 0;
-}
-
-body.card-page {
     background: #1a1a1a;
+    position: relative;
 }
 
 body.card-page .container {
     max-width: 100%;
     width: 100%;
     height: 100vh;
-    background: #1a1a1a;
+    background: transparent;
     border-radius: 0;
     box-shadow: none;
     padding: 0;
     display: flex;
     flex-direction: column;
+    position: relative;
+    z-index: 1;
 }
 
 .card-page-container {
@@ -63,11 +76,12 @@ body.card-page .container {
 .card-sidebar {
     overflow-y: auto;
     padding: 20px;
-    background: #1a1a1a;
+    background: rgba(26, 26, 26, 0.5);
     height: 100%;
     display: flex;
     flex-direction: column;
     border-right: 1px solid #2a2a2a;
+    backdrop-filter: blur(2px);
 }
 
 .card-sidebar::-webkit-scrollbar {
@@ -198,47 +212,68 @@ body.card-page .container {
 
 /* Main Content Area */
 .cards-main-content {
-    overflow-y: auto;
-    padding: 20px;
+    position: relative;
     height: 100%;
+    background: rgba(26, 26, 26, 0.5);
+    backdrop-filter: blur(2px);
+    overflow: hidden;
 }
 
-.cards-main-content::-webkit-scrollbar {
+.cards-main-content-header {
+    position: sticky;
+    top: 0;
+    padding: 20px 20px 0 20px;
+    background: transparent;
+    z-index: 20;
+}
+
+.cards-main-content-header > * {
+    pointer-events: auto;
+}
+
+.cards-main-content-scrollable {
+    height: 100%;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.cards-main-content-scrollable::-webkit-scrollbar {
     width: 8px;
 }
 
-.cards-main-content::-webkit-scrollbar-track {
+.cards-main-content-scrollable::-webkit-scrollbar-track {
     background: #2a2a2a;
     border-radius: 4px;
 }
 
-.cards-main-content::-webkit-scrollbar-thumb {
+.cards-main-content-scrollable::-webkit-scrollbar-thumb {
     background: #4a4a4a;
     border-radius: 4px;
 }
 
-.cards-main-content::-webkit-scrollbar-thumb:hover {
+.cards-main-content-scrollable::-webkit-scrollbar-thumb:hover {
     background: #6a6a6a;
 }
 
 .similar-cards-title {
     font-size: 2rem;
     color: #f5f1e8;
-    margin-bottom: 30px;
+    margin: 0 0 20px 0;
     font-weight: 700;
+    width: 100%;
+    flex-basis: 100%;
 }
 
 /* Filters Section */
 .filters-section {
-    background: #2a2a2a;
+    background: rgba(42, 42, 42, 0.4);
     border-radius: 12px;
     padding: 20px;
-    margin-bottom: 30px;
     display: flex;
     flex-wrap: wrap;
-    gap: 20px;
     align-items: flex-end;
-    border: 1px solid #3a3a3a;
+    border: 1px solid rgba(58, 58, 58, 0.5);
+    backdrop-filter: blur(8px);
 }
 
 .filter-group {
@@ -480,6 +515,7 @@ body.card-page .container {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 20px;
+    padding: 20px;
 }
 
 .card-item {
@@ -589,6 +625,16 @@ body.card-page .container {
     .cards-main-content {
         overflow: visible;
         height: auto;
+    }
+    
+    .cards-main-content-header {
+        position: static;
+    }
+    
+    .cards-main-content-scrollable {
+        overflow: visible;
+        height: auto;
+        padding-top: 20px;
     }
     
     .selected-card {
