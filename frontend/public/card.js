@@ -333,6 +333,38 @@ async function fetchCardData(cardId) {
     }
 }
 
+// Fetch similar cards from API
+async function fetchSimilarCards(cardId) {
+    try {
+        const API_BASE_URL = window.API_URL || 'http://localhost:8000';
+        const response = await fetch(`${API_BASE_URL}/similar-cards/${encodeURIComponent(cardId)}?limit=20`, {
+            headers: {
+                'Accept': 'application/json',
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to fetch similar cards: ${response.status}`);
+        }
+        
+        const similarCards = await response.json();
+        
+        // Map API response to display format (API now returns full card data)
+        return similarCards.map(card => ({
+            id: card.id,
+            name: card.name,
+            type: card.type_line || '—',
+            rarity: card.rarity || '—',
+            manaCost: card.mana_cost || '',
+            oracleText: card.oracle_text || '—',
+            similarity: card.similarity,
+        }));
+    } catch (error) {
+        console.error('Error fetching similar cards:', error);
+        throw error;
+    }
+}
+
 // Initialize page
 async function init() {
     if (cardId) {
@@ -341,9 +373,20 @@ async function init() {
             const cardData = await fetchCardData(cardId);
             displayCardDetails(cardData);
             
-            // Display similar cards (using mock data for now)
-            // In the future, we'll fetch these from the API based on similarity
-            displaySimilarCards(mockSimilarCards);
+            // Fetch and display similar cards from API
+            try {
+                const similarCards = await fetchSimilarCards(cardId);
+                displaySimilarCards(similarCards);
+            } catch (error) {
+                console.error('Failed to load similar cards:', error);
+                // Show error message but don't block the page
+                const grid = document.getElementById('similarCardsGrid');
+                if (grid) {
+                    grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 2rem; color: #666;">
+                        Failed to load similar cards: ${error.message}
+                    </div>`;
+                }
+            }
         } catch (error) {
             console.error('Failed to load card:', error);
             // Show error message to user
