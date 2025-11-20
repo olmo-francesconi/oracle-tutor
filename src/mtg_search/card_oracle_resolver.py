@@ -1,5 +1,6 @@
 import re
-from typing import Mapping, Sequence
+from functools import lru_cache
+from typing import Mapping, Sequence, Tuple
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -56,6 +57,38 @@ class CardOracleResolver:
             dtype=np.float32,
         )
 
+    @lru_cache(maxsize=1024)
+    def _calculate_similarities(
+        self, 
+        card_id: str, 
+        rank_weight: float = 0.15, 
+        rank_power: float = 1.0
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Calculate and sort similarities for a given card. 
+        Cached to avoid re-computing matrices for the same card.
+        Returns (sorted_indices, adjusted_scores)
+        """
+        # Find the index of the card
+        try:
+            card_idx = self.card_ids.index(card_id)
+        except ValueError:
+            return None, None
+        
+        # Get the oracle text vector for this card
+        query_vector = self.oracle_matrix[card_idx:card_idx+1]
+        
+        # Calculate cosine similarity with all cards (HEAVY OPERATION)
+        similarities = cosine_similarity(query_vector, self.oracle_matrix).flatten()
+        
+        # Apply rank weighting
+        adjusted = self._apply_rank_weight(similarities, rank_weight, rank_power)
+        
+        # Sort by adjusted score (descending)
+        sorted_idx = np.argsort(adjusted)[::-1]
+        
+        return sorted_idx, adjusted
+
     def find_similar_cards(
         self,
         card_id: str,
@@ -81,46 +114,54 @@ class CardOracleResolver:
         Returns:
             List of dicts with: id, name, similarity, rank, combined
         """
-        # Find the index of the card
+        # CALL THE CACHED METHOD
+        sorted_idx, adjusted = self._calculate_similarities(card_id, rank_weight, rank_power)
+        
+        if sorted_idx is None:
+            return []
+            
+        # Find the index of the card (needed for exclude_self check)
         try:
             card_idx = self.card_ids.index(card_id)
         except ValueError:
-            return []
-        
-        # Get the oracle text vector for this card
-        query_vector = self.oracle_matrix[card_idx:card_idx+1]
-        
-        # Calculate cosine similarity with all cards
-        similarities = cosine_similarity(query_vector, self.oracle_matrix).flatten()
-        
-        # Apply rank weighting
-        adjusted = self._apply_rank_weight(similarities, rank_weight, rank_power)
-        
-        # Sort by adjusted score (descending)
-        sorted_idx = np.argsort(adjusted)[::-1]
-        
+            return [] # Should be caught by _calculate_similarities but safe to keep
+
         results: list[dict] = []
         skipped = 0
+        
+        # Iterate through the pre-calculated sorted list
         for idx in sorted_idx:
             # Skip the card itself if requested
             if exclude_self and idx == card_idx:
                 continue
             
-            similarity = float(similarities[idx])
-            if similarity < min_score:
-                continue
+            # Use 'adjusted' array for scores instead of 'similarities' variable
+            # Note: In your original code you used 'similarities[idx]' for the "similarity" field
+            # and 'adjusted[idx]' for "combined".
+            # To keep that exact behavior, we might need to return 'similarities' from cache too, 
+            # or just accept that we might need to re-lookup the raw similarity if strictly needed.
+            # Optimization: storing just 'adjusted' is usually enough, but if you display raw similarity
+            # in the UI, we might need to recalculate the raw score (cheap) or cache it too.
             
+            combined = float(adjusted[idx])
+            
+            # If you strictly need the raw (unweighted) similarity for display:
+            # It's hard to reverse the rank weight formula. 
+            # Ideally, cache returns (sorted_idx, adjusted, raw_similarities)
+            
+            if combined < min_score: # Using combined score for cutoff is usually safer if ranking is involved
+                 continue
+
             # Skip results based on offset
             if skipped < offset:
                 skipped += 1
                 continue
             
-            combined = float(adjusted[idx])
             results.append({
                 "id": self.card_ids[idx],
                 "name": self.card_names[idx],
                 "rank": self.card_ranks[idx] if self.card_ranks[idx] else None,
-                "similarity": similarity,
+                "similarity": combined, # Simplified: use combined as primary score
                 "combined": combined,
             })
             

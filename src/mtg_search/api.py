@@ -235,7 +235,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="MTG Search API",
+    title="ManaSeek API",
     docs_url=None,
     redoc_url=None
 )

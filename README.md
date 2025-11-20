@@ -1,4 +1,4 @@
-# mtg-search
+# ManaSeek
 
 A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
 

@@ -3,6 +3,7 @@ from typing import Mapping, Sequence, Tuple
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
+from functools import lru_cache
 
 
 class CardNameResolver:
@@ -21,6 +22,15 @@ class CardNameResolver:
         )
         self.name_matrix = self.vectorizer.fit_transform(self.card_names)
 
+    @lru_cache(maxsize=2048)
+    def _calculate_matches(self, text: str, rank_weight: float, rank_power: float):
+        """Cache the search vector calculation and sorting"""
+        q_vec = self.vectorizer.transform([text])
+        sims = linear_kernel(q_vec, self.name_matrix).flatten()
+        adjusted = self._apply_rank_weight(sims, rank_weight, rank_power)
+        sorted_idx = np.argsort(adjusted)[::-1]
+        return sorted_idx, sims, adjusted
+
     def top_matches(
         self,
         text: str,
@@ -34,11 +44,8 @@ class CardNameResolver:
         for API/JSON serialization.
         Each dict contains: name, id, rank, similarity, combined.
         """
-        q_vec = self.vectorizer.transform([text])
-        sims = linear_kernel(q_vec, self.name_matrix).flatten()
-        adjusted = self._apply_rank_weight(sims, rank_weight, rank_power)
+        sorted_idx, sims, adjusted = self._calculate_matches(text, rank_weight, rank_power)
 
-        sorted_idx = np.argsort(adjusted)[::-1]
         results: list[dict] = []
         for idx in sorted_idx:
             similarity = float(sims[idx])

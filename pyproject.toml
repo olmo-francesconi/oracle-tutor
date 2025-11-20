@@ -1,5 +1,5 @@
 [project]
-name = "mtg-search"
+name = "manaseek"
 version = "0.1.0"
 
 [tool.setuptools]

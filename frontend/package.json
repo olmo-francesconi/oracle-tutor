@@ -1,5 +1,5 @@
 {
-  "name": "mtg-search-frontend",
+  "name": "manaseek-frontend",
   "version": "1.0.0",
   "description": "Frontend for MTG Search API",
   "main": "server.js",
