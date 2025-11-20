@@ -5,9 +5,6 @@ const DEBOUNCE_DELAY = 300; // milliseconds
 const MIN_QUERY_LENGTH = 3; // Minimum characters before making API request
 const MAX_SUGGESTIONS = 10;
 
-// Debug logging
-console.log('MTG Search initialized. API URL:', API_BASE_URL);
-
 // Static background with circles
 function initInteractiveBackground() {
     const canvas = document.getElementById('backgroundCanvas');
@@ -70,36 +67,6 @@ if (document.readyState === 'loading') {
     initInteractiveBackground();
 }
 
-// Test API connection on page load
-async function testAPIConnection() {
-    try {
-        const testUrl = `${API_BASE_URL}/suggest-names?q=test&limit=1`;
-        console.log('Testing API connection to:', testUrl);
-        const response = await fetch(testUrl, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        });
-        console.log('API connection test - Status:', response.status);
-        if (response.ok) {
-            console.log('✅ API connection successful');
-        } else {
-            console.warn('⚠️ API returned non-OK status:', response.status);
-        }
-    } catch (error) {
-        console.error('❌ API connection test failed:', error);
-        console.error('Make sure the API server is running at', API_BASE_URL);
-    }
-}
-
-// Run connection test when page loads
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', testAPIConnection);
-} else {
-    testAPIConnection();
-}
-
 // DOM elements
 const searchInput = document.getElementById('searchInput');
 const suggestionsContainer = document.getElementById('suggestions');
@@ -110,12 +77,10 @@ let debounceTimer = null;
 let currentSuggestions = [];
 let selectedIndex = -1;
 let abortController = null;
+const originalPlaceholder = searchInput ? searchInput.placeholder : 'Search for a card name...';
 
 // Initialize
-if (!searchInput || !suggestionsContainer || !loadingIndicator) {
-    console.error('Failed to find required DOM elements');
-} else {
-    console.log('DOM elements found, attaching event listeners');
+if (searchInput && suggestionsContainer && loadingIndicator) {
     searchInput.addEventListener('input', handleInput);
     searchInput.addEventListener('keydown', handleKeyDown);
     searchInput.addEventListener('focus', handleFocus);
@@ -131,7 +96,9 @@ document.addEventListener('click', (e) => {
 
 function handleInput(e) {
     const query = e.target.value.trim();
-    console.log('Input event, query:', query);
+    
+    // Clear error state when user starts typing
+    clearErrorState();
     
     // Cancel any pending request
     if (abortController) {
@@ -149,16 +116,14 @@ function handleInput(e) {
     // Hide suggestions if query is too short
     if (query.length < MIN_QUERY_LENGTH) {
         hideSuggestions();
-        hideLoading();
         return;
     }
     
-    // Show loading indicator
+    // Show loading indicator in suggestions container
     showLoading();
     
     // Debounce the API call
     debounceTimer = setTimeout(() => {
-        console.log('Debounce timer fired, calling searchCards with:', query);
         searchCards(query);
     }, DEBOUNCE_DELAY);
 }
@@ -217,7 +182,6 @@ async function searchCards(query) {
     
     try {
         const url = `${API_BASE_URL}/suggest-names?q=${encodeURIComponent(query)}&limit=${MAX_SUGGESTIONS}`;
-        console.log('Making API request to:', url);
         
         const response = await fetch(url, {
             signal: abortController.signal,
@@ -226,16 +190,12 @@ async function searchCards(query) {
             }
         });
         
-        console.log('Response status:', response.status, response.statusText);
-        
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('API error response:', errorText);
             throw new Error(`API error: ${response.status} - ${errorText}`);
         }
         
         const results = await response.json();
-        console.log('Received results:', results);
         currentSuggestions = results;
         displaySuggestions(results);
         hideLoading();
@@ -243,24 +203,22 @@ async function searchCards(query) {
     } catch (error) {
         if (error.name === 'AbortError') {
             // Request was cancelled, ignore
-            console.log('Request was aborted');
             return;
         }
         
-        console.error('Search error:', error);
         hideSuggestions();
         hideLoading();
-        showError(`Failed to search: ${error.message}. Make sure the API server is running at ${API_BASE_URL}`);
+        showError(`Failed to search: ${error.message}`);
     }
 }
 
 function displaySuggestions(suggestions) {
+    suggestionsContainer.innerHTML = '';
+    
     if (suggestions.length === 0) {
         hideSuggestions();
         return;
     }
-    
-    suggestionsContainer.innerHTML = '';
     
     suggestions.forEach((suggestion, index) => {
         const item = document.createElement('div');
@@ -313,40 +271,36 @@ function hideSuggestions() {
 }
 
 function showLoading() {
-    loadingIndicator.classList.remove('hidden');
+    // Show suggestions container with "Searching..." as the only item
+    suggestionsContainer.innerHTML = '';
+    const loadingItem = document.createElement('div');
+    loadingItem.className = 'suggestion-item loading-item';
+    loadingItem.textContent = 'Searching...';
+    suggestionsContainer.appendChild(loadingItem);
+    showSuggestions();
 }
 
 function hideLoading() {
-    loadingIndicator.classList.add('hidden');
+    // Loading is now part of suggestions container, so we don't need to hide anything separately
+    // The loading item will be replaced by actual suggestions in displaySuggestions()
 }
 
 function showError(message) {
-    // Simple error display - you can enhance this
-    console.error(message);
-    
-    // Show error in the UI
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'error-message';
-    errorDiv.textContent = message;
-    errorDiv.style.cssText = 'color: #1a1a1a; margin-top: 10px; padding: 10px; background: #f5f1e8; border: 1px solid #2a2a2a; border-radius: 8px;';
-    
-    // Remove any existing error message
-    const existingError = document.querySelector('.error-message');
-    if (existingError) {
-        existingError.remove();
+    // Add red border to search input
+    if (searchInput) {
+        searchInput.classList.add('error');
+        // Clear the input value
+        searchInput.value = '';
+        // Set error message as placeholder
+        searchInput.placeholder = message;
     }
-    
-    // Insert error after search container
-    const searchContainer = document.querySelector('.search-container');
-    if (searchContainer && searchContainer.parentNode) {
-        searchContainer.parentNode.insertBefore(errorDiv, searchContainer.nextSibling);
-        
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            if (errorDiv.parentNode) {
-                errorDiv.remove();
-            }
-        }, 5000);
+}
+
+function clearErrorState() {
+    // Remove error styling and restore original placeholder
+    if (searchInput) {
+        searchInput.classList.remove('error');
+        searchInput.placeholder = originalPlaceholder;
     }
 }
 

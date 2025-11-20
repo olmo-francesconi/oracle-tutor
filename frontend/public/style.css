@@ -92,8 +92,22 @@ h1 {
     box-shadow: 0 0 0 4px rgba(26, 26, 26, 0.1);
 }
 
+.search-input.error {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 4px rgba(220, 53, 69, 0.1);
+}
+
+.search-input.error:focus {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 4px rgba(220, 53, 69, 0.2);
+}
+
 .search-input::placeholder {
     color: #8a8a8a;
+}
+
+.search-input.error::placeholder {
+    color: #dc3545;
 }
 
 .suggestions {
@@ -158,6 +172,17 @@ h1 {
 
 .suggestion-item.highlight {
     background-color: #e8e4d8;
+}
+
+.suggestion-item.loading-item {
+    color: #8a8a8a;
+    font-style: italic;
+    cursor: default;
+    pointer-events: none;
+}
+
+.suggestion-item.loading-item:hover {
+    background-color: transparent;
 }
 
 .loading {
