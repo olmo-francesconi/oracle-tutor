@@ -48,10 +48,168 @@
             <!-- Main content area with similar cards grid -->
             <main class="cards-main-content">
                 <h1 class="similar-cards-title">Similar Cards</h1>
+                
+                <!-- Filters Section -->
+                <div class="filters-section">
+                    <div class="filter-group">
+                        <label>Card Type:</label>
+                        <div class="dropdown-checkbox">
+                            <button type="button" class="dropdown-checkbox-toggle" id="cardTypeToggle">
+                                <span class="dropdown-checkbox-label">All Types</span>
+                                <span class="dropdown-checkbox-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-checkbox-menu" id="cardTypeMenu">
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Creature" class="card-type-filter">
+                                    <span>Creature</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Instant" class="card-type-filter">
+                                    <span>Instant</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Sorcery" class="card-type-filter">
+                                    <span>Sorcery</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Enchantment" class="card-type-filter">
+                                    <span>Enchantment</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Artifact" class="card-type-filter">
+                                    <span>Artifact</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Planeswalker" class="card-type-filter">
+                                    <span>Planeswalker</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Land" class="card-type-filter">
+                                    <span>Land</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="Battle" class="card-type-filter">
+                                    <span>Battle</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label>Colors:</label>
+                        <div class="color-filters">
+                            <label class="color-checkbox">
+                                <input type="checkbox" value="W" class="color-filter">
+                                <span class="color-label white">W</span>
+                            </label>
+                            <label class="color-checkbox">
+                                <input type="checkbox" value="U" class="color-filter">
+                                <span class="color-label blue">U</span>
+                            </label>
+                            <label class="color-checkbox">
+                                <input type="checkbox" value="B" class="color-filter">
+                                <span class="color-label black">B</span>
+                            </label>
+                            <label class="color-checkbox">
+                                <input type="checkbox" value="R" class="color-filter">
+                                <span class="color-label red">R</span>
+                            </label>
+                            <label class="color-checkbox">
+                                <input type="checkbox" value="G" class="color-filter">
+                                <span class="color-label green">G</span>
+                            </label>
+                            <label class="color-checkbox">
+                                <input type="checkbox" value="C" class="color-filter">
+                                <span class="color-label colorless">C</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label>Format:</label>
+                        <div class="dropdown-checkbox">
+                            <button type="button" class="dropdown-checkbox-toggle" id="formatToggle">
+                                <span class="dropdown-checkbox-label">All Formats</span>
+                                <span class="dropdown-checkbox-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-checkbox-menu" id="formatMenu">
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="standard" class="format-filter">
+                                    <span>Standard</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="modern" class="format-filter">
+                                    <span>Modern</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="commander" class="format-filter">
+                                    <span>Commander</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="pioneer" class="format-filter">
+                                    <span>Pioneer</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="legacy" class="format-filter">
+                                    <span>Legacy</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="vintage" class="format-filter">
+                                    <span>Vintage</span>
+                                </label>
+                                <label class="dropdown-checkbox-item">
+                                    <input type="checkbox" value="pauper" class="format-filter">
+                                    <span>Pauper</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button id="clearFilters" class="clear-filters-btn">Clear Filters</button>
+                </div>
+                
                 <div id="similarCardsGrid" class="cards-grid">
                     <!-- Cards will be inserted here -->
                 </div>
             </main>
+        </div>
+    </div>
+    
+    <!-- Card Overlay -->
+    <div id="cardOverlay" class="card-overlay">
+        <div class="overlay-backdrop" onclick="hideCardOverlay()"></div>
+        <div class="overlay-content">
+            <button class="overlay-close" onclick="hideCardOverlay()" aria-label="Close overlay">×</button>
+            <div class="overlay-card-container">
+                <div class="overlay-card-image-wrapper">
+                    <img src="" alt="Card" class="overlay-card-image" />
+                    <div class="overlay-card-image-placeholder" style="display: none;">
+                        <span class="placeholder-icon">🃏</span>
+                        <p>Card Image</p>
+                    </div>
+                </div>
+                <div class="overlay-card-details">
+                    <h2 class="overlay-card-name">—</h2>
+                    <div class="overlay-card-info">
+                        <div class="overlay-info-item">
+                            <span class="overlay-info-label">Mana Cost:</span>
+                            <span class="overlay-info-value overlay-card-mana-cost">—</span>
+                        </div>
+                        <div class="overlay-info-item">
+                            <span class="overlay-info-label">Type:</span>
+                            <span class="overlay-info-value overlay-card-type">—</span>
+                        </div>
+                        <div class="overlay-info-item">
+                            <span class="overlay-info-label">Rarity:</span>
+                            <span class="overlay-info-value overlay-card-rarity">—</span>
+                        </div>
+                    </div>
+                    <div class="overlay-card-oracle-section">
+                        <h3 class="overlay-oracle-title">Oracle Text</h3>
+                        <p class="overlay-card-oracle">—</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     

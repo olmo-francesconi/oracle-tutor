@@ -1,6 +1,6 @@
 // Configuration
-// In browser, we can't use process.env, so we hardcode or use window config
-const API_BASE_URL = window.API_URL || 'http://localhost:8000';
+// Use relative URL for API calls (will be proxied by Express server)
+const API_BASE_URL = window.API_URL || '/api';
 const DEBOUNCE_DELAY = 300; // milliseconds
 const MIN_QUERY_LENGTH = 3; // Minimum characters before making API request
 const MAX_SUGGESTIONS = 10;

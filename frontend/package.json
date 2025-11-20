@@ -7,11 +7,15 @@
     "start": "node server.js",
     "dev": "node server.js"
   },
-  "keywords": ["mtg", "search", "frontend"],
+  "keywords": [
+    "mtg",
+    "search",
+    "frontend"
+  ],
   "author": "",
   "license": "GPL-3.0",
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "http-proxy-middleware": "^3.0.5"
   }
 }
-

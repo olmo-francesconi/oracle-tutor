@@ -5,7 +5,7 @@ import time
 from contextlib import asynccontextmanager
 from functools import wraps
 from typing import List, Optional, Dict, Any, Callable
-from fastapi import FastAPI, Response, HTTPException
+from fastapi import FastAPI, Response, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -274,6 +274,8 @@ class SimilarCard(BaseModel):
     mana_cost: Optional[str] = None
     oracle_text: Optional[str] = None
     rarity: Optional[str] = None
+    colors: Optional[List[str]] = None
+    legalities: Optional[Dict[str, str]] = None
 
 # --- Endpoints ---
 
@@ -350,10 +352,19 @@ def get_card_by_id(card_id: str):
 
 @app.get("/similar-cards/{card_id}", response_model=List[SimilarCard])
 @log_performance
-def get_similar_cards(card_id: str, limit: int = 20):
+def get_similar_cards(
+    card_id: str, 
+    limit: int = 20, 
+    offset: int = 0,
+    card_type: Optional[str] = Query(None, description="Filter by card type (comma-separated, e.g., 'Creature,Instant' or 'Sorcery')"),
+    colors: Optional[str] = Query(None, description="Filter by colors (comma-separated, e.g., 'R,W' or 'U' or 'C' for colorless)"),
+    format: Optional[str] = Query(None, description="Filter by format legality (comma-separated, e.g., 'standard,modern' or 'commander')")
+):
     """
     Find cards similar to the given card based on oracle text similarity.
     Returns full card data with similarity scores.
+    
+    Supports pagination via offset parameter and filtering by card type, colors, and format.
     """
     if not oracle_resolver:
         raise HTTPException(status_code=503, detail="Oracle resolver not initialized")
@@ -366,17 +377,89 @@ def get_similar_cards(card_id: str, limit: int = 20):
     if limit < 1:
         limit = 1
     
+    if offset < 0:
+        offset = 0
+    
+    # Parse filter parameters
+    filter_colors = None
+    if colors:
+        filter_colors = [c.strip().upper() for c in colors.split(",") if c.strip()]
+    
+    filter_card_types = None
+    if card_type:
+        filter_card_types = [t.strip() for t in card_type.split(",") if t.strip()]
+    
+    filter_formats = None
+    if format:
+        filter_formats = [f.strip().lower() for f in format.split(",") if f.strip()]
+    
+    # Get a larger set of matches to filter from (we'll filter and then paginate)
+    # Fetch more results to account for filtering and offset
+    has_filters = filter_card_types or filter_colors or filter_formats
+    if has_filters:
+        # When filtering, we need to fetch more to account for filtering and offset
+        fetch_limit = (limit + offset) * 5
+        # Cap at reasonable maximum to avoid performance issues
+        fetch_limit = min(fetch_limit, 500)
+    else:
+        fetch_limit = limit + offset
+    
     matches = oracle_resolver.find_similar_cards(
         card_id=card_id,
-        limit=limit,
+        limit=fetch_limit,
+        offset=0,  # Start from beginning, we'll handle offset after filtering
         min_score=0.1,
         rank_weight=0.15,
     )
     
     results = []
+    skipped = 0
+    
     for m in matches:
         # Get full card data
         card_data = cards_by_id.get(m["id"], {})
+        
+        # Apply filters
+        if filter_card_types:
+            type_line = card_data.get("type_line", "")
+            # Check if any of the selected card types match
+            if not any(ct.lower() in type_line.lower() for ct in filter_card_types):
+                continue
+        
+        if filter_colors:
+            card_colors = card_data.get("colors", [])
+            card_has_colors = len(card_colors) > 0
+            card_is_colorless = not card_has_colors
+            
+            # Separate colorless from other color filters
+            has_colorless_filter = "C" in filter_colors
+            other_color_filters = [c for c in filter_colors if c != "C"]
+            
+            # Check if card matches any of the selected filters
+            matches_colorless = has_colorless_filter and card_is_colorless
+            matches_colors = False
+            if other_color_filters and card_has_colors:
+                matches_colors = any(c.upper() in [col.upper() for col in card_colors] for c in other_color_filters)
+            
+            # Include card if it matches colorless filter OR color filters
+            if not (matches_colorless or matches_colors):
+                continue
+        
+        if filter_formats:
+            # Check if card is legal in any of the selected formats
+            legalities = card_data.get("legalities", {})
+            is_legal_in_any = any(
+                legalities.get(fmt, "").lower() == "legal" 
+                for fmt in filter_formats
+            )
+            if not is_legal_in_any:
+                continue
+        
+        # Apply offset after filtering
+        if skipped < offset:
+            skipped += 1
+            continue
+        
         results.append(SimilarCard(
             id=m["id"],
             name=m["name"],
@@ -387,6 +470,11 @@ def get_similar_cards(card_id: str, limit: int = 20):
             mana_cost=card_data.get("mana_cost"),
             oracle_text=card_data.get("oracle_text"),
             rarity=card_data.get("rarity"),
+            colors=card_data.get("colors"),
+            legalities=card_data.get("legalities"),
         ))
+        
+        if len(results) == limit:
+            break
     
     return results

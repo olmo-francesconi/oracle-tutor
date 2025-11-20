@@ -23,16 +23,17 @@ class CardOracleResolver:
         for entry in card_entries:
             card_id = entry.get("id")
             oracle_text = entry.get("oracle_text") or ""
+            card_name = entry.get("name", "")
             
             # Skip cards without ID or with empty oracle text
             if not card_id:
                 continue
             
             # Clean the oracle text before storing
-            cleaned_text = self._clean_oracle_text(oracle_text)
+            cleaned_text = self._clean_oracle_text(oracle_text, card_name)
             
             self.card_ids.append(card_id)
-            self.card_names.append(entry.get("name", ""))
+            self.card_names.append(card_name)
             self.oracle_texts.append(cleaned_text)
             self.card_ranks.append(entry.get("edhrec_rank"))
         
@@ -59,6 +60,7 @@ class CardOracleResolver:
         self,
         card_id: str,
         limit: int = 20,
+        offset: int = 0,
         min_score: float = 0.1,
         rank_weight: float = 0.15,
         rank_power: float = 1.0,
@@ -70,6 +72,7 @@ class CardOracleResolver:
         Args:
             card_id: The ID of the card to find similar cards for
             limit: Maximum number of results to return
+            offset: Number of results to skip (for pagination)
             min_score: Minimum similarity score (0-1) to include
             rank_weight: Weight for EDHREC rank adjustment (0-1)
             rank_power: Power factor for rank adjustment
@@ -97,6 +100,7 @@ class CardOracleResolver:
         sorted_idx = np.argsort(adjusted)[::-1]
         
         results: list[dict] = []
+        skipped = 0
         for idx in sorted_idx:
             # Skip the card itself if requested
             if exclude_self and idx == card_idx:
@@ -104,6 +108,11 @@ class CardOracleResolver:
             
             similarity = float(similarities[idx])
             if similarity < min_score:
+                continue
+            
+            # Skip results based on offset
+            if skipped < offset:
+                skipped += 1
                 continue
             
             combined = float(adjusted[idx])
@@ -120,32 +129,75 @@ class CardOracleResolver:
         
         return results
 
-    def _clean_oracle_text(self, text: str) -> str:
+    def _clean_oracle_text(self, text: str, card_name: str = "") -> str:
         """
-        Clean oracle text by removing parenthetical text (reminder text).
+        Clean oracle text by removing parenthetical text and normalizing special characters.
         
         Args:
             text: The original oracle text
+            card_name: The name of the card (used to normalize self-references)
             
         Returns:
-            Cleaned oracle text with parentheses and their contents removed
+            Cleaned oracle text with parentheses removed and special characters normalized
         """
         if not text:
             return text
         
         # Remove all text between parentheses (including nested parentheses)
-        # This regex pattern matches ( followed by any characters including newlines,
-        # handling nested parentheses by matching balanced pairs
-        # We use a simple approach: repeatedly remove innermost parentheses
         cleaned = text
         while True:
-            # Match innermost parentheses (non-greedy, but we'll handle nested by iteration)
-            # Pattern: ( followed by any chars except ( or ), or nested parentheses
             new_cleaned = re.sub(r'\([^()]*\)', '', cleaned)
             if new_cleaned == cleaned:
-                # No more parentheses to remove
                 break
             cleaned = new_cleaned
+        
+        # Normalize card name references (replace card name with CARD_NAME placeholder)
+        if card_name:
+            # Escape special regex characters in the card name
+            escaped_name = re.escape(card_name)
+            # Replace card name with CARD_NAME (case-insensitive, whole word matching)
+            # Use word boundaries to ensure we match whole words only
+            cleaned = re.sub(r'\b' + escaped_name + r'\b', ' CARD_NAME ', cleaned, flags=re.IGNORECASE)
+        
+        # Normalize special characters and symbols
+        # Tap and untap symbols
+        cleaned = re.sub(r'\{T\}', ' TAP_ABILITY ', cleaned)
+        cleaned = re.sub(r'\{Q\}', ' UNTAP_ABILITY ', cleaned)
+        
+        # Basic mana symbols
+        cleaned = re.sub(r'\{W\}', ' WHITE_MANA ', cleaned)
+        cleaned = re.sub(r'\{U\}', ' BLUE_MANA ', cleaned)
+        cleaned = re.sub(r'\{B\}', ' BLACK_MANA ', cleaned)
+        cleaned = re.sub(r'\{R\}', ' RED_MANA ', cleaned)
+        cleaned = re.sub(r'\{G\}', ' GREEN_MANA ', cleaned)
+        cleaned = re.sub(r'\{C\}', ' COLORLESS_MANA ', cleaned)
+        
+        # Generic mana (numbers)
+        cleaned = re.sub(r'\{(\d+)\}', r' GENERIC_MANA_\1 ', cleaned)
+        
+        # Variable mana
+        cleaned = re.sub(r'\{X\}', ' VARIABLE_MANA_X ', cleaned)
+        cleaned = re.sub(r'\{Y\}', ' VARIABLE_MANA_Y ', cleaned)
+        cleaned = re.sub(r'\{Z\}', ' VARIABLE_MANA_Z ', cleaned)
+        
+        # Hybrid mana (e.g., {W/U}, {2/W})
+        cleaned = re.sub(r'\{([WUBRGC])\/([WUBRGC])\}', r' HYBRID_MANA_\1\2 ', cleaned)
+        cleaned = re.sub(r'\{(\d+)\/([WUBRGC])\}', r' HYBRID_MANA_\1\2 ', cleaned)
+        
+        # Phyrexian mana (e.g., {W/P}, {R/P})
+        cleaned = re.sub(r'\{([WUBRGC])\/P\}', r' PHYREXIAN_MANA_\1 ', cleaned)
+        
+        # Snow mana
+        cleaned = re.sub(r'\{S\}', ' SNOW_MANA ', cleaned)
+        
+        # Energy
+        cleaned = re.sub(r'\{E\}', ' ENERGY ', cleaned)
+        
+        # Half mana (very rare, from Unstable)
+        cleaned = re.sub(r'\{H([WUBRGC])\}', r' HALF_MANA_\1 ', cleaned)
+        
+        # Chaos symbol (rare, Planechase)
+        cleaned = re.sub(r'\{CHAOS\}', ' CHAOS_SYMBOL ', cleaned)
         
         # Clean up extra whitespace (multiple spaces/newlines)
         cleaned = re.sub(r'\s+', ' ', cleaned)
