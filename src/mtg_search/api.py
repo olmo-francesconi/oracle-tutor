@@ -1,13 +1,12 @@
+import json
 import os
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from .card_data import (
-    load_card_name_index,
-    load_cards,
-)
+from mtg_search.config import CARD_NAMES_JSON, CARDS_JSON
+
 from .card_name_resolver import CardNameResolver
 from .data_builder import update_scryfall_data
 
@@ -25,14 +24,15 @@ def _build_resolver_entries(cards):
     entries = []
     for card in cards:
         name = card.get("name")
-        if not name:
+        card_id = card.get("id")
+        # Both name and id are required for the resolver
+        if not name or not card_id:
             continue
         entry = {
+            "id": card_id,
             "name": name,
             "edhrec_rank": card.get("edhrec_rank"),
         }
-        if card.get("id"):
-            entry["id"] = card["id"]
         entries.append(entry)
     return entries
 
@@ -42,13 +42,15 @@ def _load_card_data():
     Load all card data from disk. This rebuilds the TF-IDF engine
     and all lookup dictionaries.
     """
-    global resolver, card_lookup_by_name, name_to_id, name_to_rank
+    global resolver
     
-    cards = load_cards()
+    with CARDS_JSON.open("r", encoding="utf-8") as f:
+        cards = json.load(f)
 
     # Try loading cached index, otherwise build from cards
     try:
-        resolver_entries = load_card_name_index()
+        with CARD_NAMES_JSON.open("r", encoding="utf-8") as f:
+            resolver_entries =  json.load(f)
     except FileNotFoundError:
         resolver_entries = _build_resolver_entries(cards)
 
@@ -184,7 +186,6 @@ def search_cards(q: str, limit: int = 5):
         limit = 1
     
     matches = resolver.top_matches(q, limit=limit, rank_weight=0.25)
-    print(matches)
     results = []
     for m in matches:
         results.append(CardMatch(

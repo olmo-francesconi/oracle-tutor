@@ -11,7 +11,7 @@ class CardNameResolver:
         self.card_names = [entry["name"] for entry in card_entries]
         self.card_ranks = [entry["edhrec_rank"] for entry in card_entries]
         self.card_rank_scores = np.array(
-            [self._rank_score(rank) for rank in self.card_ranks],
+            [self._rank_score(rank, len(card_entries)) for rank in self.card_ranks],
             dtype=np.float32,
         )
         self.vectorizer = TfidfVectorizer(
@@ -23,27 +23,23 @@ class CardNameResolver:
 
     def best_match(
         self,
-        text: str,
-        min_score: float = 0.35,
-        rank_weight: float = 0.2,
+        text: str
     ) -> Tuple[str, float]:
         matches = self.top_matches(
             text,
-            limit=1,
-            min_score=min_score,
-            rank_weight=rank_weight,
+            limit=1
         )
         if not matches:
             return "", 0.0
-        name, similarity, _ = matches[0]
-        return name, similarity
+        match = matches[0]
+        return match["name"], match["similarity"]
 
     def top_matches(
         self,
         text: str,
         limit: int = 5,
         min_score: float = 0.2,
-        rank_weight: float = 0.2,
+        rank_weight: float = 0.25,
         rank_power: float = 1.0,
     ) -> Sequence[dict]:
         """
@@ -56,7 +52,6 @@ class CardNameResolver:
         adjusted = self._apply_rank_weight(sims, rank_weight, rank_power)
 
         sorted_idx = np.argsort(adjusted)[::-1]
-        print(sorted_idx)
         results: list[dict] = []
         for idx in sorted_idx:
             similarity = float(sims[idx])
@@ -74,15 +69,13 @@ class CardNameResolver:
                 break
         return results
 
-    @staticmethod
-    def _rank_score(rank) -> float:
+    def _rank_score(self, rank: int, cap: int) -> float:
         if not rank or not isinstance(rank, (int, float)) or rank <= 0:
             return 0.0
-        cap = 10000
         clamped = max(1.0, min(float(rank), float(cap))) - 1.0
         return (cap - clamped) / cap
 
-    def _apply_rank_weight(self, sims: np.ndarray, rank_weight: float, rank_power: float = 1.0) -> np.ndarray:
+    def _apply_rank_weight(self, sims: np.ndarray, rank_weight: float, rank_power: float) -> np.ndarray:
         if not rank_weight:
             return sims
         return sims + (1 - sims) * rank_weight * pow(self.card_rank_scores, rank_power)
