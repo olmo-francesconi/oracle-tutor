@@ -39,6 +39,7 @@ uvicorn mtg_search.api:app --reload
 **Endpoints:**
 
 -   `GET /search?q=lotus&limit=5` - Fuzzy search for cards by name.
+-   `GET /suggest-names?q=lotus&limit=5` - Search for card names only.
 
 **Example:**
 ```bash
@@ -46,6 +47,24 @@ curl "http://localhost:8000/search?q=black%20lotus&limit=5"
 ```
 
 **Note:** The API automatically starts a background scheduler for daily updates when it starts. See [Daily Updates](#daily-updates) for configuration options.
+
+### 3. Run the Web Frontend (Optional)
+
+A modern, interactive web frontend is available for easy searching:
+
+```bash
+cd frontend
+npm install
+npm start
+```
+
+Then open your browser to `http://localhost:3000`.
+
+The frontend features:
+- Real-time autocomplete suggestions as you type
+- Keyboard navigation (arrow keys, Enter, Escape)
+- Beautiful, responsive UI
+- See [frontend/README.md](frontend/README.md) for more details
 
 ## Daily Updates
 

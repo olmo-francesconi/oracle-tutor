@@ -1,0 +1,17 @@
+{
+  "name": "mtg-search-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for MTG Search API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["mtg", "search", "frontend"],
+  "author": "",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
+

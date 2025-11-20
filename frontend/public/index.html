@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTG Card Search</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="backgroundCanvas"></canvas>
+    <div class="container">
+        <header>
+            <h1>🔮 MTG Card Search</h1>
+            <p class="subtitle">Find Magic: The Gathering cards instantly</p>
+        </header>
+        
+        <div class="search-container">
+            <div class="search-wrapper">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    class="search-input" 
+                    placeholder="Search for a card name..."
+                    autocomplete="off"
+                />
+                <div id="suggestions" class="suggestions"></div>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading hidden">Searching...</div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
+

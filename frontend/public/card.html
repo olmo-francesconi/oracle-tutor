@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Card Details - MTG Search</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="card.css">
+</head>
+<body class="card-page">
+    <div class="container card-page-container">
+        <div class="card-page-layout">
+            <!-- Sidebar with selected card -->
+            <aside class="card-sidebar">
+                <a href="/" class="back-link">← Back to Search</a>
+                <div class="selected-card">
+                    <div class="card-image-placeholder">
+                        <div class="placeholder-content">
+                            <span class="placeholder-icon">🃏</span>
+                            <p>Card Image</p>
+                        </div>
+                    </div>
+                    
+                    <h2 id="cardName" class="selected-card-name">Loading...</h2>
+                    
+                    <div class="card-info-compact">
+                        <div class="info-item">
+                            <span class="info-label">Mana Cost:</span>
+                            <span class="info-value" id="manaCost">—</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Type:</span>
+                            <span class="info-value" id="cardType">—</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Rarity:</span>
+                            <span class="info-value" id="rarity">—</span>
+                        </div>
+                    </div>
+                    
+                    <div class="oracle-text-compact">
+                        <h3>Oracle Text</h3>
+                        <p id="oracleText">—</p>
+                    </div>
+                </div>
+            </aside>
+            
+            <!-- Main content area with similar cards grid -->
+            <main class="cards-main-content">
+                <h1 class="similar-cards-title">Similar Cards</h1>
+                <div id="similarCardsGrid" class="cards-grid">
+                    <!-- Cards will be inserted here -->
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <script src="card.js"></script>
+</body>
+</html>
+

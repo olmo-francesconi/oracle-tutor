@@ -11,20 +11,9 @@ import logging
 
 from .data_builder import update_scryfall_data, ensure_data_dir
 from .config import DATA_DIR
+from .logging_config import setup_loggers
 
-# Set up logging
-log_file = DATA_DIR / 'update.log'
-ensure_data_dir()  # Make sure data directory exists
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mtg_search.update")
 
 
 def main() -> int:
@@ -34,6 +23,9 @@ def main() -> int:
     Returns:
         0 if successful, 1 if an error occurred
     """
+    setup_loggers()
+    ensure_data_dir()  # Make sure data directory exists
+    
     try:
         logger.info("Starting daily update check...")
         updated = update_scryfall_data(force=False)
@@ -51,4 +43,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

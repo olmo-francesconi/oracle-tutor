@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 from importlib import import_module
 from pathlib import Path
 from typing import Dict, Iterable, Optional
@@ -12,6 +13,9 @@ from .config import (
     CARDS_JSON,
     DATA_DIR,
 )
+from .logging_config import setup_loggers
+
+logger = logging.getLogger("mtg_search.data")
 
 BULK_DATA_ID = "oracle_cards"
 BULK_DATA_URL = f"https://api.scryfall.com/bulk-data/{BULK_DATA_ID}"
@@ -130,25 +134,26 @@ def update_scryfall_data(force: bool = False) -> bool:
     if needs_download:
         download_uri = metadata["download_uri"]
         size_mb = round(metadata.get("compressed_size", 0) / (1024 * 1024), 2)
-        print(f"Downloading oracle_cards bulk ({size_mb} MB) ...")
+        logger.info(f"Downloading oracle_cards bulk ({size_mb} MB) ...")
         download_bulk_file(download_uri)
-        print(f"Wrote bulk card data to {CARDS_JSON}")
+        logger.info(f"Wrote bulk card data to {CARDS_JSON}")
         save_metadata(metadata)
     else:
-        print("Local Scryfall data already up to date.")
+        logger.info("Local Scryfall data already up to date.")
 
     if needs_download or not CARD_NAMES_JSON.exists():
         if not needs_download:
-            print("Rebuilding card name index from existing bulk data ...")
+            logger.info("Rebuilding card name index from existing bulk data ...")
         else:
-            print("Building card name index ...")
+            logger.info("Building card name index ...")
         name_count = build_card_name_index()
-        print(f"Wrote {name_count} card names to {CARD_NAMES_JSON}")
+        logger.info(f"Wrote {name_count} card names to {CARD_NAMES_JSON}")
 
     return needs_download
 
 
 def main() -> None:
+    setup_loggers()
     parser = argparse.ArgumentParser(description="Update local Scryfall data files.")
     parser.add_argument(
         "--force",
@@ -161,4 +166,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
