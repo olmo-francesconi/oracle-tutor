@@ -7,7 +7,7 @@ from fastapi import FastAPI, Response, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from manaseek_api.config import CARDS_JSON
+from oracle_tutor_api.config import CARDS_JSON
 
 from .card_name_resolver import CardNameResolver
 from .card_oracle_resolver import CardOracleResolver
@@ -17,7 +17,7 @@ from .memory_utils import log_memory_report
 
 # Set up logger
 setup_loggers()
-logger = logging.getLogger("manaseek_api.api")
+logger = logging.getLogger("oracle_tutor_api.api")
 
 # Global variables to hold our data
 name_resolver: Optional[CardNameResolver] = None
@@ -93,8 +93,8 @@ def _start_update_scheduler():
     global _update_scheduler
     
     # Check if scheduler should be enabled (default: True, can be disabled with env var)
-    if os.getenv("MANASEEK_API_DISABLE_SCHEDULER", "").lower() in ("1", "true", "yes"):
-        logger.info("Update scheduler disabled via MANASEEK_API_DISABLE_SCHEDULER environment variable")
+    if os.getenv("ORACLE_TUTOR_API_DISABLE_SCHEDULER", "").lower() in ("1", "true", "yes"):
+        logger.info("Update scheduler disabled via ORACLE_TUTOR_API_DISABLE_SCHEDULER environment variable")
         return
     
     try:
@@ -114,8 +114,8 @@ def _start_update_scheduler():
                 logger.error(f"Error in scheduled update: {e}", exc_info=True)
         
         # Get update time from environment or use default (2:00 AM)
-        update_hour = int(os.getenv("MANASEEK_API_UPDATE_HOUR", "2"))
-        update_minute = int(os.getenv("MANASEEK_API_UPDATE_MINUTE", "0"))
+        update_hour = int(os.getenv("ORACLE_TUTOR_API_UPDATE_HOUR", "2"))
+        update_minute = int(os.getenv("ORACLE_TUTOR_API_UPDATE_MINUTE", "0"))
         
         _update_scheduler = BackgroundScheduler()
         _update_scheduler.add_job(
@@ -181,7 +181,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="ManaSeek API",
+    title="Oracle Tutor API",
     docs_url=None,
     redoc_url=None
 )

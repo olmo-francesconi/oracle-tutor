@@ -1,5 +1,5 @@
 {
-  "name": "manaseek-frontend",
+  "name": "oracle-tutor-frontend",
   "version": "1.0.0",
   "description": "Frontend for MTG Search API",
   "main": "server.js",

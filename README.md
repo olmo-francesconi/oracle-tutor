@@ -1,4 +1,4 @@
-# ManaSeek
+# Oracle Tutor
 
 A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
 
@@ -29,7 +29,7 @@ Before searching, you need to download the card database from Scryfall and build
 
 ```bash
 # From the api directory
-python -m manaseek_api.data_builder
+python -m oracle_tutor_api.data_builder
 ```
 
 This creates `data/cards.json` and `data/card_names.json`. The database can be automatically updated daily (see [Daily Updates](#daily-updates) below).
@@ -39,7 +39,7 @@ Start the HTTP API using Uvicorn:
 
 ```bash
 # From the api directory
-uvicorn manaseek_api.api:app --reload
+uvicorn oracle_tutor_api.api:app --reload
 ```
 
 **Endpoints:**
@@ -88,15 +88,15 @@ The scheduler is enabled by default and runs daily at 2:00 AM local time. You ca
 
     ```bash
     # Set custom update time (24-hour format)
-    export MANASEEK_API_UPDATE_HOUR=3
-    export MANASEEK_API_UPDATE_MINUTE=30
+    export ORACLE_TUTOR_API_UPDATE_HOUR=3
+    export ORACLE_TUTOR_API_UPDATE_MINUTE=30
     
     # Disable the scheduler if you prefer manual updates
-    export MANASEEK_API_DISABLE_SCHEDULER=1
+    export ORACLE_TUTOR_API_DISABLE_SCHEDULER=1
     
     # Start the API (scheduler starts automatically)
     # From the api directory
-    uvicorn manaseek_api.api:app --reload
+    uvicorn oracle_tutor_api.api:app --reload
     ```
     
     ### Cron Job
@@ -110,7 +110,7 @@ The scheduler is enabled by default and runs daily at 2:00 AM local time. You ca
     Add a line to run the update daily at 2:00 AM:
     
     ```
-    0 2 * * * cd /path/to/mtg-search/api && python -m manaseek_api.daily_update >> data/update.log 2>&1
+    0 2 * * * cd /path/to/mtg-search/api && python -m oracle_tutor_api.daily_update >> data/update.log 2>&1
     ```
     
     Replace `/path/to/mtg-search/api` with the actual path to your project's api directory.
@@ -121,7 +121,7 @@ The scheduler is enabled by default and runs daily at 2:00 AM local time. You ca
     
     ```bash
     # From the api directory
-    python -m manaseek_api.daily_update
+    python -m oracle_tutor_api.daily_update
     ```
     
     ### Reloading API Data
@@ -131,7 +131,7 @@ The scheduler is enabled by default and runs daily at 2:00 AM local time. You ca
     ```bash
     # Stop the server (Ctrl+C) and restart
     # From the api directory
-    uvicorn manaseek_api.api:app --reload
+    uvicorn oracle_tutor_api.api:app --reload
     ```
 
 ## How It Works

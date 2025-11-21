@@ -21,7 +21,7 @@ A modern, interactive web frontend for the MTG Search API.
 2. Make sure your API server is running:
    ```bash
    # In the project root
-   uvicorn manaseek_api.api:app --reload
+   uvicorn oracle_tutor_api.api:app --reload
    ```
 
 3. Start the frontend server:

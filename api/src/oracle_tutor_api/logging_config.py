@@ -32,7 +32,7 @@ def setup_loggers():
     # Used by daily_update.py
     update_handler = get_file_handler("update.log")
     
-    update_logger = logging.getLogger("manaseek_api.update")
+    update_logger = logging.getLogger("oracle_tutor_api.update")
     update_logger.setLevel(logging.INFO)
     update_logger.propagate = False
     
@@ -45,7 +45,7 @@ def setup_loggers():
 
     # --- Data Logger ---
     # Used by data_builder.py
-    data_logger = logging.getLogger("manaseek_api.data")
+    data_logger = logging.getLogger("oracle_tutor_api.data")
     data_logger.setLevel(logging.INFO)
     data_logger.propagate = False
     
@@ -59,7 +59,7 @@ def setup_loggers():
     # Used by api.py
     api_handler = get_file_handler("api.log")
     
-    api_logger = logging.getLogger("manaseek_api.api")
+    api_logger = logging.getLogger("oracle_tutor_api.api")
     api_logger.setLevel(logging.INFO)
     api_logger.propagate = False
     

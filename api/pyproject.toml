@@ -1,7 +1,7 @@
 [project]
-name = "manaseek"
+name = "oracle-tutor-api"
 version = "0.1.0"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["manaseek_api"]
+packages = ["oracle_tutor_api"]

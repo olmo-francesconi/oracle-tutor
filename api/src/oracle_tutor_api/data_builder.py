@@ -14,7 +14,7 @@ from .config import (
 )
 from .logging_config import setup_loggers
 
-logger = logging.getLogger("manaseek_api.data")
+logger = logging.getLogger("oracle_tutor_api.data")
 
 BULK_DATA_ID = "oracle_cards"
 BULK_DATA_URL = f"https://api.scryfall.com/bulk-data/{BULK_DATA_ID}"

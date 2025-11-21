@@ -8,7 +8,7 @@ import psutil
 from typing import Optional, Dict, Any
 
 # Use the API logger since memory reports are part of API startup
-logger = logging.getLogger("manaseek_api.api")
+logger = logging.getLogger("oracle_tutor_api.api")
 
 
 def _get_object_size(obj, seen=None):

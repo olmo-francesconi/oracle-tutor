@@ -9,7 +9,7 @@ services:
     volumes:
       - ./api/data:/app/data
     environment:
-      - MANASEEK_API_UPDATE_HOUR=2
+      - ORACLE_TUTOR_API_UPDATE_HOUR=2
     restart: unless-stopped
 
   frontend:
