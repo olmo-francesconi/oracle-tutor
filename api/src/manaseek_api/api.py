@@ -15,6 +15,7 @@ from .card_name_resolver import CardNameResolver
 from .card_oracle_resolver import CardOracleResolver
 from .data_builder import update_scryfall_data
 from .logging_config import setup_loggers
+from .memory_utils import log_memory_report
 
 # Set up logger
 setup_loggers()
@@ -227,6 +228,9 @@ async def lifespan(app: FastAPI):
     
     # Start the update scheduler in the background
     _start_update_scheduler()
+    
+    # Log memory report after everything is loaded
+    log_memory_report(resolver, oracle_resolver, cards_by_id)
     
     yield
     
