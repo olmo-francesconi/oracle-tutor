@@ -204,6 +204,53 @@ h1 {
     background: #1a1a1a;
 }
 
+.footer {
+    position: fixed;
+    bottom: 10px;
+    left: 12px;
+    color: #f5f1e8;
+    z-index: 10;
+    font-size: 0.9rem;
+}
+
+.footer-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.footer p {
+    opacity: 0.8;
+    margin: 0;
+}
+
+.separator {
+    opacity: 0.4;
+}
+
+.social-links {
+    display: flex;
+    gap: 15px;
+}
+
+.social-links a {
+    color: #f5f1e8;
+    text-decoration: none;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.social-links a:hover {
+    opacity: 1;
+}
+
+.github-link svg {
+    vertical-align: middle;
+}
+
 /* Responsive design */
 @media (max-width: 640px) {
     .container {
@@ -218,5 +265,14 @@ h1 {
         font-size: 1rem;
         padding: 16px 20px;
     }
-}
 
+    .footer {
+        position: static;
+        margin-top: 60px;
+        text-align: center;
+    }
+    
+    body {
+        flex-direction: column;
+    }
+}

@@ -272,8 +272,16 @@ body.card-page .container {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
+    gap: 30px;
     border: 1px solid rgba(58, 58, 58, 0.5);
     backdrop-filter: blur(8px);
+}
+
+.filter-subgroup {
+    display: flex;
+    gap: 30px;
+    flex: 1;
+    min-width: 280px;
 }
 
 .filter-group {
@@ -282,6 +290,10 @@ body.card-page .container {
     gap: 8px;
     flex: 1;
     min-width: 150px;
+}
+
+.filter-group.button-group {
+    justify-content: flex-end;
 }
 
 .filter-group label {
@@ -445,52 +457,43 @@ body.card-page .container {
 
 .color-label {
     display: inline-block;
-    width: 36px;
-    height: 36px;
-    border-radius: 6px;
-    text-align: center;
-    line-height: 36px;
-    font-weight: 700;
-    font-size: 0.9rem;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
     border: 2px solid #3a3a3a;
     transition: all 0.2s ease;
-    user-select: none;
+    opacity: 0.3;
 }
 
 .color-checkbox input[type="checkbox"]:checked + .color-label {
     border-color: #f5f1e8;
-    transform: scale(1.1);
-    box-shadow: 0 0 8px rgba(245, 241, 232, 0.5);
+    transform: scale(1.2);
+    box-shadow: 0 0 12px rgba(245, 241, 232, 0.6);
+    opacity: 1;
 }
 
 .color-label.white {
-    background: #f9faf4;
-    color: #1a1a1a;
+    background: #FFF9C4;
 }
 
 .color-label.blue {
-    background: #0e68ab;
-    color: #ffffff;
+    background: #90CAF9;
 }
 
 .color-label.black {
-    background: #150b00;
-    color: #ffffff;
+    background: #B0BEC5;
 }
 
 .color-label.red {
-    background: #d3202a;
-    color: #ffffff;
+    background: #EF9A9A;
 }
 
 .color-label.green {
-    background: #00733e;
-    color: #ffffff;
+    background: #A5D6A7;
 }
 
 .color-label.colorless {
-    background: #cac5c0;
-    color: #1a1a1a;
+    background: #EEEEEE;
 }
 
 .clear-filters-btn {
@@ -577,12 +580,12 @@ body.card-page .container {
     }
     
     .filters-section {
-        flex-direction: column;
         align-items: stretch;
     }
     
-    .filter-group {
+    .filter-subgroup {
         min-width: 100%;
+        flex-basis: 100%;
     }
     
     .clear-filters-btn {
@@ -591,6 +594,13 @@ body.card-page .container {
     
     .dropdown-checkbox-menu {
         max-height: 200px;
+    }
+}
+
+@media (max-width: 640px) {
+    .filter-subgroup {
+        flex-direction: column;
+        gap: 20px;
     }
 }
 

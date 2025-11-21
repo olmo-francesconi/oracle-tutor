@@ -28,14 +28,18 @@ function initInteractiveBackground() {
     // Create grid of circles
     function createCircles() {
         circles = [];
-        const cols = Math.ceil(canvas.width / spacing) + 1;
-        const rows = Math.ceil(canvas.height / spacing) + 1;
+        // Calculate offsets to center the grid
+        const offsetX = (canvas.width % spacing) / 2;
+        const offsetY = (canvas.height % spacing) / 2;
+
+        const cols = Math.ceil(canvas.width / spacing);
+        const rows = Math.ceil(canvas.height / spacing);
         
-        for (let x = 0; x < cols; x++) {
-            for (let y = 0; y < rows; y++) {
+        for (let x = 0; x <= cols; x++) {
+            for (let y = 0; y <= rows; y++) {
                 circles.push({
-                    x: x * spacing,
-                    y: y * spacing
+                    x: x * spacing + offsetX,
+                    y: y * spacing + offsetY
                 });
             }
         }
