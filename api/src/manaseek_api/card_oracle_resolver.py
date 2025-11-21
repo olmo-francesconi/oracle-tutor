@@ -13,30 +13,16 @@ class CardOracleResolver:
         Initialize the resolver with card entries containing oracle text.
         
         Args:
-            card_entries: Sequence of card dictionaries with at least 'id' and 'oracle_text' fields.
+            card_entries: Sequence of card dictionaries
         """
-        self.card_ids = []
-        self.card_names = []
-        self.oracle_texts = []
-        self.card_ranks = []
-        
-        # Filter out cards without oracle text
-        for entry in card_entries:
-            card_id = entry.get("id")
-            oracle_text = entry.get("oracle_text") or ""
-            card_name = entry.get("name", "")
-            
-            # Skip cards without ID or with empty oracle text
-            if not card_id:
-                continue
-            
-            # Clean the oracle text before storing
-            cleaned_text = self._clean_oracle_text(oracle_text, card_name)
-            
-            self.card_ids.append(card_id)
-            self.card_names.append(card_name)
-            self.oracle_texts.append(cleaned_text)
-            self.card_ranks.append(entry.get("edhrec_rank"))
+        self.card_ids = [card["id"] for card in card_entries]
+        self.card_names = [card["name"] for card in card_entries]
+        self.oracle_texts = [self._clean_oracle_text(card["oracle_text"] or "", card["name"]) for card in card_entries]
+        self.card_ranks = [card["edhrec_rank"] for card in card_entries]
+        self.card_rank_scores = np.array(
+            [self._rank_score(rank, len(card_entries)) for rank in self.card_ranks],
+            dtype=np.float32,
+        )
         
         # Build TF-IDF vectorizer for oracle text
         # Using word-level n-grams for better semantic matching
@@ -51,11 +37,6 @@ class CardOracleResolver:
         # Fit and transform all oracle texts
         self.oracle_matrix = self.vectorizer.fit_transform(self.oracle_texts)
         
-        # Pre-compute rank scores for all cards
-        self.card_rank_scores = np.array(
-            [self._rank_score(rank, len(self.card_ids)) for rank in self.card_ranks],
-            dtype=np.float32,
-        )
 
     @lru_cache(maxsize=1024)
     def _calculate_similarities(
@@ -78,7 +59,7 @@ class CardOracleResolver:
         # Get the oracle text vector for this card
         query_vector = self.oracle_matrix[card_idx:card_idx+1]
         
-        # Calculate cosine similarity with all cards (HEAVY OPERATION)
+        # Calculate cosine similarity with all cards
         similarities = cosine_similarity(query_vector, self.oracle_matrix).flatten()
         
         # Apply rank weighting
@@ -106,7 +87,7 @@ class CardOracleResolver:
             card_id: The ID of the card to find similar cards for
             limit: Maximum number of results to return
             offset: Number of results to skip (for pagination)
-            min_score: Minimum similarity score (0-1) to include
+            min_score: Minimum similarity score to include (0-1)
             rank_weight: Weight for EDHREC rank adjustment (0-1)
             rank_power: Power factor for rank adjustment
             exclude_self: Whether to exclude the query card from results
@@ -134,22 +115,11 @@ class CardOracleResolver:
             # Skip the card itself if requested
             if exclude_self and idx == card_idx:
                 continue
-            
-            # Use 'adjusted' array for scores instead of 'similarities' variable
-            # Note: In your original code you used 'similarities[idx]' for the "similarity" field
-            # and 'adjusted[idx]' for "combined".
-            # To keep that exact behavior, we might need to return 'similarities' from cache too, 
-            # or just accept that we might need to re-lookup the raw similarity if strictly needed.
-            # Optimization: storing just 'adjusted' is usually enough, but if you display raw similarity
-            # in the UI, we might need to recalculate the raw score (cheap) or cache it too.
+
             
             combined = float(adjusted[idx])
             
-            # If you strictly need the raw (unweighted) similarity for display:
-            # It's hard to reverse the rank weight formula. 
-            # Ideally, cache returns (sorted_idx, adjusted, raw_similarities)
-            
-            if combined < min_score: # Using combined score for cutoff is usually safer if ranking is involved
+            if combined < min_score:
                  continue
 
             # Skip results based on offset
@@ -181,9 +151,6 @@ class CardOracleResolver:
         Returns:
             Cleaned oracle text with parentheses removed and special characters normalized
         """
-        if not text:
-            return text
-        
         # Remove all text between parentheses (including nested parentheses)
         cleaned = text
         while True:

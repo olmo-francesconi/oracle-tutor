@@ -15,7 +15,6 @@ from .logging_config import setup_loggers
 
 logger = logging.getLogger("manaseek_api.update")
 
-
 def main() -> int:
     """
     Check for updates and rebuild data if needed.

@@ -1,81 +1,28 @@
-import json
 import logging
+import ijson
 import os
-import time
 from contextlib import asynccontextmanager
-from functools import wraps
-from typing import List, Optional, Dict, Any, Callable
+from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Response, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from manaseek_api.config import CARD_NAMES_JSON, CARDS_JSON
+from manaseek_api.config import CARDS_JSON
 
 from .card_name_resolver import CardNameResolver
 from .card_oracle_resolver import CardOracleResolver
 from .data_builder import update_scryfall_data
-from .logging_config import setup_loggers
+from .logging_config import setup_loggers, log_performance
 from .memory_utils import log_memory_report
 
 # Set up logger
 setup_loggers()
 logger = logging.getLogger("manaseek_api.api")
 
-
-def log_performance(func: Callable) -> Callable:
-    """
-    Decorator to log the performance of API endpoint calls.
-    Times the entire function execution and logs the results.
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.perf_counter()
-        result = func(*args, **kwargs)
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
-        
-        # Extract query parameters for logging context (flexible for different endpoints)
-        query = kwargs.get('q') or kwargs.get('card_id') or (args[0] if args else '')
-        limit = kwargs.get('limit') or (args[1] if len(args) > 1 else None)
-        
-        # Get result count
-        result_count = len(result) if isinstance(result, (list, tuple)) else 1
-        
-        # Build log message
-        log_parts = [f"Found {result_count} matches in {elapsed_ms:.2f} ms"]
-        if query:
-            log_parts.append(f"query: '{query}'")
-        if limit is not None:
-            log_parts.append(f"limit: {limit}")
-        
-        logger.info(", ".join(log_parts))
-        
-        return result
-    return wrapper
-
-
 # Global variables to hold our data
-resolver: Optional[CardNameResolver] = None
+name_resolver: Optional[CardNameResolver] = None
 oracle_resolver: Optional[CardOracleResolver] = None
 cards_by_id: Dict[str, Dict[str, Any]] = {}
-
-
-
-def _build_resolver_entries(cards):
-    # Prepare data for the resolver
-    entries = []
-    for card in cards:
-        name = card.get("name")
-        card_id = card.get("id")
-        # Both name and id are required for the resolver
-        if not name or not card_id:
-            continue
-        entry = {
-            "id": card_id,
-            "name": name,
-            "edhrec_rank": card.get("edhrec_rank"),
-        }
-        entries.append(entry)
-    return entries
 
 
 def _load_card_data():
@@ -83,56 +30,51 @@ def _load_card_data():
     Load all card data from disk. This rebuilds the TF-IDF engine
     and all lookup dictionaries.
     """
-    global resolver, oracle_resolver, cards_by_id
+    global name_resolver, oracle_resolver, cards_by_id
     
-    logger.info("Loading cards from JSON file...")
-    # Use streaming JSON parser for large files (same approach as data_builder)
-    from importlib import import_module
-    ijson = import_module("ijson")
-    
-    cards = []
+    logger.info("Loading cards from JSON file...")    
+    cards_by_id.clear()
     with CARDS_JSON.open("r", encoding="utf-8") as f:
         # ijson.items with "item" path works for JSON arrays
         for card in ijson.items(f, "item"):
-            cards.append(card)
+            card_id = card.get("id")
+            cards_by_id[card_id] = {
+                "id": card.get("id"),
+                "name": card.get("name"),
+                "mana_cost": card.get("mana_cost"),
+                "type_line": card.get("type_line"),
+                "oracle_text": card.get("oracle_text"),
+                "edhrec_rank": card.get("edhrec_rank"),
+                "rarity": card.get("rarity"),
+                "colors": card.get("colors"),
+                "legalities": card.get("legalities"),
+            }
     
-    logger.info(f"Loaded {len(cards)} cards from disk")
-
-    # Build cards_by_id dictionary for quick lookup
-    cards_by_id.clear()
-    for card in cards:
-        card_id = card.get("id")
-        if card_id:
-            cards_by_id[card_id] = card
-
-    # Try loading cached index, otherwise build from cards
-    try:
-        with CARD_NAMES_JSON.open("r", encoding="utf-8") as f:
-            resolver_entries =  json.load(f)
-    except FileNotFoundError:
-        resolver_entries = _build_resolver_entries(cards)
+    logger.info(f"Loaded {len(cards_by_id)} cards from disk")
 
     logger.info("Building name resolver...")
-    resolver = CardNameResolver(resolver_entries)
+    resolver_entries = []
+    for card_id, card in cards_by_id.items():
+        entry = {
+            "id": card_id,
+            "name": card.get("name"),
+            "edhrec_rank": card.get("edhrec_rank"),
+        }
+        resolver_entries.append(entry)
+    name_resolver = CardNameResolver(resolver_entries)
+    logger.info(f"Name resolver built successfully from {len(resolver_entries)} cards")
     
     logger.info("Building oracle resolver...")
-    # Build oracle resolver entries from all cards
     oracle_entries = []
-    for card in cards:
-        card_id = card.get("id")
-        oracle_text = card.get("oracle_text") or ""
-        if card_id and oracle_text:  # Only include cards with oracle text
-            oracle_entries.append({
-                "id": card_id,
-                "name": card.get("name", ""),
-                "oracle_text": oracle_text,
-                "edhrec_rank": card.get("edhrec_rank"),
-            })
-    
-    logger.info(f"Building oracle resolver with {len(oracle_entries)} cards...")
+    for card_id, card in cards_by_id.items():
+        oracle_entries.append({
+            "id": card_id,
+            "name": card.get("name"),
+            "oracle_text": card.get("oracle_text"),
+            "edhrec_rank": card.get("edhrec_rank"),
+        })
     oracle_resolver = CardOracleResolver(oracle_entries)
-    logger.info("Oracle resolver built successfully")
-
+    logger.info(f"Oracle resolver built successfully from {len(oracle_entries)} cards")
 
 def _reload_data():
     """
@@ -207,7 +149,7 @@ async def lifespan(app: FastAPI):
     Load data when the API starts up and start the update scheduler.
     If loading fails, attempt to update data and retry.
     """
-    global resolver
+    global name_resolver
     
     logger.info("Loading card data...")
     try:
@@ -230,7 +172,7 @@ async def lifespan(app: FastAPI):
     _start_update_scheduler()
     
     # Log memory report after everything is loaded
-    log_memory_report(resolver, oracle_resolver, cards_by_id)
+    log_memory_report(name_resolver, oracle_resolver, cards_by_id)
     
     yield
     
@@ -289,7 +231,7 @@ def favicon():
     return Response(status_code=204)
 
 @app.get("/search", response_model=List[CardMatch])
-@log_performance
+@log_performance(logger=logger)
 def search_cards(q: str, limit: int = 5):
     """
     Fuzzy search for cards by name.
@@ -302,7 +244,7 @@ def search_cards(q: str, limit: int = 5):
     if limit < 1:
         limit = 1
     
-    matches = resolver.top_matches(q, limit=limit, rank_weight=0.25)
+    matches = name_resolver.top_matches(q, limit=limit, rank_weight=0.25)
     
     results = []
     for m in matches:
@@ -318,7 +260,7 @@ def search_cards(q: str, limit: int = 5):
 
 
 @app.get("/suggest-names", response_model=List[CardNameMatch])
-@log_performance
+@log_performance(logger=logger)
 def search_card_names(q: str, limit: int = 5):
     """
     Search for card names by name. Returns both name and id for each match.
@@ -331,7 +273,7 @@ def search_card_names(q: str, limit: int = 5):
     if limit < 1:
         limit = 1
     
-    matches = resolver.top_matches(q, limit=limit, rank_weight=0.25)
+    matches = name_resolver.top_matches(q, limit=limit, rank_weight=0.25)
     
     results = []
     for m in matches:
@@ -344,6 +286,7 @@ def search_card_names(q: str, limit: int = 5):
 
 
 @app.get("/card/{card_id}")
+@log_performance(logger=logger)
 def get_card_by_id(card_id: str):
     """
     Get card details by ID.
@@ -355,7 +298,7 @@ def get_card_by_id(card_id: str):
 
 
 @app.get("/similar-cards/{card_id}", response_model=List[SimilarCard])
-@log_performance
+@log_performance(logger=logger)
 def get_similar_cards(
     card_id: str, 
     limit: int = 20, 

@@ -9,7 +9,6 @@ import requests
 
 from .config import (
     CARD_METADATA_JSON,
-    CARD_NAMES_JSON,
     CARDS_JSON,
     DATA_DIR,
 )
@@ -53,42 +52,6 @@ def download_bulk_file(download_url: str, destination: Path = CARDS_JSON) -> Non
                     progress.update(len(chunk))
         progress.close()
     tmp_path.replace(destination)
-
-
-def iter_card_records(cards_path: Path = CARDS_JSON) -> Iterable[Dict[str, str]]:
-    ijson = import_module("ijson")
-    with cards_path.open("r", encoding="utf-8") as source:
-        for card in ijson.items(source, "item"):
-            yield card
-
-
-def build_card_name_index(
-    cards_path: Path = CARDS_JSON, destination: Path = CARD_NAMES_JSON
-) -> int:
-    tqdm = import_module("tqdm").tqdm
-    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
-    count = 0
-    with tmp_path.open("w", encoding="utf-8") as outfile:
-        outfile.write("[")
-        first = True
-        for card in tqdm(iter_card_records(cards_path), desc="Indexing names"):
-            card_id = card.get("id")
-            name = card.get("name")
-            if not card_id or not name:
-                continue
-            entry = {
-                "id": card_id,
-                "name": name,
-                "edhrec_rank": card.get("edhrec_rank"),
-            }
-            if not first:
-                outfile.write(",")
-            json.dump(entry, outfile, ensure_ascii=False)
-            first = False
-            count += 1
-        outfile.write("]\n")
-    tmp_path.replace(destination)
-    return count
 
 
 def load_local_metadata(path: Path = CARD_METADATA_JSON) -> Optional[Dict[str, str]]:
@@ -140,14 +103,6 @@ def update_scryfall_data(force: bool = False) -> bool:
         save_metadata(metadata)
     else:
         logger.info("Local Scryfall data already up to date.")
-
-    if needs_download or not CARD_NAMES_JSON.exists():
-        if not needs_download:
-            logger.info("Rebuilding card name index from existing bulk data ...")
-        else:
-            logger.info("Building card name index ...")
-        name_count = build_card_name_index()
-        logger.info(f"Wrote {name_count} card names to {CARD_NAMES_JSON}")
 
     return needs_download
 

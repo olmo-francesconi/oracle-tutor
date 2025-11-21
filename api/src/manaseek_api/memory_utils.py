@@ -7,7 +7,8 @@ import sys
 import psutil
 from typing import Optional, Dict, Any
 
-logger = logging.getLogger("manaseek_api.memory_utils")
+# Use the API logger since memory reports are part of API startup
+logger = logging.getLogger("manaseek_api.api")
 
 
 def _get_object_size(obj, seen=None):
