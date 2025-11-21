@@ -97,7 +97,7 @@ function displayCardDetails(cardData) {
     }
     
     // Update page title
-    document.title = `${cardData.name || 'Card'} - MTG Search`;
+    document.title = `${cardData.name || 'Card'} - OracleTutor`;
 }
 
 // Get card image URL (Scryfall format)

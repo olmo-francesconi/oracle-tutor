@@ -539,7 +539,7 @@ body.card-page .container {
 /* Similarity Badge */
 .similarity-badge {
     position: absolute;
-    top: 10px;
+    top: 12%;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(26, 26, 26, 0.85);
