@@ -151,7 +151,20 @@ function displaySimilarCards(cards, append = false) {
             ? `<div class="card-item-image-placeholder" style="display: none;"><span>🃏</span></div>`
             : `<div class="card-item-image-placeholder"><span>🃏</span></div>`;
         
+        // Calculate similarity percentage and color
+        const similarityPercent = Math.round((card.similarity || 0) * 100);
+        let dotColorClass = 'gray';
+        if (similarityPercent >= 80) {
+            dotColorClass = 'green';
+        } else if (similarityPercent >= 50) {
+            dotColorClass = 'orange';
+        }
+        
         cardElement.innerHTML = `
+            <div class="similarity-badge">
+                <span class="similarity-dot ${dotColorClass}"></span>
+                <span class="similarity-score">${similarityPercent}%</span>
+            </div>
             <div class="card-item-image-wrapper">
                 ${imageHtml}
                 ${placeholderHtml}
@@ -299,6 +312,7 @@ function showCardOverlay(card) {
     const overlayOracle = overlay.querySelector('.overlay-card-oracle');
     
     const overlayImagePlaceholder = overlay.querySelector('.overlay-card-image-placeholder');
+    const overlaySimilarityBadge = document.getElementById('overlaySimilarityBadge');
     
     if (overlayImage) {
         if (imageUrl) {
@@ -327,6 +341,34 @@ function showCardOverlay(card) {
     if (overlayType) overlayType.textContent = card.type || '—';
     if (overlayRarity) overlayRarity.textContent = card.rarity || '—';
     if (overlayOracle) overlayOracle.textContent = card.oracleText || '—';
+    
+    // Update similarity badge
+    if (overlaySimilarityBadge) {
+        if (card.similarity !== undefined) {
+            const similarityPercent = Math.round(card.similarity * 100);
+            const dot = overlaySimilarityBadge.querySelector('.similarity-dot');
+            const score = overlaySimilarityBadge.querySelector('.similarity-score');
+            
+            if (dot && score) {
+                // Remove old color classes
+                dot.classList.remove('green', 'orange', 'gray');
+                
+                // Add new color class
+                if (similarityPercent >= 80) {
+                    dot.classList.add('green');
+                } else if (similarityPercent >= 50) {
+                    dot.classList.add('orange');
+                } else {
+                    dot.classList.add('gray');
+                }
+                
+                score.textContent = `${similarityPercent}%`;
+                overlaySimilarityBadge.style.display = 'flex';
+            }
+        } else {
+            overlaySimilarityBadge.style.display = 'none';
+        }
+    }
     
     // Show overlay
     overlay.classList.add('show');

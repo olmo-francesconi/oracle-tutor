@@ -52,8 +52,6 @@
                     <div class="cards-main-content-header">
                         <!-- Filters Section -->
                         <div class="filters-section">
-                            <h1 class="similar-cards-title">Similar Cards</h1>
-                            
                             <div class="filter-subgroup">
                                 <div class="filter-group">
                                     <label>Card Type:</label>
@@ -216,7 +214,13 @@
                         </div>
                     </div>
                     <div class="overlay-card-oracle-section">
-                        <h3 class="overlay-oracle-title">Oracle Text</h3>
+                        <div class="overlay-section-header">
+                            <h3 class="overlay-oracle-title">Oracle Text</h3>
+                            <div class="similarity-badge inline-badge" id="overlaySimilarityBadge" style="display: none;">
+                                <span class="similarity-dot"></span>
+                                <span class="similarity-score"></span>
+                            </div>
+                        </div>
                         <p class="overlay-card-oracle">—</p>
                     </div>
                 </div>
