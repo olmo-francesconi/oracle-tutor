@@ -1,20 +1,41 @@
-import { X, Search } from 'lucide-react';
+import { X, Search, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getCard } from '../api';
+import { getCardImageUrl } from '../utils';
+import type { SimilarCard } from '../types';
 
 interface CardOverlayProps {
-  card: {
-    id: string;
-    name: string;
-    type_line?: string;
-    mana_cost?: string;
-    oracle_text?: string;
-    similarity?: number;
-  };
+  card: SimilarCard;
   onClose: () => void;
 }
 
-export function CardOverlay({ card, onClose }: CardOverlayProps) {
+export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
+  const [faceIndex, setFaceIndex] = useState<number | null>(null);
+  const [isFlipping, setIsFlipping] = useState(false);
+
+  // Fetch the full card details to get faces and correct full name
+  const { data: fullCard, isSuccess } = useQuery({
+    queryKey: ['card', initialCard.id],
+    queryFn: () => getCard(initialCard.id),
+    enabled: !!initialCard.id,
+    staleTime: 1000 * 60 * 60, // Cache for 1 hour
+  });
+
+  // Determine initial face index once full card is loaded
+  useEffect(() => {
+    if (isSuccess && fullCard && faceIndex === null) {
+      // If the card has faces, try to find which one matches our initial search result
+      if (fullCard.faces && fullCard.faces.length > 0) {
+        const matchingIndex = fullCard.faces.findIndex(f => f.name === initialCard.name);
+        setFaceIndex(matchingIndex !== -1 ? matchingIndex : 0);
+      } else {
+        setFaceIndex(0);
+      }
+    }
+  }, [isSuccess, fullCard, initialCard.name, faceIndex]);
+
   // Lock body scroll when overlay is open
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -23,10 +44,43 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
     };
   }, []);
 
-  // Helper to generate external URLs
-  const encodedName = encodeURIComponent(card.name);
+  const hasMultipleFaces = fullCard?.faces && fullCard.faces.length > 1;
+  const currentFaceIdx = faceIndex ?? 0;
+  
+  // Resolve displayed data
+  const displayData = (fullCard?.faces && fullCard.faces[currentFaceIdx]) 
+    ? { ...fullCard.faces[currentFaceIdx], id: fullCard.id }
+    : initialCard;
+
+  // Construct Image URL dynamically
+  let imageUrl = '';
+  if (hasMultipleFaces && faceIndex !== null) {
+    const side = currentFaceIdx === 0 ? 'front' : 'back';
+    const id = fullCard.id;
+    imageUrl = `https://cards.scryfall.io/normal/${side}/${id[0]}/${id[1]}/${id}.jpg`;
+  } else {
+    imageUrl = getCardImageUrl(initialCard);
+  }
+
+  const handleFlip = () => {
+    if (hasMultipleFaces && !isFlipping) {
+      setIsFlipping(true);
+      setTimeout(() => {
+        setFaceIndex(prev => (prev === 0 ? 1 : 0));
+      }, 125);
+      setTimeout(() => {
+        setIsFlipping(false);
+      }, 250);
+    }
+  };
+
+  // Display Name: prefer full card name (A // B)
+  const displayName = fullCard?.name || initialCard.card_name || initialCard.name;
+
+  // External URLs
+  const encodedName = encodeURIComponent(displayName);
   const scryfallUrl = `https://scryfall.com/search?q=${encodedName}`;
-  const edhrecUrl = `https://edhrec.com/cards/${card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+  const edhrecUrl = `https://edhrec.com/cards/${displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
   const gathererUrl = `https://gatherer.wizards.com/Pages/Search/Default.aspx?name=+[${encodedName}]`;
 
   return (
@@ -37,8 +91,8 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
         onClick={onClose}
       />
       
-      {/* Modal Content */}
-      <div className="relative w-full max-w-4xl bg-[#f5f2eb] rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row animate-[slideUp_0.3s_ease-out] max-h-[90vh] md:max-h-[800px]">
+      {/* Modal Content - Fixed height to prevent resizing on flip */}
+      <div className="relative w-full max-w-4xl bg-[#f5f2eb] rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row animate-[slideUp_0.3s_ease-out] h-[90vh] md:h-[750px]">
         
         {/* Close Button */}
         <button 
@@ -50,78 +104,111 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
 
         {/* Image Section */}
         <div className="w-full md:w-1/2 bg-[#e5e5e5] p-8 flex items-center justify-center relative overflow-y-auto">
-          <div className="relative w-full max-w-[360px] aspect-[5/7] shadow-2xl rounded-[4.25%/3.04%] overflow-hidden ring-1 ring-black/10 shrink-0">
-            <img 
-              src={`https://cards.scryfall.io/normal/front/${card.id?.[0]}/${card.id?.[1]}/${card.id}.jpg`} 
-              alt={card.name}
-              className="w-full h-full object-cover"
-            />
+          {/* Wrapper: Defines size and captures hover ("group") */}
+          <div className="relative w-full max-w-[360px] aspect-[5/7] group">
+            
+            {/* Rotating Card Container */}
+            <div 
+               onClick={hasMultipleFaces ? handleFlip : undefined}
+               className={`w-full h-full shadow-2xl rounded-[4.5%/3.21%] overflow-hidden ring-1 ring-black/10 shrink-0 ${hasMultipleFaces ? 'cursor-pointer' : ''} transition-all duration-[250ms] ease-in-out`}
+               style={{ 
+                 transform: isFlipping ? 'rotateY(90deg)' : 'rotateY(0deg)',
+                 opacity: isFlipping ? 0.5 : 1
+               }}
+            >
+               {/* Card Image */}
+              <img 
+                src={imageUrl} 
+                alt={displayData.name}
+                className="w-full h-full object-cover"
+              />
+              
+              {/* Flip Symbol (Top Right) */}
+              {hasMultipleFaces && (
+                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all duration-300 z-20">
+                   <button 
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       handleFlip();
+                     }}
+                     className="bg-black/60 text-white rounded-full p-3 backdrop-blur-sm hover:bg-black/80 hover:scale-110 transition-all shadow-lg"
+                   >
+                      <RefreshCw size={22} />
+                   </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Details Section */}
         <div className="w-full md:w-1/2 p-8 md:p-10 flex flex-col bg-white text-[#1c1c1c] overflow-y-auto">
           <div className="flex-1">
-            <h2 className="text-3xl font-bold mb-2 text-[#1c1c1c]">{card.name}</h2>
+            <h2 className="text-3xl font-bold mb-2 text-[#1c1c1c]">{displayName}</h2>
+            
             <div className="flex items-center gap-3 mb-6 text-[#737373]">
-              {card.similarity && (
-                <span className={`px-2 py-0.5 text-xs font-bold rounded-full text-white ${card.similarity > 0.8 ? 'bg-emerald-500' : 'bg-amber-500'}`}>
-                  {(card.similarity * 100).toFixed(1)}% Match
+              {initialCard.similarity !== undefined && (
+                <span className={`px-2 py-0.5 text-xs font-bold rounded-full text-white ${initialCard.similarity > 0.8 ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+                  {(initialCard.similarity * 100).toFixed(1)}% Match
                 </span>
               )}
             </div>
 
-            <div className="space-y-6">
+            {/* Animated Details Container */}
+            <div className={`space-y-6 transition-opacity duration-[125ms] ease-in-out ${isFlipping ? 'opacity-0' : 'opacity-100'}`}>
                <div>
                   <span className="text-xs uppercase tracking-wider font-semibold text-[#a3a3a3] block mb-1">Type</span>
-                  <span className="text-lg font-medium">{card.type_line || '—'}</span>
+                  <span className="text-lg font-medium">{displayData.type_line || '—'}</span>
                </div>
                
                <div className="grid grid-cols-2 gap-4">
                   <div>
                       <span className="text-xs uppercase tracking-wider font-semibold text-[#a3a3a3] block mb-1">Mana Cost</span>
-                      <span className="text-lg font-medium">{card.mana_cost || 'None'}</span>
+                      <span className="text-lg font-medium">{displayData.mana_cost || 'None'}</span>
                   </div>
                </div>
 
                <div className="pt-6 border-t border-[#f5f5f5]">
                   <span className="text-xs uppercase tracking-wider font-semibold text-[#a3a3a3] block mb-2">Oracle Text</span>
-                  <p className="whitespace-pre-wrap text-[#404040] leading-relaxed">
-                    {card.oracle_text || 'No oracle text.'}
+                  <p className="whitespace-pre-wrap text-[#404040] leading-relaxed text-sm">
+                    {displayData.oracle_text || 'No oracle text.'}
                   </p>
-               </div>
-               
-               {/* External Links */}
-               <div className="pt-6 border-t border-[#f5f5f5]">
-                  <span className="text-xs uppercase tracking-wider font-semibold text-[#a3a3a3] block mb-3">External Links</span>
-                  <div className="flex flex-wrap gap-2">
-                    <a href={scryfallUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#f5f5f5] text-[#525252] hover:bg-[#e5e5e5] hover:text-[#1c1c1c] transition-colors">
-                      <img src="https://www.google.com/s2/favicons?domain=scryfall.com&sz=32" alt="" className="w-4 h-4 rounded-sm opacity-80" />
-                      Scryfall
-                    </a>
-                    <a href={edhrecUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#f5f5f5] text-[#525252] hover:bg-[#e5e5e5] hover:text-[#1c1c1c] transition-colors">
-                      <img src="https://www.google.com/s2/favicons?domain=edhrec.com&sz=32" alt="" className="w-4 h-4 rounded-sm opacity-80" />
-                      EDHREC
-                    </a>
-                    <a href={gathererUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#f5f5f5] text-[#525252] hover:bg-[#e5e5e5] hover:text-[#1c1c1c] transition-colors">
-                      <img src="https://www.google.com/s2/favicons?domain=wizards.com&sz=32" alt="" className="w-4 h-4 rounded-sm opacity-80" />
-                      Gatherer
-                    </a>
-                  </div>
                </div>
             </div>
           </div>
 
-          {/* Action Button */}
-          <div className="mt-8 pt-6 border-t border-[#f5f5f5]">
-            <Link 
-              to={`/card/${card.id}`}
-              onClick={onClose}
-              className="w-full flex items-center justify-center gap-2 bg-[#1c1c1c] text-white py-3 px-6 rounded-xl font-semibold hover:bg-[#333] transition-all shadow-lg hover:shadow-xl active:scale-[0.98]"
-            >
-              <Search size={18} />
-              Find Similar Cards
-            </Link>
+          {/* Footer: External Links + Action Button */}
+          <div className="mt-8">
+             {/* External Links - Centered, no top border */}
+             <div className="pb-6 flex flex-col items-center">
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#a3a3a3] block mb-3 text-center">External Links</span>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <a href={scryfallUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#f5f5f5] text-[#525252] hover:bg-[#e5e5e5] hover:text-[#1c1c1c] transition-colors">
+                    <img src="https://www.google.com/s2/favicons?domain=scryfall.com&sz=32" alt="" className="w-4 h-4 rounded-sm opacity-80" />
+                    Scryfall
+                  </a>
+                  <a href={edhrecUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#f5f5f5] text-[#525252] hover:bg-[#e5e5e5] hover:text-[#1c1c1c] transition-colors">
+                    <img src="https://www.google.com/s2/favicons?domain=edhrec.com&sz=32" alt="" className="w-4 h-4 rounded-sm opacity-80" />
+                    EDHREC
+                  </a>
+                  <a href={gathererUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#f5f5f5] text-[#525252] hover:bg-[#e5e5e5] hover:text-[#1c1c1c] transition-colors">
+                    <img src="https://www.google.com/s2/favicons?domain=wizards.com&sz=32" alt="" className="w-4 h-4 rounded-sm opacity-80" />
+                    Gatherer
+                  </a>
+                </div>
+             </div>
+
+            {/* Action Button - Separator moved here */}
+            <div className="pt-6 border-t border-[#f5f5f5]">
+              <Link 
+                to={`/card/${initialCard.id}`}
+                onClick={onClose}
+                className="w-full flex items-center justify-center gap-2 bg-[#1c1c1c] text-white py-3 px-6 rounded-xl font-semibold hover:bg-[#333] transition-all shadow-lg hover:shadow-xl active:scale-[0.98]"
+              >
+                <Search size={18} />
+                Find Similar Cards
+              </Link>
+            </div>
           </div>
         </div>
       </div>

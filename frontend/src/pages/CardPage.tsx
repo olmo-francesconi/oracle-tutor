@@ -5,6 +5,7 @@ import { ArrowLeft, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { CardOverlay } from '../components/CardOverlay';
 import type { SimilarCard } from '../types';
+import { getCardImageUrl } from '../utils';
 
 export function CardPage() {
   const { id } = useParams<{ id: string }>();
@@ -82,6 +83,15 @@ export function CardPage() {
   if (cardLoading) return <div className="h-screen flex items-center justify-center text-[#f5f2eb]">Loading knowledge...</div>;
   if (cardError || !card) return <div className="h-screen flex items-center justify-center text-[#f5f2eb]">Card not found.</div>;
 
+  // Resolve display properties for the main card
+  // If the card has faces (DFC), prefer the first face for the main view if flattened props are missing
+  const displayType = card.type_line || card.faces?.[0]?.type_line;
+  const displayMana = card.mana_cost || card.faces?.[0]?.mana_cost;
+  const displayOracle = card.oracle_text || card.faces?.[0]?.oracle_text;
+  
+  // Main card image usually defaults to front face
+  const mainCardImageUrl = getCardImageUrl(card);
+
   return (
     <div className="h-screen w-full flex flex-col md:flex-row overflow-hidden bg-transparent">
       
@@ -101,10 +111,14 @@ export function CardPage() {
 
         {/* Card "Paper" Container */}
         <div className="bg-white rounded-xl p-5 shadow-lg border border-[#e5e5e5] text-[#1c1c1c]">
-           {/* Card Image */}
-          <div className="relative aspect-[5/7] w-full mb-5 overflow-hidden bg-[#f0f0f0] shadow-lg ring-1 ring-black/5" style={{ borderRadius: '4.25% / 3.04%' }}>
+           {/* Card Image - Clickable to open overlay */}
+          <div 
+             className="relative aspect-[5/7] w-full mb-5 overflow-hidden bg-[#f0f0f0] shadow-lg ring-1 ring-black/5 cursor-pointer hover:ring-black/10 transition-all hover:scale-[1.02]" 
+             style={{ borderRadius: '4.5% / 3.21%' }}
+             onClick={() => setSelectedCard({ ...card, similarity: 1 } as SimilarCard)}
+          >
              <img 
-                src={`https://cards.scryfall.io/normal/front/${card.id?.[0]}/${card.id?.[1]}/${card.id}.jpg`} 
+                src={mainCardImageUrl} 
                 alt={card.name}
                 className="w-full h-full object-cover"
               />
@@ -115,12 +129,12 @@ export function CardPage() {
           <div className="flex flex-col gap-3 mb-4">
              <div className="flex flex-col">
                 <span className="text-xs uppercase tracking-wider font-semibold text-[#737373]">Type</span>
-                <span className="font-medium">{card.type_line}</span>
+                <span className="font-medium">{displayType}</span>
              </div>
              <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col">
                     <span className="text-xs uppercase tracking-wider font-semibold text-[#737373]">Mana</span>
-                    <span className="font-medium">{card.mana_cost || 'None'}</span>
+                    <span className="font-medium">{displayMana || 'None'}</span>
                 </div>
                  <div className="flex flex-col">
                     <span className="text-xs uppercase tracking-wider font-semibold text-[#737373]">Rank</span>
@@ -132,7 +146,7 @@ export function CardPage() {
           <div className="pt-4 border-t border-[#e5e5e5]">
              <span className="text-xs uppercase tracking-wider font-semibold text-[#737373] block mb-2">Oracle Text</span>
              <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#404040]">
-               {card.oracle_text}
+               {displayOracle}
              </p>
           </div>
         </div>
@@ -157,14 +171,14 @@ export function CardPage() {
             <div 
               key={s.id} 
               onClick={() => setSelectedCard(s)}
-              className="group relative aspect-[5/7] overflow-hidden bg-[#262626] shadow-lg hover:-translate-y-1 hover:shadow-2xl hover:ring-1 hover:ring-[#e3dccb]/30 border border-white/5 transition-all duration-300 block cursor-pointer" 
-              style={{ borderRadius: '4.25% / 3.04%' }}
+              className="group relative aspect-[5/7] overflow-hidden bg-[#262626] shadow-lg hover:-translate-y-1 hover:shadow-2xl hover:ring-1 hover:ring-[#e3dccb]/30 hover:scale-[1.02] border border-white/5 transition-all duration-300 block cursor-pointer" 
+              style={{ borderRadius: '4.5% / 3.21%' }}
             >
                <img 
-                src={`https://cards.scryfall.io/normal/front/${s.id?.[0]}/${s.id?.[1]}/${s.id}.jpg`} 
+                src={getCardImageUrl(s)} 
                 alt={s.name}
                 loading="lazy"
-                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                className="w-full h-full object-cover"
               />
               
               {/* Similarity Badge */}

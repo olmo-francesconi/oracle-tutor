@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { searchCards } from '../api';
@@ -8,8 +8,10 @@ export function SearchBar() {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<CardMatch[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
   const navigate = useNavigate();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   // Handle clicking outside
   useEffect(() => {
@@ -21,6 +23,23 @@ export function SearchBar() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Reset focused index when suggestions change
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [suggestions]);
+
+  // Scroll focused item into view
+  useEffect(() => {
+    if (focusedIndex >= 0 && listRef.current) {
+      const listItems = listRef.current.children;
+      if (listItems[focusedIndex]) {
+        (listItems[focusedIndex] as HTMLElement).scrollIntoView({
+          block: 'nearest',
+        });
+      }
+    }
+  }, [focusedIndex]);
 
   // Simple debounce effect
   useEffect(() => {
@@ -48,6 +67,30 @@ export function SearchBar() {
     navigate(`/card/${id}`);
   };
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!isOpen || suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+      e.preventDefault();
+      setFocusedIndex(prev => {
+        if (prev === suggestions.length - 1) return 0; // Wrap to top
+        return prev + 1;
+      });
+    } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+      if (focusedIndex === -1) return; // Allow default behavior (focus out) if at input
+
+      e.preventDefault();
+      setFocusedIndex(prev => prev === 0 ? -1 : prev - 1);
+    } else if (e.key === 'Enter') {
+      if (focusedIndex >= 0 && focusedIndex < suggestions.length) {
+        e.preventDefault();
+        handleSelect(suggestions[focusedIndex].id);
+      }
+    } else if (e.key === 'Escape') {
+      setIsOpen(false);
+    }
+  };
+
   const showSuggestions = isOpen && suggestions.length > 0;
 
   return (
@@ -57,6 +100,7 @@ export function SearchBar() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Search for a card..."
           className={`w-full p-[18px] pl-12 text-[1.1rem] border-2 border-[#e5e5e5] outline-none transition-all duration-300 bg-white text-[#1c1c1c] focus:bg-white focus:border-[#d4d4d4] focus:shadow-[0_0_0_4px_rgba(0,0,0,0.05)] placeholder-[#a3a3a3]
             ${showSuggestions ? 'rounded-t-xl rounded-b-none border-b-[#f5f5f5] focus:border-b-[#f5f5f5]' : 'rounded-xl'}
@@ -66,13 +110,22 @@ export function SearchBar() {
       </div>
 
       {showSuggestions && (
-        <ul className="absolute z-[1000] w-full bg-white rounded-b-xl border-2 border-t-0 border-[#e5e5e5] group-focus-within:border-[#d4d4d4] shadow-[0_8px_24px_rgba(0,0,0,0.1)] max-h-[400px] overflow-y-auto animate-[slideDown_0.2s_ease-out] scrollbar-thin scrollbar-thumb-[#d4d4d4] scrollbar-track-transparent">
+        <ul 
+          ref={listRef}
+          className="absolute z-[1000] w-full bg-white rounded-b-xl border-2 border-t-0 border-[#e5e5e5] group-focus-within:border-[#d4d4d4] shadow-[0_8px_24px_rgba(0,0,0,0.1)] max-h-[400px] overflow-y-auto animate-[slideDown_0.2s_ease-out] scrollbar-thin scrollbar-thumb-[#d4d4d4] scrollbar-track-transparent"
+        >
           {suggestions.map((card, index) => (
             <li
               key={card.id}
               onClick={() => handleSelect(card.id)}
-              className={`p-4 cursor-pointer transition-colors border-b border-[#f5f5f5] last:border-b-0 hover:bg-[#f9fafb] text-[#1c1c1c]
+              onMouseMove={() => {
+                if (focusedIndex !== index) {
+                  setFocusedIndex(index);
+                }
+              }}
+              className={`p-4 cursor-pointer transition-colors border-b border-[#f5f5f5] last:border-b-0 text-[#1c1c1c]
                 ${index === suggestions.length - 1 ? 'rounded-b-xl' : ''}
+                ${index === focusedIndex ? 'bg-[#f0f0f0]' : ''}
               `}
             >
               <div className="font-medium text-[1rem]">{card.name}</div>

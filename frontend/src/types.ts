@@ -1,3 +1,13 @@
+export interface CardFace {
+  name: string;
+  mana_cost?: string;
+  type_line?: string;
+  oracle_text?: string;
+  power?: string;
+  toughness?: string;
+  colors?: string[];
+}
+
 export interface Card {
   id: string;
   name: string;
@@ -10,10 +20,12 @@ export interface Card {
   rarity?: string;
   colors?: string[];
   legalities?: Record<string, string>;
+  faces?: CardFace[];
 }
 
 export interface SimilarCard extends Card {
   similarity: number;
+  card_name?: string;
 }
 
 export interface CardMatch {
