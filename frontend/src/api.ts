@@ -26,3 +26,10 @@ export const getSimilarCards = async (id: string, offset: number = 0, limit: num
   });
   return response.data;
 };
+
+export const searchOracleText = async (query: string, offset: number = 0, limit: number = 24): Promise<SimilarCard[]> => {
+  const response = await api.get<SimilarCard[]>('/search-oracle', {
+    params: { q: query, limit, offset }
+  });
+  return response.data;
+};

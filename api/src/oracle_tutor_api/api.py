@@ -13,6 +13,9 @@ from .database import get_db
 from .models import Card, CardFace
 from .data_builder import update_scryfall_data
 from .logging_config import setup_loggers, log_performance
+from .text_processing import expand_symbols
+
+from sentence_transformers import SentenceTransformer
 
 # Set up logger
 setup_loggers()
@@ -20,6 +23,8 @@ logger = logging.getLogger("oracle_tutor_api.api")
 
 # Global scheduler instance
 _update_scheduler = None
+# Global model instance
+_model = None
 
 def _start_update_scheduler():
     """Start the background scheduler for daily updates."""
@@ -75,7 +80,11 @@ async def lifespan(app: FastAPI):
     """
     On startup, ensure the database has data.
     """
+    global _model
     logger.info("API Starting...")
+    
+    logger.info("Loading embedding model...")
+    _model = SentenceTransformer('all-MiniLM-L6-v2')
     
     # Check if we need to seed the DB on first run
     # We run this in a way that doesn't block indefinitely, but ensures tables exist
@@ -266,6 +275,83 @@ def get_similar_cards(
 
     if colors:
         # Strict text match on colors JSON for now, or implement containment
+        pass 
+
+    # 4. Order by Vector Distance
+    query = query.order_by(distance_col.asc())
+    
+    # 5. Pagination
+    query = query.offset(offset).limit(limit)
+    
+    results = query.all()
+            
+    # 6. Format Response
+    output = []
+    for face, card, distance in results:
+        similarity = 1 - distance
+        
+        output.append(SimilarCard(
+            id=card.id,
+            name=face.name,
+            card_name=card.name,
+            similarity=similarity,
+            rank=card.edhrec_rank,
+            type_line=face.type_line,
+            mana_cost=face.mana_cost,
+            oracle_text=face.oracle_text,
+            power=face.power,
+            toughness=face.toughness,
+            rarity=card.rarity,
+            colors=face.colors,
+            legalities=card.legalities
+        ))
+    
+    return output
+
+@app.get("/search-oracle", response_model=List[SimilarCard])
+@log_performance(logger=logger)
+def search_oracle_text(
+    q: str,
+    limit: int = 20,
+    offset: int = 0,
+    card_type: Optional[str] = Query(None),
+    colors: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Search for cards by oracle text using vector similarity.
+    Generates an embedding for the query on the fly.
+    """
+    if not q.strip():
+        return []
+        
+    # 1. Preprocess and Embed Query
+    expanded_query = expand_symbols(q)
+    if not expanded_query.strip():
+        return []
+
+    if _model is None:
+         raise HTTPException(status_code=503, detail="Model not loaded yet")
+         
+    query_embedding = _model.encode(expanded_query, convert_to_tensor=False).tolist()
+
+    # 2. Build Query
+    distance_col = CardFace.embedding.cosine_distance(query_embedding).label("distance")
+    
+    query = (
+        db.query(CardFace, Card, distance_col)
+        .join(Card, CardFace.card_id == Card.id)
+    )
+
+    # 3. Apply Filters
+    if card_type:
+        types = [t.strip() for t in card_type.split(",") if t.strip()]
+        type_filters = [CardFace.type_line.ilike(f"%{t}%") for t in types]
+        if type_filters:
+            query = query.filter(or_(*type_filters))
+
+    if colors:
+        # Strict text match on colors JSON for now
         pass 
 
     # 4. Order by Vector Distance
