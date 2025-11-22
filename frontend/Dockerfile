@@ -1,24 +1,15 @@
-# Use an official Node runtime as a parent image
-FROM node:18-alpine
+FROM node:20-alpine
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install dependencies
 RUN npm install
 
-# Copy the rest of the application code
-COPY server.js .
-COPY public/ public/
+COPY . .
 
-# Make port 3000 available to the world outside this container
-EXPOSE 3000
+# Expose Vite port
+EXPOSE 5173
 
-# Define environment variable for API URL (can be overridden)
-ENV API_URL=http://api:8000
-
-# Run the application
-CMD ["node", "server.js"]
+# Bind to all interfaces
+CMD ["npm", "run", "dev", "--", "--host"]
