@@ -16,6 +16,22 @@ class SystemMetadata(Base):
     # When we performed the ingestion
     last_ingestion: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
+    # Database Schema Version (Semantic Versioning "1.0")
+    schema_version: Mapped[str | None] = mapped_column(String, default="0.0")
+
+class IngestionLog(Base):
+    __tablename__ = "ingestion_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String)  # 'started', 'success', 'failed'
+    records_processed: Mapped[int] = mapped_column(Integer, default=0)
+    records_skipped: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    schema_version: Mapped[str] = mapped_column(String)
+    trigger_type: Mapped[str | None] = mapped_column(String, nullable=True) # 'scheduled', 'force', 'schema_change'
+
 class Card(Base):
     __tablename__ = "cards"
 

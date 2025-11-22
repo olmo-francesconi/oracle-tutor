@@ -10,9 +10,9 @@ import requests
 from sqlalchemy import text, delete, inspect, func
 from sqlalchemy.dialects.postgresql import insert
 
-from .config import CARDS_JSON, DATA_DIR
+from .config import CARDS_JSON, DATA_DIR, DB_SCHEMA_VERSION
 from .database import SessionLocal, engine
-from .models import Base, Card, CardFace, SystemMetadata
+from .models import Base, Card, CardFace, SystemMetadata, IngestionLog
 from .logging_config import setup_loggers
 from .text_processing import expand_symbols
 
@@ -64,13 +64,23 @@ def init_db():
     inspector = inspect(engine)
     has_cards = inspector.has_table("cards")
     has_faces = inspector.has_table("card_faces")
+    has_logs = inspector.has_table("ingestion_logs")
+    
+    # Check specific columns
+    has_sys_meta = inspector.has_table("system_metadata")
+    sys_meta_cols = [c['name'] for c in inspector.get_columns("system_metadata")] if has_sys_meta else []
+    has_schema_version = "schema_version" in sys_meta_cols
+    
+    log_cols = [c['name'] for c in inspector.get_columns("ingestion_logs")] if has_logs else []
+    has_skipped_col = "records_skipped" in log_cols
     
     with engine.begin() as conn:
         # Schema Migration Check
-        if has_cards and not has_faces:
-            logger.warning("Old schema detected (cards table exists but no card_faces). Dropping old tables to rebuild...")
+        if (has_cards and not has_faces) or (has_sys_meta and not has_schema_version) or (has_logs and not has_skipped_col):
+            logger.warning("Old schema detected. Dropping old tables to rebuild...")
             conn.execute(text("DROP TABLE IF EXISTS cards CASCADE"))
             conn.execute(text("DROP TABLE IF EXISTS system_metadata CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS ingestion_logs CASCADE"))
             
         # Enable pgvector extension
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -107,16 +117,27 @@ def prepare_card_face(card_id: str, face_data: dict, embedding: List[float]) -> 
         "embedding": embedding
     }
 
-def ingest_data(json_path: Path, scryfall_metadata: Dict[str, Any]):
+def ingest_data(json_path: Path, scryfall_metadata: Dict[str, Any], model: Any = None, trigger_type: str = "scheduled"):
     """Read JSON, generate embeddings, and insert into DB."""
     
     logger.info("Starting database ingestion...")
     session = SessionLocal()
+    
+    # Create Ingestion Log
+    log_entry = IngestionLog(
+        status="started",
+        schema_version=DB_SCHEMA_VERSION,
+        trigger_type=trigger_type
+    )
+    session.add(log_entry)
+    session.commit()
+    log_id = log_entry.id
 
-    logger.info("Loading ML model for embeddings (this may take a moment)...")
-    # Load a small, fast model for semantic search
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    if model is None:
+        logger.info("Loading ML model for embeddings (this may take a moment)...")
+        # Load a small, fast model for semantic search
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
     
     try:
         with json_path.open("rb") as f:
@@ -127,6 +148,7 @@ def ingest_data(json_path: Path, scryfall_metadata: Dict[str, Any]):
             batch_faces_data = []
             batch_texts = []
             count = 0
+            skipped_count = 0
             
             for card in cards:
                 # Skip tokens, art cards, and other non-playable types
@@ -139,6 +161,7 @@ def ingest_data(json_path: Path, scryfall_metadata: Dict[str, Any]):
                     "scheme", 
                     "vanguard"
                 ]:
+                    skipped_count += 1
                     continue
 
                 # 1. Prepare Parent Card
@@ -239,21 +262,53 @@ def ingest_data(json_path: Path, scryfall_metadata: Dict[str, Any]):
             sys_meta = SystemMetadata(
                 key="scryfall_data",
                 data_updated_at=scryfall_metadata.get("updated_at"),
-                last_ingestion=datetime.utcnow()
+                last_ingestion=datetime.utcnow(),
+                schema_version=DB_SCHEMA_VERSION
             )
             session.merge(sys_meta)
+            
+            # Update Log Success
+            log_entry = session.get(IngestionLog, log_id)
+            if log_entry:
+                log_entry.status = "success"
+                log_entry.completed_at = datetime.utcnow()
+                log_entry.records_processed = count
+                log_entry.records_skipped = skipped_count
+            
             session.commit()
                 
-            logger.info(f"Ingestion complete. Total cards: {count}")
+            logger.info(f"Ingestion complete. Total cards: {count}, Skipped: {skipped_count}")
             
     except Exception as e:
         logger.error(f"Ingestion failed: {e}")
         session.rollback()
+        
+        # Update Log Failure (New session for safety)
+        try:
+            with SessionLocal() as err_session:
+                log_entry = err_session.get(IngestionLog, log_id)
+                if log_entry:
+                    log_entry.status = "failed"
+                    log_entry.completed_at = datetime.utcnow()
+                    log_entry.error_message = str(e)
+                err_session.commit()
+        except Exception as log_err:
+            logger.error(f"Failed to write error log: {log_err}")
+            
         raise
     finally:
         session.close()
 
-def update_scryfall_data(force: bool = False) -> bool:
+def parse_version(version_str: str) -> tuple:
+    """Helper to parse version string '1.0.2' to tuple (1, 0, 2) for comparison."""
+    if not version_str:
+        return (0, 0, 0)
+    try:
+        return tuple(map(int, version_str.split(".")))
+    except ValueError:
+        return (0, 0, 0)
+
+def update_scryfall_data(force: bool = False, model: Any = None) -> bool:
     """
     Main entry point:
     1. Fetch Remote Metadata (R).
@@ -290,9 +345,11 @@ def update_scryfall_data(force: bool = False) -> bool:
     # 3. Check DB
     session = SessionLocal()
     db_is_empty = False
+    db_schema_version = "0.0"
     try:
         db_meta = session.get(SystemMetadata, "scryfall_data")
         db_updated_at = db_meta.data_updated_at if db_meta else None
+        db_schema_version = db_meta.schema_version if db_meta and db_meta.schema_version else "0.0"
         
         # Safety check: Is the database actually populated?
         card_count = session.query(func.count(Card.id)).scalar()
@@ -305,9 +362,12 @@ def update_scryfall_data(force: bool = False) -> bool:
     finally:
         session.close()
 
-    logger.info(f"Metadata Status: Remote={remote_updated_at}, LocalFile={local_updated_at}, DB={db_updated_at}")
+    logger.info(f"Metadata Status: Remote={remote_updated_at}, LocalFile={local_updated_at}, DB={db_updated_at}, SchemaVer={db_schema_version}")
 
     # Decision Logic
+    trigger_type = "scheduled"
+    if force:
+        trigger_type = "force"
     
     # Should we download?
     should_download = False
@@ -339,6 +399,10 @@ def update_scryfall_data(force: bool = False) -> bool:
     should_ingest = False
     if force:
         should_ingest = True
+    elif parse_version(str(db_schema_version)) < parse_version(DB_SCHEMA_VERSION):
+        logger.info(f"Database schema version ({db_schema_version}) is older than current code version ({DB_SCHEMA_VERSION}). Forcing re-ingestion.")
+        should_ingest = True
+        trigger_type = "schema_change"
     elif not db_updated_at:
         should_ingest = True
     elif db_is_empty:
@@ -349,7 +413,7 @@ def update_scryfall_data(force: bool = False) -> bool:
         
     if should_ingest:
         logger.info(f"Ingesting data (Local: {local_updated_at} -> DB: {db_updated_at})...")
-        ingest_data(CARDS_JSON, local_meta)
+        ingest_data(CARDS_JSON, local_meta, model=model, trigger_type=trigger_type)
         return True
     else:
         logger.info("Database is up to date. No ingestion needed.")

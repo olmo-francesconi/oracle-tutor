@@ -43,7 +43,7 @@ def _start_update_scheduler():
             try:
                 logger.info("Running scheduled database update...")
                 # This now updates the Postgres DB directly
-                updated = update_scryfall_data(force=False)
+                updated = update_scryfall_data(force=False, model=_model)
                 if updated:
                     logger.info("Scheduled update completed successfully.")
                 else:
@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Checking database status...")
         # This handles init_db and initial download if missing
-        update_scryfall_data(force=False)
+        update_scryfall_data(force=False, model=_model)
     except Exception as e:
         logger.error(f"Startup data check failed: {e}")
         # We continue anyway; maybe the DB is fine, just network failed
