@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      allowedHosts: ['oracletutor.org'],
       proxy: {
         '/api': {
           target: env.PROXY_TARGET || 'http://localhost:8000',
