@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
       allowedHosts: ['oracletutor.org'],
       proxy: {
         '/api': {
-          target: env.PROXY_TARGET || 'http://localhost:8000',
+          target: env.API_PROXY_TARGET || 'http://localhost:8000',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
         },

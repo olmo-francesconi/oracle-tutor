@@ -38,7 +38,7 @@ services:
     environment:
       # Vite prefixes env vars with VITE_
       - VITE_API_URL=/api
-      - PROXY_TARGET=http://api:8000
+      - API_PROXY_TARGET=http://api:8000
     volumes:
       # Sync local files for hot reloading
       - ./frontend:/app
