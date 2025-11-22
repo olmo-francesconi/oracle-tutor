@@ -1,25 +1,51 @@
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: mtg_search
+      POSTGRES_USER: oracle
+      POSTGRES_PASSWORD: secret_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+
   api:
     build: ./api
-    # We removed the 'ports' section here.
-    # This means localhost:8000 will NOT work on your machine,
-    # but the frontend container can still reach it at http://api:8000
-    expose:
-      - "8000"
+    # ports:
+    #   - "8000:8000"
     volumes:
       - ./api/data:/app/data
+      - ./api/tests:/app/tests
+      - ./api/src:/app/src
+    command: uvicorn oracle_tutor_api.api:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - ORACLE_TUTOR_API_UPDATE_HOUR=2
+      # Database connection details
+      - DB_HOST=db
+      - DB_NAME=mtg_search
+      - DB_USER=oracle
+      - DB_PASSWORD=secret_password
+    depends_on:
+      - db
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000" # Only the frontend is exposed to the outside world
+      - "5173:5173"
     environment:
-      # IMPORTANT: This must use the service name 'api', not 'localhost'
-      # The frontend server uses this to proxy requests internally.
-      - API_URL=http://api:8000
+      # Vite prefixes env vars with VITE_
+      - VITE_API_URL=/api
+      - PROXY_TARGET=http://api:8000
+    volumes:
+      # Sync local files for hot reloading
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - api
     restart: unless-stopped
+
+volumes:
+  postgres_data:
