@@ -1,21 +1,26 @@
-# Use an official Python runtime as a parent image
-FROM python:3.14-slim
+# Use a stable Python version (3.14 is not released yet)
+FROM python:3.11-slim
 
 # Set the working directory in the container
 WORKDIR /app
+
+# Install system dependencies for psycopg2 (Postgres driver)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file
 COPY requirements.txt .
 
 # Install any needed packages specified in requirements.txt
 # We install build-essential to ensure we can build dependencies if needed
-RUN apt-get update && apt-get install -y build-essential && \
-    pip install --no-cache-dir -r requirements.txt && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code
 COPY pyproject.toml .
 COPY src/ src/
+COPY tests/ tests/
 
 # Install the package in editable mode (as defined in requirements.txt)
 RUN pip install -e .

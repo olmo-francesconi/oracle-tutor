@@ -1,9 +1,18 @@
-numpy
-scikit-learn
-requests
-ijson
-tqdm
 fastapi
-uvicorn
+uvicorn[standard]
+requests
+pydantic
+ijson
+scikit-learn
+numpy
 apscheduler
-psutil
+
+# Database dependencies
+sqlalchemy>=2.0.0
+psycopg2-binary
+pgvector
+alembic  # For database migrations
+sentence-transformers
+
+pytest
+httpx

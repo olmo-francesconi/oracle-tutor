@@ -1,89 +1,22 @@
 import logging
-import ijson
 import os
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, Response, HTTPException, Query
+
+from fastapi import FastAPI, Response, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import func, desc, or_
+from sqlalchemy.orm import Session
 
-from oracle_tutor_api.config import CARDS_JSON
-
-from .card_name_resolver import CardNameResolver
-from .card_oracle_resolver import CardOracleResolver
+from .database import get_db
+from .models import Card, CardFace
 from .data_builder import update_scryfall_data
 from .logging_config import setup_loggers, log_performance
-from .memory_utils import log_memory_report
 
 # Set up logger
 setup_loggers()
 logger = logging.getLogger("oracle_tutor_api.api")
-
-# Global variables to hold our data
-name_resolver: Optional[CardNameResolver] = None
-oracle_resolver: Optional[CardOracleResolver] = None
-cards_by_id: Dict[str, Dict[str, Any]] = {}
-
-
-def _load_card_data():
-    """
-    Load all card data from disk. This rebuilds the TF-IDF engine
-    and all lookup dictionaries.
-    """
-    global name_resolver, oracle_resolver, cards_by_id
-    
-    logger.info("Loading cards from JSON file...")    
-    cards_by_id.clear()
-    with CARDS_JSON.open("r", encoding="utf-8") as f:
-        # ijson.items with "item" path works for JSON arrays
-        for card in ijson.items(f, "item"):
-            card_id = card.get("id")
-            cards_by_id[card_id] = {
-                "id": card.get("id"),
-                "name": card.get("name"),
-                "mana_cost": card.get("mana_cost"),
-                "type_line": card.get("type_line"),
-                "oracle_text": card.get("oracle_text"),
-                "edhrec_rank": card.get("edhrec_rank"),
-                "rarity": card.get("rarity"),
-                "colors": card.get("colors"),
-                "legalities": card.get("legalities"),
-            }
-    
-    logger.info(f"Loaded {len(cards_by_id)} cards from disk")
-
-    logger.info("Building name resolver...")
-    resolver_entries = []
-    for card_id, card in cards_by_id.items():
-        entry = {
-            "id": card_id,
-            "name": card.get("name"),
-            "edhrec_rank": card.get("edhrec_rank"),
-        }
-        resolver_entries.append(entry)
-    name_resolver = CardNameResolver(resolver_entries)
-    logger.info(f"Name resolver built successfully from {len(resolver_entries)} cards")
-    
-    logger.info("Building oracle resolver...")
-    oracle_entries = []
-    for card_id, card in cards_by_id.items():
-        oracle_entries.append({
-            "id": card_id,
-            "name": card.get("name"),
-            "oracle_text": card.get("oracle_text"),
-            "edhrec_rank": card.get("edhrec_rank"),
-        })
-    oracle_resolver = CardOracleResolver(oracle_entries)
-    logger.info(f"Oracle resolver built successfully from {len(oracle_entries)} cards")
-
-def _reload_data():
-    """
-    Reload all card data from disk. This rebuilds the TF-IDF engine
-    and all lookup dictionaries.
-    """
-    logger.info("Reloading card data...")
-    _load_card_data()
-    logger.info("Data reloaded successfully.")
 
 # Global scheduler instance
 _update_scheduler = None
@@ -92,116 +25,91 @@ def _start_update_scheduler():
     """Start the background scheduler for daily updates."""
     global _update_scheduler
     
-    # Check if scheduler should be enabled (default: True, can be disabled with env var)
     if os.getenv("ORACLE_TUTOR_API_DISABLE_SCHEDULER", "").lower() in ("1", "true", "yes"):
-        logger.info("Update scheduler disabled via ORACLE_TUTOR_API_DISABLE_SCHEDULER environment variable")
+        logger.info("Scheduler disabled.")
         return
     
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
-        from .daily_update import main as update_main
         
-        def run_update_with_reload():
-            """Run update and reload API data if update was successful."""
+        def run_update():
+            """Run update process."""
             try:
-                exit_code = update_main()
-                if exit_code == 0:
-                    # Reload data after successful update
-                    _reload_data()
-                    logger.info("Database updated and reloaded successfully")
+                logger.info("Running scheduled database update...")
+                # This now updates the Postgres DB directly
+                updated = update_scryfall_data(force=False)
+                if updated:
+                    logger.info("Scheduled update completed successfully.")
+                else:
+                    logger.info("No updates found.")
             except Exception as e:
                 logger.error(f"Error in scheduled update: {e}", exc_info=True)
         
-        # Get update time from environment or use default (2:00 AM)
+        # Default to 2:00 AM
         update_hour = int(os.getenv("ORACLE_TUTOR_API_UPDATE_HOUR", "2"))
-        update_minute = int(os.getenv("ORACLE_TUTOR_API_UPDATE_MINUTE", "0"))
         
         _update_scheduler = BackgroundScheduler()
         _update_scheduler.add_job(
-            run_update_with_reload,
-            trigger=CronTrigger(hour=update_hour, minute=update_minute),
+            run_update,
+            trigger=CronTrigger(hour=update_hour, minute=0),
             id="daily_update",
             name="Daily Scryfall database update",
             replace_existing=True,
         )
         _update_scheduler.start()
-        logger.info(f"Update scheduler started. Daily updates will run at {update_hour:02d}:{update_minute:02d} local time.")
+        logger.info(f"Scheduler started (Daily at {update_hour}:00).")
     except ImportError:
-        logger.warning("APScheduler not available. Daily updates will not run automatically.")
-        logger.warning("Install with: pip install apscheduler")
+        logger.warning("APScheduler not installed.")
     except Exception as e:
-        logger.warning(f"Failed to start update scheduler: {e}")
-
+        logger.warning(f"Failed to start scheduler: {e}")
 
 def _stop_update_scheduler():
-    """Stop the background scheduler."""
     global _update_scheduler
     if _update_scheduler:
         _update_scheduler.shutdown()
         _update_scheduler = None
-        logger.info("Update scheduler stopped.")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Load data when the API starts up and start the update scheduler.
-    If loading fails, attempt to update data and retry.
+    On startup, ensure the database has data.
     """
-    global name_resolver
+    logger.info("API Starting...")
     
-    logger.info("Loading card data...")
+    # Check if we need to seed the DB on first run
+    # We run this in a way that doesn't block indefinitely, but ensures tables exist
     try:
-        _load_card_data()
-        logger.info("Data loaded successfully.")
-    except (FileNotFoundError, IOError, ValueError) as e:
-        logger.error(f"Failed to load card data: {e}")
-        logger.info("Running data update and retrying...")
-        try:
-            update_scryfall_data(force=True)
-            logger.info("Data update completed. Retrying load...")
-            # Retry loading after update
-            _load_card_data()
-            logger.info("Data loaded successfully after update.")
-        except Exception as update_error:
-            logger.critical(f"Failed to update and load data: {update_error}")
-            raise RuntimeError("Unable to load card data even after update attempt") from update_error
+        logger.info("Checking database status...")
+        # This handles init_db and initial download if missing
+        update_scryfall_data(force=False)
+    except Exception as e:
+        logger.error(f"Startup data check failed: {e}")
+        # We continue anyway; maybe the DB is fine, just network failed
     
-    # Start the update scheduler in the background
     _start_update_scheduler()
-    
-    # Log memory report after everything is loaded
-    log_memory_report(name_resolver, oracle_resolver, cards_by_id)
-    
     yield
-    
-    # Cleanup: stop the scheduler when the API shuts down
     _stop_update_scheduler()
 
 app = FastAPI(
     lifespan=lifespan,
-    title="Oracle Tutor API",
-    docs_url=None,
-    redoc_url=None
+    title="Oracle Tutor API (Postgres Version)",
 )
 
-# Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_origin_regex="https?://.*",  # Allow all origins with credentials
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Pydantic Models for Response ---
+# --- Pydantic Models ---
 
 class CardMatch(BaseModel):
     name: str
-    similarity: float
+    similarity: float = 1.0
     rank: Optional[int] = None
-    combined: Optional[float] = None
     id: Optional[str] = None
 
 class CardNameMatch(BaseModel):
@@ -209,219 +117,184 @@ class CardNameMatch(BaseModel):
     id: str
 
 class SimilarCard(BaseModel):
-    """Full card data with similarity score for similar cards endpoint."""
     id: str
-    name: str
+    name: str # Face name
+    card_name: str # Full Card name
     similarity: float
     rank: Optional[int] = None
-    combined: Optional[float] = None
-    # Card fields for display
+    
+    # Display fields from Face
     type_line: Optional[str] = None
     mana_cost: Optional[str] = None
     oracle_text: Optional[str] = None
-    rarity: Optional[str] = None
+    power: Optional[str] = None
+    toughness: Optional[str] = None
     colors: Optional[List[str]] = None
+    
+    # Fields from Card
+    rarity: Optional[str] = None
     legalities: Optional[Dict[str, str]] = None
 
 # --- Endpoints ---
 
 @app.get("/favicon.ico")
 def favicon():
-    """Handle favicon requests to prevent 404 errors in logs."""
     return Response(status_code=204)
 
 @app.get("/search", response_model=List[CardMatch])
 @log_performance(logger=logger)
-def search_cards(q: str, limit: int = 5):
+def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
     """
-    Fuzzy search for cards by name.
+    Search for cards by name using fuzzy search (pg_trgm).
+    Searches the parent card name (which usually includes both faces for split/DFC).
     """
     if not q.strip():
         return []
 
-    if limit > 25:
-        limit = 25
-    if limit < 1:
-        limit = 1
+    limit = max(1, min(limit, 25))
     
-    matches = name_resolver.top_matches(q, limit=limit, rank_weight=0.25)
+    # Use pg_trgm distance operator <->
+    distance = Card.name.op("<->")(q)
     
-    results = []
-    for m in matches:
-        results.append(CardMatch(
-            name=m["name"],
-            similarity=m["similarity"],
-            rank=m["rank"],
-            id=m["id"],
-            combined=m["combined"]
+    results = (
+        db.query(Card, distance.label("dist"))
+        .filter(or_(
+            Card.name.op("%")(q),
+            Card.name.ilike(f"%{q}%")
         ))
+        .order_by(distance, Card.edhrec_rank.asc().nulls_last())
+        .limit(limit)
+        .all()
+    )
     
-    return results
-
+    return [
+        CardMatch(
+            name=c.name, 
+            id=c.id, 
+            rank=c.edhrec_rank, 
+            similarity=1.0 - dist
+        )
+        for c, dist in results
+    ]
 
 @app.get("/suggest-names", response_model=List[CardNameMatch])
 @log_performance(logger=logger)
-def search_card_names(q: str, limit: int = 5):
+def search_card_names(q: str, limit: int = 5, db: Session = Depends(get_db)):
     """
-    Search for card names by name. Returns both name and id for each match.
+    Autocomplete endpoint using fuzzy search.
     """
     if not q.strip():
         return []
 
-    if limit > 25:
-        limit = 25
-    if limit < 1:
-        limit = 1
-    
-    matches = name_resolver.top_matches(q, limit=limit, rank_weight=0.25)
-    
-    results = []
-    for m in matches:
-        results.append(CardNameMatch(
-            name=m["name"],
-            id=m["id"],
-        ))
-    
-    return results
+    limit = max(1, min(limit, 25))
 
+    distance = Card.name.op("<->")(q)
+
+    cards = (
+        db.query(Card.name, Card.id)
+        .filter(or_(
+            Card.name.op("%")(q),
+            Card.name.ilike(f"%{q}%")
+        ))
+        .order_by(distance, Card.edhrec_rank.asc().nulls_last())
+        .limit(limit)
+        .all()
+    )
+    
+    return [CardNameMatch(name=c.name, id=c.id) for c in cards]
 
 @app.get("/card/{card_id}")
 @log_performance(logger=logger)
-def get_card_by_id(card_id: str):
+def get_card_by_id(card_id: str, db: Session = Depends(get_db)):
     """
-    Get card details by ID.
+    Get single card details.
     """
-    if card_id not in cards_by_id:
+    card = db.get(Card, card_id)
+    if not card:
         raise HTTPException(status_code=404, detail="Card not found")
-    
-    return cards_by_id[card_id]
-
+    return card.to_dict()
 
 @app.get("/similar-cards/{card_id}", response_model=List[SimilarCard])
 @log_performance(logger=logger)
 def get_similar_cards(
     card_id: str, 
+    face_index: int = 0,
     limit: int = 20, 
     offset: int = 0,
-    card_type: Optional[str] = Query(None, description="Filter by card type (comma-separated, e.g., 'Creature,Instant' or 'Sorcery')"),
-    colors: Optional[str] = Query(None, description="Filter by colors (comma-separated, e.g., 'R,W' or 'U' or 'C' for colorless)"),
-    format: Optional[str] = Query(None, description="Filter by format legality (comma-separated, e.g., 'standard,modern' or 'commander')")
+    card_type: Optional[str] = Query(None),
+    colors: Optional[str] = Query(None),
+    format: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
 ):
     """
-    Find cards similar to the given card based on oracle text similarity.
-    Returns full card data with similarity scores.
-    
-    Supports pagination via offset parameter and filtering by card type, colors, and format.
+    Vector similarity search using pgvector.
+    Targets specific face of the source card.
+    Returns matching Faces (joined with their Cards).
     """
-    if not oracle_resolver:
-        raise HTTPException(status_code=503, detail="Oracle resolver not initialized")
-    
-    if card_id not in cards_by_id:
+    # 1. Get the target card to find its embedding
+    target_card = db.get(Card, card_id)
+    if not target_card:
         raise HTTPException(status_code=404, detail="Card not found")
     
-    if limit > 50:
-        limit = 50
-    if limit < 1:
-        limit = 1
+    if not target_card.faces:
+        raise HTTPException(status_code=404, detail="Card has no faces data")
+        
+    if face_index >= len(target_card.faces):
+         raise HTTPException(status_code=400, detail="Invalid face_index")
+
+    target_face = target_card.faces[face_index]
+    if target_face.embedding is None:
+        raise HTTPException(status_code=400, detail="Card face has no embedding for comparison")
+
+    # 2. Build Query
+    # We search for Faces, but join Card to get parent info
+    distance_col = CardFace.embedding.cosine_distance(target_face.embedding).label("distance")
     
-    if offset < 0:
-        offset = 0
-    
-    # Parse filter parameters
-    filter_colors = None
-    if colors:
-        filter_colors = [c.strip().upper() for c in colors.split(",") if c.strip()]
-    
-    filter_card_types = None
-    if card_type:
-        filter_card_types = [t.strip() for t in card_type.split(",") if t.strip()]
-    
-    filter_formats = None
-    if format:
-        filter_formats = [f.strip().lower() for f in format.split(",") if f.strip()]
-    
-    # Get a larger set of matches to filter from (we'll filter and then paginate)
-    # Fetch more results to account for filtering and offset
-    has_filters = filter_card_types or filter_colors or filter_formats
-    if has_filters:
-        # When filtering, we need to fetch more to account for filtering and offset
-        fetch_limit = (limit + offset) * 5
-        # Cap at reasonable maximum to avoid performance issues
-        fetch_limit = min(fetch_limit, 500)
-    else:
-        fetch_limit = limit + offset
-    
-    matches = oracle_resolver.find_similar_cards(
-        card_id=card_id,
-        limit=fetch_limit,
-        offset=0,  # Start from beginning, we'll handle offset after filtering
-        min_score=0.1,
-        rank_weight=0.15,
+    query = (
+        db.query(CardFace, Card, distance_col)
+        .join(Card, CardFace.card_id == Card.id)
+        .filter(Card.id != card_id) # Exclude the source card entirely
     )
+
+    # 3. Apply Filters
+    if card_type:
+        types = [t.strip() for t in card_type.split(",") if t.strip()]
+        # Filter on CardFace.type_line
+        type_filters = [CardFace.type_line.ilike(f"%{t}%") for t in types]
+        if type_filters:
+            query = query.filter(or_(*type_filters))
+
+    if colors:
+        # Strict text match on colors JSON for now, or implement containment
+        pass 
+
+    # 4. Order by Vector Distance
+    query = query.order_by(distance_col.asc())
     
-    results = []
-    skipped = 0
+    # 5. Pagination
+    query = query.offset(offset).limit(limit)
     
-    for m in matches:
-        # Get full card data
-        card_data = cards_by_id.get(m["id"], {})
-        
-        # Apply filters
-        if filter_card_types:
-            type_line = card_data.get("type_line", "")
-            # Check if any of the selected card types match
-            if not any(ct.lower() in type_line.lower() for ct in filter_card_types):
-                continue
-        
-        if filter_colors:
-            card_colors = card_data.get("colors", [])
-            card_has_colors = len(card_colors) > 0
-            card_is_colorless = not card_has_colors
+    results = query.all()
             
-            # Separate colorless from other color filters
-            has_colorless_filter = "C" in filter_colors
-            other_color_filters = [c for c in filter_colors if c != "C"]
-            
-            # Check if card matches any of the selected filters
-            matches_colorless = has_colorless_filter and card_is_colorless
-            matches_colors = False
-            if other_color_filters and card_has_colors:
-                matches_colors = any(c.upper() in [col.upper() for col in card_colors] for c in other_color_filters)
-            
-            # Include card if it matches colorless filter OR color filters
-            if not (matches_colorless or matches_colors):
-                continue
+    # 6. Format Response
+    output = []
+    for face, card, distance in results:
+        similarity = 1 - distance
         
-        if filter_formats:
-            # Check if card is legal in any of the selected formats
-            legalities = card_data.get("legalities", {})
-            is_legal_in_any = any(
-                legalities.get(fmt, "").lower() == "legal" 
-                for fmt in filter_formats
-            )
-            if not is_legal_in_any:
-                continue
-        
-        # Apply offset after filtering
-        if skipped < offset:
-            skipped += 1
-            continue
-        
-        results.append(SimilarCard(
-            id=m["id"],
-            name=m["name"],
-            similarity=m["similarity"],
-            rank=m["rank"],
-            combined=m["combined"],
-            type_line=card_data.get("type_line"),
-            mana_cost=card_data.get("mana_cost"),
-            oracle_text=card_data.get("oracle_text"),
-            rarity=card_data.get("rarity"),
-            colors=card_data.get("colors"),
-            legalities=card_data.get("legalities"),
+        output.append(SimilarCard(
+            id=card.id,
+            name=face.name,
+            card_name=card.name,
+            similarity=similarity,
+            rank=card.edhrec_rank,
+            type_line=face.type_line,
+            mana_cost=face.mana_cost,
+            oracle_text=face.oracle_text,
+            power=face.power,
+            toughness=face.toughness,
+            rarity=card.rarity,
+            colors=face.colors,
+            legalities=card.legalities
         ))
-        
-        if len(results) == limit:
-            break
     
-    return results
+    return output
