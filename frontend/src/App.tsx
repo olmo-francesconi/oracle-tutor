@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { SearchBar } from './components/SearchBar';
 import { CardPage } from './pages/CardPage';
+import { OracleSearchPage } from './pages/OracleSearchPage';
 import { useEffect } from 'react';
 
 function Home() {
@@ -27,6 +28,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/card/:id" element={<CardPage />} />
+          <Route path="/search" element={<OracleSearchPage />} />
         </Routes>
       </div>
     </Router>

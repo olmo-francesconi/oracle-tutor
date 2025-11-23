@@ -67,24 +67,44 @@ export function SearchBar() {
     navigate(`/card/${id}`);
   };
 
+  const handleOracleSearch = (searchQuery: string) => {
+    setIsOpen(false);
+    setQuery('');
+    navigate(`/search?q=${encodeURIComponent(searchQuery)}`);
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (!isOpen || suggestions.length === 0) return;
-
     if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
-      e.preventDefault();
-      setFocusedIndex(prev => {
-        if (prev === suggestions.length - 1) return 0; // Wrap to top
-        return prev + 1;
-      });
-    } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
-      if (focusedIndex === -1) return; // Allow default behavior (focus out) if at input
-
-      e.preventDefault();
-      setFocusedIndex(prev => prev === 0 ? -1 : prev - 1);
-    } else if (e.key === 'Enter') {
-      if (focusedIndex >= 0 && focusedIndex < suggestions.length) {
+      if (suggestions.length > 0) {
         e.preventDefault();
+        setFocusedIndex(prev => {
+          if (prev === suggestions.length - 1) return 0; // Wrap to top
+          return prev + 1;
+        });
+      }
+    } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+      if (suggestions.length > 0) {
+        e.preventDefault();
+        if (focusedIndex === -1) return;
+        setFocusedIndex(prev => prev === 0 ? -1 : prev - 1);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      
+      if (isOpen && focusedIndex >= 0 && focusedIndex < suggestions.length) {
+        // User selected a suggestion with keys
         handleSelect(suggestions[focusedIndex].id);
+      } else {
+        // Check for exact match
+        const exactMatch = suggestions.find(
+          s => s.name.toLowerCase() === query.trim().toLowerCase()
+        );
+        
+        if (exactMatch) {
+            handleSelect(exactMatch.id);
+        } else if (query.trim().length > 0) {
+            handleOracleSearch(query.trim());
+        }
       }
     } else if (e.key === 'Escape') {
       setIsOpen(false);
