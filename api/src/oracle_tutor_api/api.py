@@ -21,59 +21,8 @@ from sentence_transformers import SentenceTransformer
 setup_loggers()
 logger = logging.getLogger("oracle_tutor_api.api")
 
-# Global scheduler instance
-_update_scheduler = None
 # Global model instance
 _model = None
-
-def _start_update_scheduler():
-    """Start the background scheduler for daily updates."""
-    global _update_scheduler
-    
-    if os.getenv("ORACLE_TUTOR_API_DISABLE_SCHEDULER", "").lower() in ("1", "true", "yes"):
-        logger.info("Scheduler disabled.")
-        return
-    
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        
-        def run_update():
-            """Run update process."""
-            try:
-                logger.info("Running scheduled database update...")
-                # This now updates the Postgres DB directly
-                updated = update_scryfall_data(force=False, model=_model)
-                if updated:
-                    logger.info("Scheduled update completed successfully.")
-                else:
-                    logger.info("No updates found.")
-            except Exception as e:
-                logger.error(f"Error in scheduled update: {e}", exc_info=True)
-        
-        # Default to 2:00 AM
-        update_hour = int(os.getenv("ORACLE_TUTOR_API_UPDATE_HOUR", "2"))
-        
-        _update_scheduler = BackgroundScheduler()
-        _update_scheduler.add_job(
-            run_update,
-            trigger=CronTrigger(hour=update_hour, minute=0),
-            id="daily_update",
-            name="Daily Scryfall database update",
-            replace_existing=True,
-        )
-        _update_scheduler.start()
-        logger.info(f"Scheduler started (Daily at {update_hour}:00).")
-    except ImportError:
-        logger.warning("APScheduler not installed.")
-    except Exception as e:
-        logger.warning(f"Failed to start scheduler: {e}")
-
-def _stop_update_scheduler():
-    global _update_scheduler
-    if _update_scheduler:
-        _update_scheduler.shutdown()
-        _update_scheduler = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -86,19 +35,7 @@ async def lifespan(app: FastAPI):
     logger.info("Loading embedding model...")
     _model = SentenceTransformer('all-MiniLM-L6-v2')
     
-    # Check if we need to seed the DB on first run
-    # We run this in a way that doesn't block indefinitely, but ensures tables exist
-    try:
-        logger.info("Checking database status...")
-        # This handles init_db and initial download if missing
-        update_scryfall_data(force=False, model=_model)
-    except Exception as e:
-        logger.error(f"Startup data check failed: {e}")
-        # We continue anyway; maybe the DB is fine, just network failed
-    
-    _start_update_scheduler()
     yield
-    _stop_update_scheduler()
 
 app = FastAPI(
     lifespan=lifespan,

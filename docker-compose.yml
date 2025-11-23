@@ -24,6 +24,27 @@ services:
       - ORACLE_TUTOR_API_UPDATE_HOUR=2
       # Database connection details
       - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=mtg_search
+      - DB_USER=oracle
+      - DB_PASSWORD=secret_password
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.worker
+    volumes:
+      - ./api/data:/app/data
+      - ./api/src:/app/src
+    environment:
+      - ORACLE_TUTOR_API_UPDATE_HOUR=2
+      - RUN_ON_STARTUP=true
+      # Connect to the same DB
+      - DB_HOST=db
+      - DB_PORT=5432
       - DB_NAME=mtg_search
       - DB_USER=oracle
       - DB_PASSWORD=secret_password

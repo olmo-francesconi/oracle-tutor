@@ -55,6 +55,18 @@ def setup_loggers():
     data_logger.addHandler(update_handler) # Data operations log to update.log
     data_logger.addHandler(console_handler)
 
+    # --- Worker Logger ---
+    # Used by worker.py
+    worker_logger = logging.getLogger("oracle_tutor_api.worker")
+    worker_logger.setLevel(logging.INFO)
+    worker_logger.propagate = False
+    
+    if worker_logger.handlers:
+        worker_logger.handlers.clear()
+
+    worker_logger.addHandler(update_handler) # Worker operations log to update.log
+    worker_logger.addHandler(console_handler)
+
     # --- API Logger ---
     # Used by api.py
     api_handler = get_file_handler("api.log")
