@@ -11,6 +11,7 @@ export interface CardFace {
 export interface Card {
   id: string;
   name: string;
+  layout?: string;
   mana_cost?: string;
   type_line?: string;
   oracle_text?: string;

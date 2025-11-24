@@ -1,4 +1,5 @@
 import { X, Search, RefreshCw } from 'lucide-react';
+import { CardImage } from './CardImage';
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -44,14 +45,43 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
     };
   }, []);
 
-  const hasMultipleFaces = fullCard?.faces && fullCard.faces.length > 1;
+  const doubleSidedLayouts = ['transform', 'modal_dfc', 'meld', 'double_faced_token', 'art_series'];
+  const isDoubleSided = fullCard?.layout ? doubleSidedLayouts.includes(fullCard.layout) : false;
+  
+  // Logic for Shared Face cards (Split, Adventure, Flip)
+  // These have multiple faces but exist on one physical side.
+  // We want to combine their stats into one view.
+  const isSharedFace = fullCard?.faces && fullCard.faces.length > 1 && !isDoubleSided;
+
+  const hasMultipleFaces = fullCard?.faces && fullCard.faces.length > 1 && isDoubleSided;
   const currentFaceIdx = faceIndex ?? 0;
   
   // Resolve displayed data
-  const displayData = (fullCard?.faces && fullCard.faces[currentFaceIdx]) 
-    ? { ...fullCard.faces[currentFaceIdx], id: fullCard.id }
-    : initialCard;
-
+  let displayData = initialCard;
+  
+  if (fullCard) {
+    if (isSharedFace && fullCard.faces) {
+       // Combine Data for Shared Face Cards
+       displayData = {
+         ...fullCard.faces[0], // Base props from first face
+         id: fullCard.id,
+         name: fullCard.name, // Use full joined name
+         type_line: fullCard.faces.map(f => f.type_line).join(' // '),
+         mana_cost: fullCard.faces.map(f => f.mana_cost || '').join(' // '),
+         // Join oracle text with a separator
+         oracle_text: fullCard.faces.map(f => f.oracle_text).filter(Boolean).join('\n\n'),
+         similarity: initialCard.similarity
+       };
+    } else if (fullCard.faces && fullCard.faces[currentFaceIdx]) {
+       // Standard Single or Double Sided view
+       displayData = { 
+         ...fullCard.faces[currentFaceIdx], 
+         id: fullCard.id,
+         similarity: initialCard.similarity
+       };
+    }
+  }
+  
   // Construct Image URL dynamically
   let imageUrl = '';
   if (hasMultipleFaces && faceIndex !== null) {
@@ -117,7 +147,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                }}
             >
                {/* Card Image */}
-              <img 
+              <CardImage 
                 src={imageUrl} 
                 alt={displayData.name}
                 className="w-full h-full object-cover"
@@ -170,9 +200,22 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
 
                <div className="pt-6 border-t border-[#f5f5f5]">
                   <span className="text-xs uppercase tracking-wider font-semibold text-[#a3a3a3] block mb-2">Oracle Text</span>
-                  <p className="whitespace-pre-wrap text-[#404040] leading-relaxed text-sm">
-                    {displayData.oracle_text || 'No oracle text.'}
-                  </p>
+                  
+                  {isSharedFace && fullCard?.faces ? (
+                    <div className="flex flex-col">
+                      {fullCard.faces.map((face, idx) => (
+                         <div key={idx} className={idx > 0 ? "pt-6 mt-6 border-t border-[#f5f5f5]" : ""}>
+                            <p className="whitespace-pre-wrap text-[#404040] leading-relaxed text-sm">
+                              {face.oracle_text || 'No oracle text.'}
+                            </p>
+                         </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-[#404040] leading-relaxed text-sm">
+                      {displayData.oracle_text || 'No oracle text.'}
+                    </p>
+                  )}
                </div>
             </div>
           </div>
