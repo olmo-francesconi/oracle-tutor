@@ -32,15 +32,9 @@ def main():
     
     # 1. Load Model
     logger.info("Loading embedding model for ingestion...")
-    try:
-        from optimum.sentence_transformers import SentenceTransformer
-        # Use ONNX backend if available for speed
-        model = SentenceTransformer("all-MiniLM-L6-v2", backend="onnx")
-        logger.info("Loaded ONNX model.")
-    except ImportError:
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-        logger.info("Loaded standard PyTorch model.")
+    from sentence_transformers import SentenceTransformer
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    logger.info("Loaded standard PyTorch model.")
         
     # 2. Setup Scheduler
     try:

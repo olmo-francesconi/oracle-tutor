@@ -1,17 +1,16 @@
 import logging
-import os
 from contextlib import asynccontextmanager
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
+from cachetools import TTLCache
 
 from fastapi import FastAPI, Response, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import func, desc, or_
+from sqlalchemy import func, desc, or_, cast, Numeric
 from sqlalchemy.orm import Session
 
 from .database import get_db
 from .models import Card, CardFace
-from .data_builder import update_scryfall_data
 from .logging_config import setup_loggers, log_performance
 from .text_processing import expand_symbols
 
@@ -23,6 +22,11 @@ logger = logging.getLogger("oracle_tutor_api.api")
 
 # Global model instance
 _model = None
+
+# In-memory cache for search results (ID lists)
+# Key: (query_str, card_type, colors)
+# Value: List of (face_id, distance)
+_search_cache = TTLCache(maxsize=100, ttl=600)  # 10 minutes TTL
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -78,6 +82,7 @@ class SimilarCard(BaseModel):
     colors: Optional[List[str]] = None
     
     # Fields from Card
+    layout: Optional[str] = None
     rarity: Optional[str] = None
     legalities: Optional[Dict[str, str]] = None
 
@@ -176,72 +181,107 @@ def get_similar_cards(
     Vector similarity search using pgvector.
     Targets specific face of the source card.
     Returns matching Faces (joined with their Cards).
+    Uses caching to speed up pagination.
     """
-    # 1. Get the target card to find its embedding
-    target_card = db.get(Card, card_id)
-    if not target_card:
-        raise HTTPException(status_code=404, detail="Card not found")
+    # Check Cache First
+    # Cache key includes all filter params
+    cache_key = (f"similar-{card_id}-{face_index}", card_type, colors, format)
     
-    if not target_card.faces:
-        raise HTTPException(status_code=404, detail="Card has no faces data")
+    if cache_key in _search_cache:
+        cached_results = _search_cache[cache_key]
+    else:
+        # 1. Get the target card to find its embedding
+        target_card = db.get(Card, card_id)
+        if not target_card:
+            raise HTTPException(status_code=404, detail="Card not found")
         
-    if face_index >= len(target_card.faces):
-         raise HTTPException(status_code=400, detail="Invalid face_index")
-
-    target_face = target_card.faces[face_index]
-    if target_face.embedding is None:
-        raise HTTPException(status_code=400, detail="Card face has no embedding for comparison")
-
-    # 2. Build Query
-    # We search for Faces, but join Card to get parent info
-    distance_col = CardFace.embedding.cosine_distance(target_face.embedding).label("distance")
-    
-    query = (
-        db.query(CardFace, Card, distance_col)
-        .join(Card, CardFace.card_id == Card.id)
-        .filter(Card.id != card_id) # Exclude the source card entirely
-    )
-
-    # 3. Apply Filters
-    if card_type:
-        types = [t.strip() for t in card_type.split(",") if t.strip()]
-        # Filter on CardFace.type_line
-        type_filters = [CardFace.type_line.ilike(f"%{t}%") for t in types]
-        if type_filters:
-            query = query.filter(or_(*type_filters))
-
-    if colors:
-        # Strict text match on colors JSON for now, or implement containment
-        pass 
-
-    # 4. Order by Vector Distance
-    query = query.order_by(distance_col.asc())
-    
-    # 5. Pagination
-    query = query.offset(offset).limit(limit)
-    
-    results = query.all()
+        if not target_card.faces:
+            raise HTTPException(status_code=404, detail="Card has no faces data")
             
-    # 6. Format Response
-    output = []
-    for face, card, distance in results:
-        similarity = 1 - distance
+        if face_index >= len(target_card.faces):
+             raise HTTPException(status_code=400, detail="Invalid face_index")
+
+        target_face = target_card.faces[face_index]
+        if target_face.embedding is None:
+            raise HTTPException(status_code=400, detail="Card face has no embedding for comparison")
+
+        # 2. Build Query for IDs only
+        distance_col = CardFace.embedding.cosine_distance(target_face.embedding).label("distance")
         
-        output.append(SimilarCard(
-            id=card.id,
-            name=face.name,
-            card_name=card.name,
-            similarity=similarity,
-            rank=card.edhrec_rank,
-            type_line=face.type_line,
-            mana_cost=face.mana_cost,
-            oracle_text=face.oracle_text,
-            power=face.power,
-            toughness=face.toughness,
-            rarity=card.rarity,
-            colors=face.colors,
-            legalities=card.legalities
-        ))
+        query = (
+            db.query(CardFace.id, distance_col)
+            .join(Card, CardFace.card_id == Card.id)
+            .filter(Card.id != card_id) # Exclude the source card entirely
+        )
+
+        # 3. Apply Filters
+        if card_type:
+            types = [t.strip() for t in card_type.split(",") if t.strip()]
+            # Filter on CardFace.type_line
+            type_filters = [CardFace.type_line.ilike(f"%{t}%") for t in types]
+            if type_filters:
+                query = query.filter(or_(*type_filters))
+
+        if colors:
+            # Strict text match on colors JSON for now, or implement containment
+            pass 
+
+        # 4. Order by Similarity (rounded to 3 decimals) desc, then Name asc
+        query = query.order_by(
+            func.round(cast(1 - distance_col, Numeric), 3).desc(),
+            CardFace.name.asc()
+        )
+        
+        # 5. Fetch larger batch for caching
+        query = query.limit(1000)
+        
+        raw_results = query.all()
+        cached_results = [(r[0], r[1]) for r in raw_results]
+        _search_cache[cache_key] = cached_results
+        
+    # 6. Pagination from Cache
+    sliced_results = cached_results[offset : offset + limit]
+    
+    if not sliced_results:
+        return []
+
+    # 7. Hydrate full card details
+    target_ids = [r[0] for r in sliced_results]
+    id_to_dist = {r[0]: r[1] for r in sliced_results}
+    
+    cards_data = (
+        db.query(CardFace, Card)
+        .join(Card, CardFace.card_id == Card.id)
+        .filter(CardFace.id.in_(target_ids))
+        .all()
+    )
+    
+    cards_map = {face.id: (face, card) for face, card in cards_data}
+            
+    # 8. Format Response
+    output = []
+    for face_id in target_ids:
+        if face_id in cards_map:
+            face, card = cards_map[face_id]
+            distance = id_to_dist[face_id]
+            similarity = 1 - distance
+            
+            output.append(SimilarCard(
+                id=card.id,
+                name=face.name,
+                card_name=card.name,
+                similarity=similarity,
+                rank=card.edhrec_rank,
+                type_line=face.type_line,
+                mana_cost=face.mana_cost,
+                oracle_text=face.oracle_text,
+                power=face.power,
+                toughness=face.toughness,
+                layout=card.layout,
+                rarity=card.rarity,
+                colors=face.colors,
+                legalities=card.legalities
+            ))
     
     return output
 
@@ -257,67 +297,104 @@ def search_oracle_text(
 ):
     """
     Search for cards by oracle text using vector similarity.
-    Generates an embedding for the query on the fly.
+    Uses caching to speed up pagination.
     """
     if not q.strip():
         return []
         
-    # 1. Preprocess and Embed Query
-    expanded_query = expand_symbols(q)
-    if not expanded_query.strip():
-        return []
-
-    if _model is None:
-         raise HTTPException(status_code=503, detail="Model not loaded yet")
-         
-    query_embedding = _model.encode(expanded_query, convert_to_tensor=False).tolist()
-
-    # 2. Build Query
-    distance_col = CardFace.embedding.cosine_distance(query_embedding).label("distance")
+    # Check Cache First
+    cache_key = (q.strip(), card_type, colors)
     
-    query = (
-        db.query(CardFace, Card, distance_col)
-        .join(Card, CardFace.card_id == Card.id)
-    )
+    if cache_key in _search_cache:
+        cached_results = _search_cache[cache_key]
+    else:
+        # 1. Preprocess and Embed Query
+        expanded_query = expand_symbols(q)
+        if not expanded_query.strip():
+            return []
 
-    # 3. Apply Filters
-    if card_type:
-        types = [t.strip() for t in card_type.split(",") if t.strip()]
-        type_filters = [CardFace.type_line.ilike(f"%{t}%") for t in types]
-        if type_filters:
-            query = query.filter(or_(*type_filters))
+        if _model is None:
+             raise HTTPException(status_code=503, detail="Model not loaded yet")
+             
+        query_embedding = _model.encode(expanded_query, convert_to_tensor=False).tolist()
 
-    if colors:
-        # Strict text match on colors JSON for now
-        pass 
-
-    # 4. Order by Vector Distance
-    query = query.order_by(distance_col.asc())
-    
-    # 5. Pagination
-    query = query.offset(offset).limit(limit)
-    
-    results = query.all()
-            
-    # 6. Format Response
-    output = []
-    for face, card, distance in results:
-        similarity = 1 - distance
+        # 2. Build Query for IDs only (Lightweight)
+        distance_col = CardFace.embedding.cosine_distance(query_embedding).label("distance")
         
-        output.append(SimilarCard(
-            id=card.id,
-            name=face.name,
-            card_name=card.name,
-            similarity=similarity,
-            rank=card.edhrec_rank,
-            type_line=face.type_line,
-            mana_cost=face.mana_cost,
-            oracle_text=face.oracle_text,
-            power=face.power,
-            toughness=face.toughness,
-            rarity=card.rarity,
-            colors=face.colors,
-            legalities=card.legalities
-        ))
+        query = (
+            db.query(CardFace.id, distance_col)
+            .join(Card, CardFace.card_id == Card.id)
+        )
+
+        # 3. Apply Filters
+        if card_type:
+            types = [t.strip() for t in card_type.split(",") if t.strip()]
+            type_filters = [CardFace.type_line.ilike(f"%{t}%") for t in types]
+            if type_filters:
+                query = query.filter(or_(*type_filters))
+
+        if colors:
+            # Strict text match on colors JSON for now
+            pass 
+
+        # 4. Order by Similarity (rounded to 3 decimals) desc, then Name asc
+        query = query.order_by(
+            func.round(cast(1 - distance_col, Numeric), 3).desc(),
+            CardFace.name.asc()
+        )
+        
+        # 5. Fetch larger batch for caching (e.g., top 1000)
+        # This covers most pagination needs without re-querying vector index
+        query = query.limit(1000)
+        
+        raw_results = query.all()
+        # Store list of (id, distance)
+        cached_results = [(r[0], r[1]) for r in raw_results]
+        _search_cache[cache_key] = cached_results
+
+    # 6. Pagination from Cache
+    sliced_results = cached_results[offset : offset + limit]
+    
+    if not sliced_results:
+        return []
+        
+    # 7. Hydrate full card details
+    target_ids = [r[0] for r in sliced_results]
+    id_to_dist = {r[0]: r[1] for r in sliced_results}
+    
+    # Fetch full objects for the slice
+    cards_data = (
+        db.query(CardFace, Card)
+        .join(Card, CardFace.card_id == Card.id)
+        .filter(CardFace.id.in_(target_ids))
+        .all()
+    )
+    
+    # Map back to preserve order
+    cards_map = {face.id: (face, card) for face, card in cards_data}
+
+    output = []
+    for face_id in target_ids:
+        if face_id in cards_map:
+            face, card = cards_map[face_id]
+            distance = id_to_dist[face_id]
+            similarity = 1 - distance
+            
+            output.append(SimilarCard(
+                id=card.id,
+                name=face.name,
+                card_name=card.name,
+                similarity=similarity,
+                rank=card.edhrec_rank,
+                type_line=face.type_line,
+                mana_cost=face.mana_cost,
+                oracle_text=face.oracle_text,
+                power=face.power,
+                toughness=face.toughness,
+                layout=card.layout,
+                rarity=card.rarity,
+                colors=face.colors,
+                legalities=card.legalities
+            ))
     
     return output

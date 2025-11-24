@@ -40,6 +40,7 @@ class Card(Base):
     
     # Basic Card Data (Shared)
     name: Mapped[str] = mapped_column(String, index=True)
+    layout: Mapped[str | None] = mapped_column(String, nullable=True)
     
     # Some stats are per-card (like rank, rarity, legality)
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -54,6 +55,7 @@ class Card(Base):
         return {
             "id": self.id,
             "name": self.name,
+            "layout": self.layout,
             "edhrec_rank": self.edhrec_rank,
             "rarity": self.rarity,
             "legalities": self.legalities,

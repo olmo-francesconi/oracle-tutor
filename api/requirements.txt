@@ -13,6 +13,7 @@ psycopg2-binary
 pgvector
 alembic  # For database migrations
 sentence-transformers
+cachetools
 
 pytest
 httpx
