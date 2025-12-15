@@ -16,11 +16,20 @@ A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
     ```bash
     cd api
     ```
-3.  Install the dependencies:
+3.  Install `uv` (once):
     ```bash
-    pip install -r requirements.txt
+    # macOS (Homebrew)
+    brew install uv
+
+    # Or via the official installer (macOS/Linux)
+    # curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
-    *(Recommended: use a virtual environment)*
+4.  Create a virtual environment and install dependencies:
+    ```bash
+    uv venv
+    uv pip install -r requirements.txt
+    uv pip install -e .
+    ```
 
 ## Quick Start
 
