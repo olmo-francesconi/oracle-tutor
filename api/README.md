@@ -14,6 +14,15 @@ This folder contains a minimal FastAPI service managed by **uv**.
 - **Run the API**:
   - `uv run uvicorn oracle_tutor_api.main:app --reload --host 0.0.0.0 --port 8000`
 
+### Tests
+
+- **Install test deps**:
+  - `cd api`
+  - `uv sync --group test`
+
+- **Run**:
+  - `uv run pytest`
+
 Endpoints:
 - `GET /` -> basic service info
 - `GET /health` -> health check
