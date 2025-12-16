@@ -49,10 +49,8 @@ EXPOSE 8000
 USER app
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import os,urllib.request; port=os.getenv('PORT','8000'); urls=[f'http://127.0.0.1:{port}/health', f'http://[::1]:{port}/health']; last=None\nfor u in urls:\n  try:\n    urllib.request.urlopen(u, timeout=2).read(); raise SystemExit(0)\n  except Exception as e:\n    last=e\nraise SystemExit(1)" || exit 1
+  CMD python -c "import os,urllib.request; port=os.getenv('PORT','8000'); urllib.request.urlopen('http://127.0.0.1:%s/health'%port).read()" || exit 1
 
-# Bind to IPv6 any-address. On Linux this is typically dual-stack (accepts IPv4-mapped too),
-# which avoids intermittent failures when upstream resolves to an IPv6 address.
-CMD ["sh", "-c", "uvicorn oracle_tutor_api.main:app --host :: --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn oracle_tutor_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 
