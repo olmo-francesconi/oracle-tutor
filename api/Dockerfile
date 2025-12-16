@@ -38,7 +38,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN set -eux; \
     groupadd -r app && useradd -r -g app -d /app -s /usr/sbin/nologin app; \
-    mkdir -p /app/data
+    mkdir -p /app/data; \
+    chown -R app:app /app/data
 
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
 COPY --chown=app:app src ./src
