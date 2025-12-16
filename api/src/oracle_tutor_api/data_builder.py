@@ -43,7 +43,10 @@ def _validate_scryfall_download_url(download_url: str) -> None:
     host = (parsed.hostname or "").lower()
     if scheme != "https":
         raise ValueError(f"Refusing non-https download URL: {download_url}")
-    if not host or not (host == "scryfall.com" or host.endswith(".scryfall.com")):
+    # Scryfall's bulk files are commonly hosted on `data.scryfall.io`, and may also be served
+    # from other subdomains. Allow both `scryfall.com` and `scryfall.io` domains/subdomains.
+    allowed_roots = ("scryfall.com", "scryfall.io")
+    if not host or not any(host == root or host.endswith(f".{root}") for root in allowed_roots):
         raise ValueError(f"Refusing non-scryfall download host: {download_url}")
 
 
