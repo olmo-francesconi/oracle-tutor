@@ -11,12 +11,8 @@ import { getCardImageUrl } from '../utils';
 
 export function CardPage() {
   const { id } = useParams<{ id: string }>();
-  const [selectedCard, setSelectedCard] = useState<SimilarCard | null>(null);
-
-  // Reset selected card when ID changes (i.e. when navigating to a new main card)
-  useEffect(() => {
-    setSelectedCard(null);
-  }, [id]);
+  const [selected, setSelected] = useState<{ routeId: string; card: SimilarCard } | null>(null);
+  const selectedCard = selected?.routeId === (id ?? '') ? selected.card : null;
 
   const { data: card, isLoading: cardLoading, error: cardError } = useQuery({
     queryKey: ['card', id],
@@ -60,7 +56,7 @@ export function CardPage() {
   // Handle keyboard ESC to close overlay
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedCard(null);
+      if (e.key === 'Escape') setSelected(null);
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
@@ -85,7 +81,7 @@ export function CardPage() {
       {selectedCard && (
         <CardOverlay 
           card={selectedCard} 
-          onClose={() => setSelectedCard(null)} 
+          onClose={() => setSelected(null)} 
         />
       )}
 
@@ -101,7 +97,7 @@ export function CardPage() {
           <div 
              className="relative aspect-[5/7] w-full mb-5 overflow-hidden bg-[#f0f0f0] shadow-lg ring-1 ring-black/5 cursor-pointer hover:ring-black/10 transition-all hover:scale-[1.02]" 
              style={{ borderRadius: '4.5% / 3.21%' }}
-             onClick={() => setSelectedCard({ ...card, similarity: 1 } as SimilarCard)}
+             onClick={() => setSelected({ routeId: id ?? '', card: { ...card, similarity: 1 } as SimilarCard })}
           >
              <CardImage 
                 src={mainCardImageUrl} 
@@ -145,7 +141,7 @@ export function CardPage() {
         isFetchingNextPage={isFetchingNextPage}
         hasNextPage={!!hasNextPage}
         fetchNextPage={fetchNextPage}
-        onCardClick={setSelectedCard}
+        onCardClick={(c) => setSelected({ routeId: id ?? '', card: c })}
       />
     </div>
   );

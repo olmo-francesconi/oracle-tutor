@@ -12,6 +12,8 @@ export function SearchBar() {
   const navigate = useNavigate();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const effectiveFocusedIndex =
+    focusedIndex >= 0 && focusedIndex < suggestions.length ? focusedIndex : -1;
 
   // Handle clicking outside
   useEffect(() => {
@@ -24,22 +26,17 @@ export function SearchBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Reset focused index when suggestions change
-  useEffect(() => {
-    setFocusedIndex(-1);
-  }, [suggestions]);
-
   // Scroll focused item into view
   useEffect(() => {
-    if (focusedIndex >= 0 && listRef.current) {
+    if (effectiveFocusedIndex >= 0 && listRef.current) {
       const listItems = listRef.current.children;
-      if (listItems[focusedIndex]) {
-        (listItems[focusedIndex] as HTMLElement).scrollIntoView({
+      if (listItems[effectiveFocusedIndex]) {
+        (listItems[effectiveFocusedIndex] as HTMLElement).scrollIntoView({
           block: 'nearest',
         });
       }
     }
-  }, [focusedIndex]);
+  }, [effectiveFocusedIndex]);
 
   // Simple debounce effect
   useEffect(() => {
@@ -78,22 +75,26 @@ export function SearchBar() {
       if (suggestions.length > 0) {
         e.preventDefault();
         setFocusedIndex(prev => {
-          if (prev === suggestions.length - 1) return 0; // Wrap to top
-          return prev + 1;
+          const cur = prev >= 0 && prev < suggestions.length ? prev : -1;
+          if (cur === suggestions.length - 1) return 0; // Wrap to top
+          return cur + 1;
         });
       }
     } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
       if (suggestions.length > 0) {
         e.preventDefault();
-        if (focusedIndex === -1) return;
-        setFocusedIndex(prev => prev === 0 ? -1 : prev - 1);
+        if (effectiveFocusedIndex === -1) return;
+        setFocusedIndex(prev => {
+          const cur = prev >= 0 && prev < suggestions.length ? prev : -1;
+          return cur === 0 ? -1 : cur - 1;
+        });
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
       
-      if (isOpen && focusedIndex >= 0 && focusedIndex < suggestions.length) {
+      if (isOpen && effectiveFocusedIndex >= 0 && effectiveFocusedIndex < suggestions.length) {
         // User selected a suggestion with keys
-        handleSelect(suggestions[focusedIndex].id);
+        handleSelect(suggestions[effectiveFocusedIndex].id);
       } else {
         // Check for exact match
         const exactMatch = suggestions.find(
@@ -139,13 +140,13 @@ export function SearchBar() {
               key={card.id}
               onClick={() => handleSelect(card.id)}
               onMouseMove={() => {
-                if (focusedIndex !== index) {
+                if (effectiveFocusedIndex !== index) {
                   setFocusedIndex(index);
                 }
               }}
               className={`p-4 cursor-pointer transition-colors border-b border-[#f5f5f5] last:border-b-0 text-[#1c1c1c]
                 ${index === suggestions.length - 1 ? 'rounded-b-xl' : ''}
-                ${index === focusedIndex ? 'bg-[#f0f0f0]' : ''}
+                ${index === effectiveFocusedIndex ? 'bg-[#f0f0f0]' : ''}
               `}
             >
               <div className="font-medium text-[1rem]">{card.name}</div>

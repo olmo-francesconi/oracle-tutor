@@ -1,18 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ImageOff } from 'lucide-react';
 
-interface CardImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
-  // No special props needed beyond standard img props for now
-}
+type CardImageProps = React.ImgHTMLAttributes<HTMLImageElement>;
 
 export function CardImage({ src, alt, className, ...props }: CardImageProps) {
-  const [error, setError] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const hasError = !!src && failedSrc === src;
 
-  useEffect(() => {
-    setError(false);
-  }, [src]);
-
-  if (error) {
+  if (hasError) {
     return (
       <div 
         className={`flex flex-col items-center justify-center bg-[#1c1c1c] border border-white/10 text-white/20 select-none ${className}`}
@@ -32,7 +27,7 @@ export function CardImage({ src, alt, className, ...props }: CardImageProps) {
       src={src}
       alt={alt}
       className={className}
-      onError={() => setError(true)}
+      onError={() => setFailedSrc(src ?? null)}
       {...props}
     />
   );

@@ -28,7 +28,6 @@ export function CardGrid({
 }: CardGridProps) {
   const [isAnimating, setIsAnimating] = useState(false);
   const [isLoaderInView, setIsLoaderInView] = useState(false);
-  const prevCardsLength = useRef(cards.length);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Scroll to top when search query changes
@@ -38,21 +37,13 @@ export function CardGrid({
     }
   }, [searchQuery]);
 
-  // Lock infinite scroll when we receive new cards until they animate in
-  useEffect(() => {
-    // If we have more cards than before, lock animation
-    if (cards.length > prevCardsLength.current) {
-      setIsAnimating(true);
-    }
-    prevCardsLength.current = cards.length;
-  }, [cards.length]);
-
-  // Trigger infinite scroll
-  useEffect(() => {
-    if (!isAnimating && isLoaderInView && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [isAnimating, isLoaderInView, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const startNextPageFetch = () => {
+    if (isAnimating) return;
+    if (!hasNextPage) return;
+    if (isFetchingNextPage) return;
+    setIsAnimating(true);
+    fetchNextPage();
+  };
 
   // Initial loading state is now handled inside the main return to preserve the scroll container ref
   const showInitialLoader = isLoading && cards.length === 0;
@@ -95,7 +86,12 @@ export function CardGrid({
                 onAnimationComplete={() => {
                   // Release lock when the last item of the CURRENT BATCH finishes animating
                   if (index === cards.length - 1) {
-                    setIsAnimating(false);
+                    if (isLoaderInView && hasNextPage && !isFetchingNextPage) {
+                      // Keep lock and immediately request the next page if the loader is still visible.
+                      fetchNextPage();
+                    } else {
+                      setIsAnimating(false);
+                    }
                   }
                 }}
               >
@@ -129,7 +125,10 @@ export function CardGrid({
           {/* Loading Indicator / Infinite Scroll Trigger */}
           <motion.div 
             className="flex justify-center py-8"
-            onViewportEnter={() => setIsLoaderInView(true)}
+            onViewportEnter={() => {
+              setIsLoaderInView(true);
+              startNextPageFetch();
+            }}
             onViewportLeave={() => setIsLoaderInView(false)}
             viewport={{ margin: "200px" }} // Preload
           >

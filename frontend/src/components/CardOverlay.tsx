@@ -1,7 +1,7 @@
 import { X, Search, RefreshCw } from 'lucide-react';
 import { CardImage } from './CardImage';
 import { Link } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getCard } from '../api';
 import { getCardImageUrl } from '../utils';
@@ -13,7 +13,7 @@ interface CardOverlayProps {
 }
 
 export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
-  const [faceIndex, setFaceIndex] = useState<number | null>(null);
+  const [userFaceIndex, setUserFaceIndex] = useState<number | null>(null);
   const [isFlipping, setIsFlipping] = useState(false);
 
   // Fetch the full card details to get faces and correct full name
@@ -24,18 +24,14 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
   });
 
-  // Determine initial face index once full card is loaded
-  useEffect(() => {
-    if (isSuccess && fullCard && faceIndex === null) {
-      // If the card has faces, try to find which one matches our initial search result
-      if (fullCard.faces && fullCard.faces.length > 0) {
-        const matchingIndex = fullCard.faces.findIndex(f => f.name === initialCard.name);
-        setFaceIndex(matchingIndex !== -1 ? matchingIndex : 0);
-      } else {
-        setFaceIndex(0);
-      }
+  const initialFaceIndex = useMemo(() => {
+    if (!isSuccess || !fullCard) return 0;
+    if (fullCard.faces && fullCard.faces.length > 0) {
+      const matchingIndex = fullCard.faces.findIndex(f => f.name === initialCard.name);
+      return matchingIndex !== -1 ? matchingIndex : 0;
     }
-  }, [isSuccess, fullCard, initialCard.name, faceIndex]);
+    return 0;
+  }, [isSuccess, fullCard, initialCard.name]);
 
   // Lock body scroll when overlay is open
   useEffect(() => {
@@ -54,7 +50,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
   const isSharedFace = fullCard?.faces && fullCard.faces.length > 1 && !isDoubleSided;
 
   const hasMultipleFaces = fullCard?.faces && fullCard.faces.length > 1 && isDoubleSided;
-  const currentFaceIdx = faceIndex ?? 0;
+  const currentFaceIdx = userFaceIndex ?? initialFaceIndex;
   
   // Resolve displayed data
   let displayData = initialCard;
@@ -84,7 +80,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
   
   // Construct Image URL dynamically
   let imageUrl = '';
-  if (hasMultipleFaces && faceIndex !== null) {
+  if (hasMultipleFaces) {
     const side = currentFaceIdx === 0 ? 'front' : 'back';
     const id = fullCard.id;
     imageUrl = `https://cards.scryfall.io/normal/${side}/${id[0]}/${id[1]}/${id}.jpg`;
@@ -96,7 +92,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
     if (hasMultipleFaces && !isFlipping) {
       setIsFlipping(true);
       setTimeout(() => {
-        setFaceIndex(prev => (prev === 0 ? 1 : 0));
+        setUserFaceIndex(prev => ((prev ?? currentFaceIdx) === 0 ? 1 : 0));
       }, 125);
       setTimeout(() => {
         setIsFlipping(false);
