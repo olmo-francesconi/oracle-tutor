@@ -18,6 +18,8 @@ def expand_symbols(text: str, card_name: str | None = None) -> str:
     """
     if not text:
         return ""
+    
+    text = strip_reminder_text(text)
 
     if card_name:
         text = text.replace(card_name, "this card")
@@ -25,8 +27,6 @@ def expand_symbols(text: str, card_name: str | None = None) -> str:
             short_name = card_name.split(",")[0].strip()
             if len(short_name) > 2:
                 text = text.replace(short_name, "this card")
-
-    text = strip_reminder_text(text)
 
     # Ensure newline-separated abilities become sentence-ish for tokenization.
     lines = [line.strip() for line in text.split("\n") if line.strip()]

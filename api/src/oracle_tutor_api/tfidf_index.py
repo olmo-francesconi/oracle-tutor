@@ -4,7 +4,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Iterable, List, Optional, Tuple, cast
 
 from cachetools import TTLCache
 import numpy as np
@@ -30,8 +30,8 @@ def _parse_colors(colors: str | None) -> set[str]:
 @dataclass
 class TfidfIndex:
     vectorizer: TfidfVectorizer
-    matrix_raw: object  # scipy sparse matrix, NOT normalized (norm=None)
-    matrix_l2: object  # scipy sparse matrix, L2-normalized rows
+    matrix_raw: Any  # scipy sparse matrix, NOT normalized (norm=None)
+    matrix_l2: Any  # scipy sparse matrix, L2-normalized rows
     face_ids: List[int]
     face_card_ids: List[str]
     face_names: List[str]
@@ -111,11 +111,12 @@ class TfidfIndex:
             # Match-only cosine similarity:
             # - dot uses full vectors (query has only its own terms)
             # - doc norm only considers query term dimensions, so extra oracle text doesn't penalize.
-            q_vec = self.vectorizer.transform([q])
+            q_vec = cast(Any, self.vectorizer.transform([q]))
             if q_vec.nnz == 0:
                 return []
 
-            dot = (q_vec @ self.matrix_raw.T)
+            matrix_raw = cast(Any, self.matrix_raw)
+            dot = (q_vec @ matrix_raw.T)
             try:
                 dot_scores = dot.A1  # (n_docs,)
             except Exception:
@@ -129,7 +130,7 @@ class TfidfIndex:
             if q_term_idx.size == 0:
                 return []
 
-            docs_q = self.matrix_raw[:, q_term_idx]
+            docs_q = matrix_raw[:, q_term_idx]
             doc_match_sq = docs_q.multiply(docs_q).sum(axis=1)
             doc_match_norm = np.sqrt(np.asarray(doc_match_sq).ravel())
 
@@ -167,8 +168,9 @@ class TfidfIndex:
             except ValueError:
                 return []
 
-            seed_vec = self.matrix_l2[seed_idx]
-            scores = linear_kernel(seed_vec, self.matrix_l2).ravel()
+            matrix_l2 = cast(Any, self.matrix_l2)
+            seed_vec = matrix_l2[seed_idx]
+            scores = linear_kernel(seed_vec, matrix_l2).ravel()
 
             mask = self._filter_mask(exclude_card_id=exclude_card_id, card_type=card_type, colors=colors)
             # Also exclude the seed face itself.
@@ -285,12 +287,13 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     max_df_env = _parse_max_df(os.getenv("TFIDF_MAX_DF", "0.98"))
 
     vectorizer = TfidfVectorizer(
-        analyzer=make_mtg_analyzer((1, 2)),
+        # sklearn stubs used by Pyright can be overly strict here; at runtime a callable analyzer is valid.
+        analyzer=cast(Any, make_mtg_analyzer((1, 2))),
         lowercase=False,  # we lowercase in tokenizer
         min_df=1,  # will be overwritten after docs are aligned
         max_df=1.0,  # will be overwritten after docs are aligned
         sublinear_tf=True,
-        norm=None,  # normalize explicitly so oracle search can use match-only norms
+        norm=cast(Any, None),  # normalize explicitly so oracle search can use match-only norms
     )
     # Keep 1 doc per face. If a doc is empty/untokenizable, use a placeholder so indices align.
     if not docs:
@@ -308,12 +311,13 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
             e,
         )
         safe_vectorizer = TfidfVectorizer(
-            analyzer=make_mtg_analyzer((1, 2)),
+            # sklearn stubs used by Pyright can be overly strict here; at runtime a callable analyzer is valid.
+            analyzer=cast(Any, make_mtg_analyzer((1, 2))),
             lowercase=False,
             min_df=1,
             max_df=1.0,
             sublinear_tf=True,
-            norm=None,
+            norm=cast(Any, None),
         )
         vectorizer = safe_vectorizer
         matrix_raw = vectorizer.fit_transform(["__empty__"])
