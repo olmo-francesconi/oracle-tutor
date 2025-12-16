@@ -19,7 +19,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 ENV UV_CACHE_DIR=/root/.cache/uv
 
 # If uv.lock is present, use a frozen install; otherwise resolve from pyproject.toml.
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=api-uv-cache,target=/root/.cache/uv \
     if [ -f uv.lock ]; then uv sync --active --frozen --no-install-project; else uv sync --active --no-install-project; fi
 
 # App source (kept separate from deps for cache-friendliness).
