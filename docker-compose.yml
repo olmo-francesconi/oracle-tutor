@@ -13,13 +13,10 @@ services:
 
   api:
     build: ./api
-    # ports:
-    #   - "8000:8000"
     volumes:
       - ./api/data:/app/data
       - ./api/tests:/app/tests
       - ./api/src:/app/src
-    command: uvicorn oracle_tutor_api.api:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - ORACLE_TUTOR_API_UPDATE_HOUR=2
       # Database connection details
@@ -32,25 +29,25 @@ services:
       - db
     restart: unless-stopped
 
-  worker:
-    build:
-      context: ./api
-      dockerfile: Dockerfile.worker
-    volumes:
-      - ./api/data:/app/data
-      - ./api/src:/app/src
-    environment:
-      - ORACLE_TUTOR_API_UPDATE_HOUR=2
-      - RUN_ON_STARTUP=true
-      # Connect to the same DB
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=mtg_search
-      - DB_USER=oracle
-      - DB_PASSWORD=secret_password
-    depends_on:
-      - db
-    restart: unless-stopped
+  # worker:
+  #   build:
+  #     context: ./api
+  #     dockerfile: Dockerfile.worker
+  #   volumes:
+  #     - ./api/data:/app/data
+  #     - ./api/src:/app/src
+  #   environment:
+  #     - ORACLE_TUTOR_API_UPDATE_HOUR=2
+  #     - RUN_ON_STARTUP=true
+  #     # Connect to the same DB
+  #     - DB_HOST=db
+  #     - DB_PORT=5432
+  #     - DB_NAME=mtg_search
+  #     - DB_USER=oracle
+  #     - DB_PASSWORD=secret_password
+  #   depends_on:
+  #     - db
+  #   restart: unless-stopped
 
   frontend:
     build: ./frontend
