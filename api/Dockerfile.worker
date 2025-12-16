@@ -11,8 +11,7 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 ENV UV_CACHE_DIR=/root/.cache/uv
 
-RUN --mount=type=cache,id=api-worker-uv-cache,target=/root/.cache/uv \
-    if [ -f uv.lock ]; then uv sync --active --frozen --no-install-project; else uv sync --active --no-install-project; fi
+RUN if [ -f uv.lock ]; then uv sync --active --frozen --no-install-project; else uv sync --active --no-install-project; fi
 
 COPY src ./src
 
