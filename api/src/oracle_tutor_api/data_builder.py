@@ -6,6 +6,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import ijson
 import requests
@@ -31,6 +32,21 @@ def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _validate_scryfall_download_url(download_url: str) -> None:
+    """
+    Defensive guardrail: ensure we only download from Scryfall over HTTPS.
+
+    This reduces SSRF risk in case the upstream metadata response is ever tampered with.
+    """
+    parsed = urlparse(download_url)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    if scheme != "https":
+        raise ValueError(f"Refusing non-https download URL: {download_url}")
+    if not host or not (host == "scryfall.com" or host.endswith(".scryfall.com")):
+        raise ValueError(f"Refusing non-scryfall download host: {download_url}")
+
+
 def fetch_bulk_metadata(url: str = BULK_DATA_URL) -> Dict[str, Any]:
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
@@ -54,8 +70,11 @@ def load_local_metadata() -> Optional[Dict[str, Any]]:
 
 def download_bulk_file(download_url: str, destination: Path = CARDS_JSON) -> None:
     logger.info("Downloading bulk data...")
-    with requests.get(download_url, stream=True, timeout=60) as resp:
+    _validate_scryfall_download_url(download_url)
+    with requests.get(download_url, stream=True, timeout=60, allow_redirects=True) as resp:
         resp.raise_for_status()
+        # If we were redirected, ensure the final host is still allowed.
+        _validate_scryfall_download_url(resp.url)
         with destination.open("wb") as out:
             for chunk in resp.iter_content(chunk_size=1_048_576):
                 if chunk:

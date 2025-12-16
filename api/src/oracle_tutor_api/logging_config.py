@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from functools import wraps
@@ -26,19 +27,49 @@ def _file_handler(filename: str) -> logging.Handler:
     return handler
 
 
+def _is_production() -> bool:
+    env = os.getenv("ORACLE_TUTOR_API_ENV", "development").lower()
+    if env in ("prod", "production"):
+        return True
+    if any(
+        os.getenv(k)
+        for k in (
+            "RAILWAY_ENVIRONMENT",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_PUBLIC_DOMAIN",
+        )
+    ):
+        return True
+    return False
+
+
+def _log_to_files() -> bool:
+    """
+    Default to stdout-only in production (Railway-friendly).
+    Set ORACLE_TUTOR_LOG_TO_FILES=true to also write /app/data/*.log.
+    """
+    explicit = os.getenv("ORACLE_TUTOR_LOG_TO_FILES")
+    if explicit is not None:
+        return explicit.lower() in ("1", "true", "yes")
+    return not _is_production()
+
+
 def setup_loggers() -> None:
     """Configure a small set of named loggers used across api/worker/ingestion."""
     console = _console_handler()
-    api_file = _file_handler("api.log")
-    update_file = _file_handler("update.log")
+    write_files = _log_to_files()
+    api_file = _file_handler("api.log") if write_files else None
+    update_file = _file_handler("update.log") if write_files else None
 
-    def configure(name: str, level: int, file_handler: logging.Handler) -> None:
+    def configure(name: str, level: int, file_handler: logging.Handler | None) -> None:
         logger = logging.getLogger(name)
         logger.setLevel(level)
         logger.propagate = False
         if logger.handlers:
             logger.handlers.clear()
-        logger.addHandler(file_handler)
+        if file_handler is not None:
+            logger.addHandler(file_handler)
         logger.addHandler(console)
 
     configure("oracle_tutor_api.api", logging.INFO, api_file)

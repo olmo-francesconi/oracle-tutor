@@ -81,6 +81,54 @@ The frontend features:
 - Beautiful, responsive UI
 - See [frontend/README.md](frontend/README.md) for more details
 
+## Railway Deployment Checklist
+
+This repo is designed to deploy on Railway as **three services** (Frontend + API + Worker) plus **Railway Postgres**.
+
+### 1) Create resources
+
+- **Postgres**: add a Railway Postgres database to the project.
+- **API service**: build from [`api/Dockerfile`](api/Dockerfile).
+- **Worker service** (scheduled ingestion): build from [`api/Dockerfile.worker`](api/Dockerfile.worker).
+- **Frontend service**: build from [`frontend/Dockerfile`](frontend/Dockerfile) (nginx runtime serves `dist/` and proxies `/api`).
+
+### 2) Set environment variables
+
+Set these in Railway (do not rely on local defaults):
+
+- **API service**
+  - `DATABASE_URL` = Railway Postgres connection string
+  - `ORACLE_TUTOR_API_ENV=production`
+  - `ORACLE_TUTOR_API_UPDATE_ENABLED=false` (recommended; run ingestion in Worker)
+  - *(optional)* `ORACLE_TUTOR_API_CORS_ORIGINS=` leave unset for same-origin; if you ever need cross-origin, set a comma-separated allowlist.
+  - *(optional)* `ORACLE_TUTOR_LOG_TO_FILES=true` only if you want `/app/data/*.log` in addition to stdout.
+  - `PORT` is injected by Railway automatically; the Dockerfile listens on it.
+
+- **Worker service**
+  - `DATABASE_URL` = same Railway Postgres connection string
+  - `ORACLE_TUTOR_API_ENV=production`
+  - `ORACLE_TUTOR_API_UPDATE_HOUR=2` (optional)
+  - `RUN_ON_STARTUP=true` (optional; runs a first update immediately)
+
+- **Frontend service**
+  - `API_PROXY_TARGET` = the API service internal URL (or your private service DNS if you use one)
+  - `PORT` is typically injected by Railway automatically (nginx listens on `${PORT}`).
+
+### 3) Confirm routing (same-origin)
+
+- Frontend should call the API as **`/api/...`** (same-origin).
+- Nginx in the frontend container rewrites `/api/<path>` → `/<path>` and proxies to `API_PROXY_TARGET`.
+
+### 4) Health checks / smoke tests
+
+- **API**: `GET /health` returns `{"status":"ok"}`.
+- **Frontend**: loads and can query suggestions (network call should be to `/api/suggest-names?...`).
+
+### 5) Operational gotchas (recommended defaults)
+
+- **Do not run the scheduler in the API service** on Railway (it can duplicate work across restarts/replicas). Keep scheduled ingestion in the Worker.
+- **DATABASE_URL is required on Railway**: the API treats Railway as production to avoid insecure defaults.
+
 ## Daily Updates
 
 The card database can be automatically updated daily to stay in sync with Scryfall's latest data. When updates are available, the system will:

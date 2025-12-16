@@ -2,9 +2,9 @@ services:
   db:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_DB: mtg_search
-      POSTGRES_USER: oracle
-      POSTGRES_PASSWORD: secret_password
+      POSTGRES_DB: ${DB_NAME:-mtg_search}
+      POSTGRES_USER: ${DB_USER:-oracle}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     expose:
@@ -19,38 +19,46 @@ services:
       - ./api/src:/app/src
     environment:
       - ORACLE_TUTOR_API_UPDATE_HOUR=2
+      # Mirror production: scheduler should run in the worker, not in the API process.
+      # Set ORACLE_TUTOR_API_UPDATE_ENABLED=true if you explicitly want the API to self-schedule.
+      - ORACLE_TUTOR_API_UPDATE_ENABLED=${ORACLE_TUTOR_API_UPDATE_ENABLED:-false}
+      - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
       # Database connection details
       - DB_HOST=db
       - DB_PORT=5432
-      - DB_NAME=mtg_search
-      - DB_USER=oracle
-      - DB_PASSWORD=secret_password
+      - DB_NAME=${DB_NAME:-mtg_search}
+      - DB_USER=${DB_USER:-oracle}
+      - DB_PASSWORD=${DB_PASSWORD:-secret_password}
     depends_on:
       - db
     restart: unless-stopped
 
-  # worker:
-  #   build:
-  #     context: ./api
-  #     dockerfile: Dockerfile.worker
-  #   volumes:
-  #     - ./api/data:/app/data
-  #     - ./api/src:/app/src
-  #   environment:
-  #     - ORACLE_TUTOR_API_UPDATE_HOUR=2
-  #     - RUN_ON_STARTUP=true
-  #     # Connect to the same DB
-  #     - DB_HOST=db
-  #     - DB_PORT=5432
-  #     - DB_NAME=mtg_search
-  #     - DB_USER=oracle
-  #     - DB_PASSWORD=secret_password
-  #   depends_on:
-  #     - db
-  #   restart: unless-stopped
+  worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.worker
+    volumes:
+      # Keep data directory available if you want to inspect bulk files/logs locally.
+      - ./api/data:/app/data
+      - ./api/src:/app/src
+    environment:
+      - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
+      - ORACLE_TUTOR_API_UPDATE_HOUR=${ORACLE_TUTOR_API_UPDATE_HOUR:-2}
+      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-true}
+      # Connect to the same DB
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-mtg_search}
+      - DB_USER=${DB_USER:-oracle}
+      - DB_PASSWORD=${DB_PASSWORD:-secret_password}
+    depends_on:
+      - db
+    restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: dev
     ports:
       - "5173:5173"
     environment:

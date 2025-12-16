@@ -16,9 +16,11 @@ COPY pyproject.toml uv.lock* ./
 RUN uv venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
+ENV UV_CACHE_DIR=/root/.cache/uv
 
 # If uv.lock is present, use a frozen install; otherwise resolve from pyproject.toml.
-RUN if [ -f uv.lock ]; then uv sync --active --frozen --no-install-project; else uv sync --active --no-install-project; fi
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -f uv.lock ]; then uv sync --active --frozen --no-install-project; else uv sync --active --no-install-project; fi
 
 # App source (kept separate from deps for cache-friendliness).
 COPY src ./src
@@ -32,13 +34,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:${PATH}" \
-    PYTHONPATH=/app/src
+    PYTHONPATH=/app/src \
+    PORT=8000
 
-COPY --from=builder /opt/venv /opt/venv
-COPY src ./src
+RUN set -eux; \
+    groupadd -r app && useradd -r -g app -d /app -s /usr/sbin/nologin app; \
+    mkdir -p /app/data
+
+COPY --from=builder --chown=app:app /opt/venv /opt/venv
+COPY --chown=app:app src ./src
 
 EXPOSE 8000
 
-CMD ["uvicorn", "oracle_tutor_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+USER app
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD python -c "import os,urllib.request; port=os.getenv('PORT','8000'); urllib.request.urlopen('http://127.0.0.1:%s/health'%port).read()" || exit 1
+
+CMD ["sh", "-c", "uvicorn oracle_tutor_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 

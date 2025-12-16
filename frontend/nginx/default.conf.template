@@ -1,0 +1,38 @@
+server {
+  listen ${PORT};
+
+  server_tokens off;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # Basic hardening headers (safe defaults for a static SPA).
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+  # Serve the SPA (React router) with an index.html fallback.
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  # Same-origin API proxy: frontend calls /api/*, backend expects /*.
+  location ^~ /api/ {
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_pass ${API_PROXY_TARGET};
+  }
+
+  # Cache immutable build assets aggressively.
+  location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|webp|woff2?)$ {
+    expires 30d;
+    add_header Cache-Control "public, max-age=2592000, immutable";
+    try_files $uri =404;
+  }
+}
+
+

@@ -8,5 +8,11 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 data/
+tests/
+*.log
+.git/
+.github/
+.env
+Dockerfile*
 
 
