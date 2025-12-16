@@ -85,6 +85,37 @@ def should_skip_card(card: Dict[str, Any]) -> bool:
     ]:
         return True
 
+    # Digital-only cards (Arena/Alchemy/etc).
+    #
+    # Prefer Scryfall's explicit `games` field when present: if it doesn't exist in paper,
+    # we skip it. Our bundled `cards.json` may not include `games`, so we also keep a
+    # conservative fallback heuristic below.
+    games = card.get("games")
+    if isinstance(games, list):
+        # If Scryfall tells us the card isn't in paper, treat as digital-only.
+        if "paper" not in games:
+            return True
+
+    # Arena-rebalanced cards (prefixed "A-") should be excluded.
+    name = (card.get("name") or "").strip()
+    if name.startswith("A-"):
+        return True
+    for face in (card.get("card_faces") or []):
+        face_name = (face.get("name") or "").strip()
+        if face_name.startswith("A-"):
+            return True
+
+    # Fallback: digital-only cards commonly have an `arena_id` but no paper/market identifiers.
+    # This is intentionally conservative to avoid excluding normal paper cards that also have
+    # an Arena implementation (they typically have multiverse/mtgo/market IDs).
+    if card.get("arena_id") is not None:
+        multiverse_ids = card.get("multiverse_ids") or []
+        has_paperish_ids = bool(multiverse_ids) or any(
+            card.get(k) is not None for k in ("mtgo_id", "tcgplayer_id", "cardmarket_id")
+        )
+        if not has_paperish_ids:
+            return True
+
     # Jumpstart theme/pack marker cards and similar non-game-piece records.
     # These present as `type_line: "Card"` (and for DFC variants, faces also use "Card").
     if (card.get("type_line") or "").strip() == "Card":
@@ -218,10 +249,14 @@ def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
     faces_to_insert: List[Dict[str, Any]] = []
 
     for card in batch_cards:
+        card_id = card.get("id")
+        if not isinstance(card_id, str) or not card_id:
+            # Defensive guard: Scryfall records should always have an id, but skip if malformed.
+            continue
         parents.append(prepare_parent_card(card))
         faces = card.get("card_faces") or [card]
         for face in faces:
-            faces_to_insert.append(prepare_card_face(card.get("id"), face))
+            faces_to_insert.append(prepare_card_face(card_id, face))
 
     # Upsert parents (Postgres only). For other DBs, do a slower path.
     if engine.dialect.name == "postgresql":

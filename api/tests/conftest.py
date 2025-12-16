@@ -1,4 +1,7 @@
 import os
+import sys
+from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,6 +9,10 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("TFIDF_MIN_DF", "1")
 os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
+
+# Ensure the `src/` layout package is importable when running pytest without an editable install.
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+sys.path.insert(0, str(SRC_DIR))
 
 from oracle_tutor_api.database import SessionLocal
 from oracle_tutor_api.db_init import init_db
@@ -68,7 +75,7 @@ def _seed_db() -> None:
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client() -> Generator[TestClient, None, None]:
     _seed_db()
     with TestClient(app) as c:
         yield c
