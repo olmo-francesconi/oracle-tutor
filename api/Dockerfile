@@ -18,7 +18,7 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # If uv.lock is present, use a frozen install; otherwise resolve from pyproject.toml.
-RUN if [ -f uv.lock ]; then uv sync --frozen --no-install-project; else uv sync --no-install-project; fi
+RUN if [ -f uv.lock ]; then uv sync --active --frozen --no-install-project; else uv sync --active --no-install-project; fi
 
 # App source (kept separate from deps for cache-friendliness).
 COPY src ./src
