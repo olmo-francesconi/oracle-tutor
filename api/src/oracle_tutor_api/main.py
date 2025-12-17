@@ -7,10 +7,12 @@ import time
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import or_
+from sqlalchemy.exc import OperationalError, TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session
 
 from .data_builder import ensure_data_dir, update_scryfall_data
@@ -155,6 +157,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="oracle-tutor api")
+
+
+# ---- Exception Handlers ----
+
+@app.exception_handler(SQLTimeoutError)
+@app.exception_handler(OperationalError)
+async def database_connection_exception_handler(request: Request, exc: Exception):
+    """
+    Handle database connection pool exhaustion and other database connection errors gracefully.
+    Returns 503 Service Unavailable instead of crashing.
+    """
+    logger.warning(
+        "Database connection error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": "Service temporarily unavailable due to high load. Please try again in a moment.",
+            "error": "database_connection_error",
+        },
+    )
+
 
 # CORS:
 # - For Railway + same-origin (recommended): do NOT enable CORS.

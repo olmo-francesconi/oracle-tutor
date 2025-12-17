@@ -58,7 +58,17 @@ DATABASE_URL = _build_database_url()
 #
 # Tests often use sqlite :memory:, which requires a StaticPool to keep one connection alive
 # across the whole process.
-_engine_kwargs = {"pool_pre_ping": True}
+_engine_kwargs = {
+    "pool_pre_ping": True,
+    # Connection pool settings to handle high concurrency
+    # Defaults: pool_size=5, max_overflow=10 (total: 15 connections)
+    # For production with high load, we increase these.
+    "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+    "max_overflow": int(os.getenv("DB_POOL_MAX_OVERFLOW", "30")),
+    "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),  # seconds to wait for connection
+    "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "3600")),  # recycle connections after 1 hour
+}
+
 if DATABASE_URL.startswith("sqlite") and ":memory:" in DATABASE_URL:
     _engine_kwargs.update(
         {
