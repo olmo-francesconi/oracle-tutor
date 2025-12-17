@@ -39,14 +39,15 @@ server {
 
   # Same-origin API proxy: frontend calls /api/*, backend expects /*.
   location ^~ /api/ {
+    # Assign to variable to force dynamic resolution
+    # Must be set BEFORE it is used or rewritten to avoid "uninitialized variable" warnings.
+    set $upstream_target ${API_PROXY_TARGET};
+
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
 
     # Use Docker's internal DNS resolver with IPv6 support (required for Railway)
     resolver 127.0.0.11 valid=10s ipv6=on;
-
-    # Assign to variable to force dynamic resolution
-    set $upstream_target ${API_PROXY_TARGET};
 
     # IMPORTANT: when proxying to a different Railway service via its public domain,
     # routing is Host-header based. Use the upstream host, not the frontend host.
