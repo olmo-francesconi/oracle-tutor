@@ -477,6 +477,24 @@ def update_scryfall_data(
 
     effective_trigger = trigger_type or ("force" if force else "scheduled")
 
+    schema_needs_ingest = _parse_version(str(db_schema_version)) < _parse_version(DB_SCHEMA_VERSION)
+
+    # Stateless optimization:
+    # If the DB already reflects the latest remote version, we can skip downloading the JSON
+    # even if the container has no persisted /app/data directory.
+    if (
+        (not force)
+        and (not schema_needs_ingest)
+        and (not db_is_empty)
+        and remote_updated_at
+        and (db_updated_at == remote_updated_at)
+    ):
+        logger.info(
+            "DB already matches remote metadata (%s); skipping download/ingestion.",
+            remote_updated_at,
+        )
+        return False
+
     # Download decision
     download_needed = False
     if force:
@@ -509,14 +527,16 @@ def update_scryfall_data(
         ingestion_needed = True
     elif force:
         ingestion_needed = True
-    elif _parse_version(str(db_schema_version)) < _parse_version(DB_SCHEMA_VERSION):
+    elif schema_needs_ingest:
         logger.info("Schema change detected. Forcing ingestion.")
         ingestion_needed = True
         effective_trigger = "schema_change"
     elif db_is_empty:
         ingestion_needed = True
-    elif local_updated_at != db_updated_at:
-        ingestion_needed = True
+    else:
+        target_updated_at = remote_updated_at or local_updated_at
+        if target_updated_at is not None and target_updated_at != db_updated_at:
+            ingestion_needed = True
 
     if not ingestion_needed:
         logger.info("System is up to date.")
