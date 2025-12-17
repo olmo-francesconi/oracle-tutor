@@ -107,8 +107,9 @@ Set these in Railway (do not rely on local defaults):
 - **Worker service**
   - `DATABASE_URL` = same Railway Postgres connection string
   - `ORACLE_TUTOR_API_ENV=production`
-  - `ORACLE_TUTOR_API_UPDATE_HOUR=2` (optional)
-  - `RUN_ON_STARTUP=true` (optional; runs a first update immediately)
+  - Configure a **Railway Cron** schedule for this service (recommended), e.g. `0 2 * * *` (UTC unless you set a timezone).
+  - The worker is a **one-shot command** (it runs the stale-aware update once and exits). The default container command is equivalent to:
+    - `python -m oracle_tutor_api.worker --strict --trigger-type cron`
 
 - **Frontend service**
   - `API_PROXY_TARGET` = the API service internal URL (or your private service DNS if you use one)
@@ -131,65 +132,38 @@ Set these in Railway (do not rely on local defaults):
 
 ## Daily Updates
 
-The card database can be automatically updated daily to stay in sync with Scryfall's latest data. When updates are available, the system will:
+The card database can be kept in sync with Scryfall's latest data. When updates are available, the system will:
 1. Download the latest bulk data from Scryfall
 2. Rebuild the JSON index files
 3. Update the TF-IDF search engine
 4. Automatically reload the API data (if running)
 
-### Automatic Updates with API
+### Recommended: Railway Cron + one-shot worker
 
-**The update scheduler runs automatically when you start the API server.** No additional setup required!
+On Railway, the recommended approach is:
+- **API service**: `ORACLE_TUTOR_API_UPDATE_ENABLED=false` (no scheduler in the web process)
+- **Worker service**: triggered by a **Railway Cron** schedule once per day
 
-The scheduler is enabled by default and runs daily at 2:00 AM local time. You can configure it using environment variables:
+The worker command runs the stale-aware update once and exits:
 
-    ```bash
-    # Set custom update time (24-hour format)
-    export ORACLE_TUTOR_API_UPDATE_HOUR=3
-    export ORACLE_TUTOR_API_UPDATE_MINUTE=30
-    
-    # Disable the scheduler if you prefer manual updates
-    export ORACLE_TUTOR_API_DISABLE_SCHEDULER=1
-    
-    # Start the API (scheduler starts automatically)
-    # From the api directory
-    uvicorn oracle_tutor_api.api:app --reload
-    ```
-    
-    ### Cron Job
-    
-    Add a cron job to run the update script daily. Edit your crontab:
-    
-    ```bash
-    crontab -e
-    ```
-    
-    Add a line to run the update daily at 2:00 AM:
-    
-    ```
-    0 2 * * * cd /path/to/mtg-search/api && python -m oracle_tutor_api.daily_update >> data/update.log 2>&1
-    ```
-    
-    Replace `/path/to/mtg-search/api` with the actual path to your project's api directory.
-    
-    ### Manual Update
-    
-    You can also run the update manually at any time:
-    
-    ```bash
-    # From the api directory
-    python -m oracle_tutor_api.daily_update
-    ```
-    
-    ### Reloading API Data
-    
-    After an update, restart the API server to reload the data:
-    
-    ```bash
-    # Stop the server (Ctrl+C) and restart
-    # From the api directory
-    uvicorn oracle_tutor_api.api:app --reload
-    ```
+```bash
+python -m oracle_tutor_api.worker --strict --trigger-type cron
+```
+
+### Local / self-hosted cron
+
+If you want to schedule updates yourself, run the same one-shot command via your system cron (or use docker-compose):
+
+```bash
+# From the api directory
+python -m oracle_tutor_api.worker --strict --trigger-type cron
+```
+
+Or with Docker (from repo root):
+
+```bash
+docker compose run --rm worker
+```
 
 ## How It Works
 

@@ -4,14 +4,12 @@ services:
       context: ./api
       dockerfile: Dockerfile.worker
     image: mtg-search-worker
-    restart: unless-stopped
+    restart: "no"
     volumes:
       # Persist data/logs if needed, though for a pure worker it might not be strictly necessary
       # unless you want to inspect downloaded files
       - ./api/data:/app/data
     environment:
-      - ORACLE_TUTOR_API_UPDATE_HOUR=${ORACLE_TUTOR_API_UPDATE_HOUR:-2}
-      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-true}
       # Connect to Remote DB (Load from .env)
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
