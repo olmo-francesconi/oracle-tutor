@@ -51,6 +51,6 @@ USER app
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import os,urllib.request; port=os.getenv('PORT','8000'); urllib.request.urlopen('http://127.0.0.1:%s/health'%port).read()" || exit 1
 
-CMD ["sh", "-c", "uvicorn oracle_tutor_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "PORT=\"${PORT:-8000}\"; APP=\"oracle_tutor_api.main:app\"; DISABLE_V6_PATH=\"/proc/sys/net/ipv6/conf/all/disable_ipv6\"; BINDV6ONLY_PATH=\"/proc/sys/net/ipv6/bindv6only\"; if [ -f \"$DISABLE_V6_PATH\" ] && [ \"$(cat \"$DISABLE_V6_PATH\" 2>/dev/null || echo 1)\" = \"1\" ]; then exec hypercorn \"$APP\" --bind \"0.0.0.0:${PORT}\"; elif [ -f \"$BINDV6ONLY_PATH\" ] && [ \"$(cat \"$BINDV6ONLY_PATH\" 2>/dev/null || echo 0)\" = \"1\" ]; then exec hypercorn \"$APP\" --bind \"0.0.0.0:${PORT}\" --bind \"[::]:${PORT}\"; else exec hypercorn \"$APP\" --bind \"[::]:${PORT}\"; fi"]
 
 

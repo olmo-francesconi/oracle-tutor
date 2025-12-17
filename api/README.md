@@ -12,7 +12,7 @@ This folder contains a minimal FastAPI service managed by **uv**.
   - `uv sync`
 
 - **Run the API**:
-  - `uv run uvicorn oracle_tutor_api.main:app --reload --host 0.0.0.0 --port 8000`
+  - `uv run hypercorn oracle_tutor_api.main:app --reload --bind 0.0.0.0:8000`
 
 ### Production / Railway env vars
 
