@@ -1,11 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import os
-import signal
 import sys
-import time
-from threading import Event
 
 from .data_builder import update_scryfall_data
 from .logging_config import setup_loggers
@@ -13,59 +11,47 @@ from .logging_config import setup_loggers
 setup_loggers()
 logger = logging.getLogger("oracle_tutor_api.worker")
 
-stop_event = Event()
-
-
-def _signal_handler(signum, frame):
-    logger.info("Signal %s received. Shutting down worker...", signum)
-    stop_event.set()
-
-
 def main() -> int:
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
+    """
+    One-shot ingestion job intended for Railway Cron (or manual invocation).
 
-    logger.info("Oracle Tutor Worker starting...")
+    This command runs the stale-aware Scryfall update exactly once and then exits.
+    """
+
+    parser = argparse.ArgumentParser(prog="oracle-tutor-worker")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force download/re-ingestion even if the system appears up to date.",
+    )
+    parser.add_argument(
+        "--trigger-type",
+        default=os.getenv("ORACLE_TUTOR_API_TRIGGER_TYPE", "cron"),
+        help="Ingestion trigger type stored in ingestion logs (default: cron).",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail fast (exit 1) on fetch/download errors instead of treating as a noop.",
+    )
+
+    args = parser.parse_args()
+
+    logger.info(
+        "Oracle Tutor Worker starting (one-shot). force=%s strict=%s trigger_type=%s",
+        args.force,
+        args.strict,
+        args.trigger_type,
+    )
 
     try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.cron import CronTrigger
+        updated = update_scryfall_data(force=args.force, trigger_type=str(args.trigger_type), strict=args.strict)
+        logger.info("Worker finished (updated=%s).", updated)
+        # Per requirement: exit 0 even when up-to-date.
+        return 0
     except Exception:
-        logger.exception("APScheduler not installed. Worker cannot run schedules.")
+        logger.exception("Worker failed.")
         return 1
-
-    def run_update():
-        try:
-            logger.info("Running scheduled database update...")
-            updated = update_scryfall_data(force=False)
-            logger.info("Update finished (updated=%s).", updated)
-        except Exception:
-            logger.exception("Error in scheduled update")
-
-    update_hour = int(os.getenv("ORACLE_TUTOR_API_UPDATE_HOUR", "2"))
-
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(
-        run_update,
-        trigger=CronTrigger(hour=update_hour, minute=0),
-        id="daily_update",
-        name="Daily Scryfall database update",
-        replace_existing=True,
-    )
-    scheduler.start()
-    logger.info("Scheduler started (Daily at %d:00).", update_hour)
-
-    if os.getenv("RUN_ON_STARTUP", "").lower() in ("1", "true", "yes"):
-        logger.info("Startup update requested...")
-        run_update()
-
-    logger.info("Worker is running.")
-    while not stop_event.is_set():
-        time.sleep(1)
-
-    logger.info("Worker shutting down.")
-    scheduler.shutdown()
-    return 0
 
 
 if __name__ == "__main__":

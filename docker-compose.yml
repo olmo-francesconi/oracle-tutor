@@ -43,8 +43,6 @@ services:
       - ./api/src:/app/src
     environment:
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
-      - ORACLE_TUTOR_API_UPDATE_HOUR=${ORACLE_TUTOR_API_UPDATE_HOUR:-2}
-      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-true}
       # Connect to the same DB
       - DB_HOST=db
       - DB_PORT=5432
@@ -53,7 +51,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-secret_password}
     depends_on:
       - db
-    restart: unless-stopped
+    restart: "no"
 
   frontend:
     build:

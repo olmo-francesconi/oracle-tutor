@@ -426,7 +426,12 @@ def _parse_version(version_str: str) -> tuple[int, int, int]:
         return (0, 0, 0)
 
 
-def update_scryfall_data(*, force: bool = False, trigger_type: str | None = None) -> bool:
+def update_scryfall_data(
+    *,
+    force: bool = False,
+    trigger_type: str | None = None,
+    strict: bool = False,
+) -> bool:
     """
     Download Scryfall oracle bulk file if needed and ingest into DB using diff-ingest.
 
@@ -443,6 +448,8 @@ def update_scryfall_data(*, force: bool = False, trigger_type: str | None = None
         remote_updated_at = remote_meta.get("updated_at")
     except Exception as e:
         logger.error("Failed to fetch remote metadata: %s", e)
+        if strict:
+            raise
         if not force:
             return False
 
@@ -486,10 +493,14 @@ def update_scryfall_data(*, force: bool = False, trigger_type: str | None = None
             ingestion_source = TEMP_CARDS_JSON
         except Exception as e:
             logger.error("Download failed: %s", e)
+            if strict:
+                raise
             return False
     else:
         if not CARDS_JSON.exists():
             logger.error("No local data found and download skipped.")
+            if strict:
+                raise RuntimeError("No local cards.json and remote download was unavailable/skipped.")
             return False
 
     # Ingestion decision
@@ -535,6 +546,8 @@ def update_scryfall_data(*, force: bool = False, trigger_type: str | None = None
         return True
     except Exception as e:
         logger.error("Update process failed: %s", e, exc_info=True)
+        if strict:
+            raise
         if TEMP_CARDS_JSON.exists():
             try:
                 TEMP_CARDS_JSON.unlink()

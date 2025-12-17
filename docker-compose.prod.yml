@@ -51,8 +51,6 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       - ORACLE_TUTOR_API_ENV=production
-      - ORACLE_TUTOR_API_UPDATE_HOUR=${ORACLE_TUTOR_API_UPDATE_HOUR:-2}
-      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-true}
       - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:?set DB_NAME}
@@ -61,7 +59,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    restart: unless-stopped
+    restart: "no"
     init: true
     security_opt:
       - no-new-privileges:true

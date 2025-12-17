@@ -21,6 +21,13 @@ This folder contains a minimal FastAPI service managed by **uv**.
 - **ORACLE_TUTOR_API_UPDATE_ENABLED**: recommended `false` on the API service; run scheduled ingestion in a separate worker service instead.
 - **ORACLE_TUTOR_API_CORS_ORIGINS**: leave unset for same-origin. If you need cross-origin access, set a comma-separated allowlist.
 
+### One-shot worker (Railway Cron)
+
+The worker is designed to be run as a **one-time command** (cron-friendly): it runs the stale-aware update once and exits.
+
+- **Command**:
+  - `python -m oracle_tutor_api.worker --strict --trigger-type cron`
+
 ### Tests
 
 - **Install test deps**:
