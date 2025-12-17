@@ -20,10 +20,15 @@ server {
   location ^~ /api/ {
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
-    proxy_set_header Host $host;
+    # IMPORTANT: when proxying to a different Railway service via its public domain,
+    # routing is Host-header based. Use the upstream host, not the frontend host.
+    proxy_set_header Host $proxy_host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
     proxy_set_header Connection "";
+    # Support https upstreams (SNI) when API_PROXY_TARGET uses TLS.
+    proxy_ssl_server_name on;
     proxy_pass ${API_PROXY_TARGET};
   }
 
