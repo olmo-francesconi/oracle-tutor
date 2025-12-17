@@ -35,6 +35,7 @@ COPY --chown=app:app src ./src
 
 USER app
 
-CMD ["python", "-m", "oracle_tutor_api.worker"]
+# One-shot cron-friendly entrypoint (runs once and exits).
+CMD ["python", "-m", "oracle_tutor_api.worker", "--strict", "--trigger-type", "cron"]
 
 
