@@ -58,6 +58,11 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Connection "";
+
+    # Log the upstream target for debugging dynamic resolution
+    access_log /dev/stdout main_ext;
+    add_header X-Upstream-Target $upstream_target always;
+    
     proxy_pass $upstream_target;
   }
 
