@@ -13,7 +13,7 @@ from sklearn.metrics.pairwise import linear_kernel
 from sklearn.preprocessing import normalize
 from sqlalchemy.orm import Session
 
-from .models import Card, CardFace
+from ..core.models import Card, CardFace
 from .oracle_tokenizer import (
     _CARD_NAME_DELIMITER,
     iter_type_filters,

@@ -11,9 +11,15 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 ENV UV_CACHE_DIR=/root/.cache/uv
 
-RUN if [ -f uv.lock ]; then uv sync --active --frozen --no-install-project; else uv sync --active --no-install-project; fi
+RUN if [ -f uv.lock ]; then \
+      uv sync --active --frozen --no-install-project --extra worker; \
+    else \
+      uv sync --active --no-install-project --extra worker; \
+    fi
 
-COPY src ./src
+COPY src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
+COPY src/oracle_tutor_api/core ./src/oracle_tutor_api/core
+COPY src/oracle_tutor_api/worker ./src/oracle_tutor_api/worker
 
 FROM python:3.12-slim AS runtime
 
@@ -31,11 +37,13 @@ RUN set -eux; \
     chown -R app:app /app/data
 
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
-COPY --chown=app:app src ./src
+COPY --chown=app:app src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
+COPY --chown=app:app src/oracle_tutor_api/core ./src/oracle_tutor_api/core
+COPY --chown=app:app src/oracle_tutor_api/worker ./src/oracle_tutor_api/worker
 
 USER app
 
 # One-shot cron-friendly entrypoint (runs once and exits).
-CMD ["python", "-m", "oracle_tutor_api.worker", "--strict", "--trigger-type", "cron"]
+CMD ["python", "-m", "oracle_tutor_api.worker.main", "--strict", "--trigger-type", "cron"]
 
 

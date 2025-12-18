@@ -6,7 +6,7 @@ import os
 import sys
 
 from .data_builder import update_scryfall_data
-from .logging_config import setup_loggers
+from ..core.logging_config import setup_loggers
 
 setup_loggers()
 logger = logging.getLogger("oracle_tutor_api.worker")

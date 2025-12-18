@@ -13,11 +13,11 @@ import requests
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from .config import CARDS_JSON, DATA_DIR, DB_SCHEMA_VERSION
-from .db_init import init_db
-from .database import SessionLocal, engine
-from .logging_config import setup_loggers
-from .models import Card, CardFace, IngestionLog, SystemMetadata
+from ..core.config import CARDS_JSON, DATA_DIR, DB_SCHEMA_VERSION, ensure_data_dir
+from ..core.db_init import init_db
+from ..core.database import SessionLocal, engine
+from ..core.logging_config import setup_loggers
+from ..core.models import Card, CardFace, IngestionLog, SystemMetadata
 
 logger = logging.getLogger("oracle_tutor_api.data")
 
@@ -28,8 +28,7 @@ META_JSON = DATA_DIR / "scryfall_meta.json"
 TEMP_CARDS_JSON = DATA_DIR / "scryfall-cards-temp.json"
 
 
-def ensure_data_dir() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+# Removed local ensure_data_dir, now in core.config
 
 
 def _validate_scryfall_download_url(download_url: str) -> None:

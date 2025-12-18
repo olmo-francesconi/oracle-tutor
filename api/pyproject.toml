@@ -1,20 +1,25 @@
 [project]
 name = "oracle-tutor-api"
 version = "0.0.1"
-description = "Barebones FastAPI service (uv-managed)."
+description = "FastAPI service for MTG oracle search (uv-managed)."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "sqlalchemy>=2.0.0",
+  "psycopg[binary]>=3.2.0",
+]
+
+[project.optional-dependencies]
+api = [
   "fastapi>=0.115.0",
   "hypercorn>=0.17.0",
   "uvicorn[standard]>=0.32.0",
-  "sqlalchemy>=2.0.0",
-  "psycopg[binary]>=3.2.0",
+  "cachetools>=5.5.0",
+  "scikit-learn>=1.5.0",
+]
+worker = [
   "requests>=2.32.0",
   "ijson>=3.3.0",
-  "cachetools>=5.5.0",
-  "apscheduler>=3.10.0",
-  "scikit-learn>=1.5.0",
 ]
 
 [dependency-groups]
@@ -26,5 +31,3 @@ test = [
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
-
-

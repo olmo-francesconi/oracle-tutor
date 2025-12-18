@@ -14,10 +14,10 @@ os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-from oracle_tutor_api.database import SessionLocal
-from oracle_tutor_api.db_init import init_db
-from oracle_tutor_api.main import app
-from oracle_tutor_api.models import Card, CardFace
+from oracle_tutor_api.core.database import SessionLocal
+from oracle_tutor_api.core.db_init import init_db
+from oracle_tutor_api.api.main import app
+from oracle_tutor_api.core.models import Card, CardFace
 
 
 def _seed_db() -> None:

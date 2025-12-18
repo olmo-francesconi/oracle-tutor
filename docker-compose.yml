@@ -18,10 +18,6 @@ services:
       - ./api/tests:/app/tests
       - ./api/src:/app/src
     environment:
-      - ORACLE_TUTOR_API_UPDATE_HOUR=2
-      # Mirror production: scheduler should run in the worker, not in the API process.
-      # Set ORACLE_TUTOR_API_UPDATE_ENABLED=true if you explicitly want the API to self-schedule.
-      - ORACLE_TUTOR_API_UPDATE_ENABLED=${ORACLE_TUTOR_API_UPDATE_ENABLED:-false}
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
       # Database connection details
       - DB_HOST=db

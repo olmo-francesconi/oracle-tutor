@@ -22,7 +22,6 @@ services:
       dockerfile: Dockerfile
     environment:
       - ORACLE_TUTOR_API_ENV=production
-      - ORACLE_TUTOR_API_UPDATE_ENABLED=false
       - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:?set DB_NAME}

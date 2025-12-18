@@ -13,3 +13,7 @@ CARDS_JSON = DATA_DIR / "cards.json"
 DB_SCHEMA_VERSION = "0.1.0"
 
 
+def ensure_data_dir() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+

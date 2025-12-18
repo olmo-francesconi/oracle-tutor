@@ -15,11 +15,11 @@ from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError, TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session
 
-from .data_builder import ensure_data_dir, update_scryfall_data
-from .database import SessionLocal, get_db
-from .db_init import init_db
-from .logging_config import log_performance, setup_loggers
-from .models import Card, CardFace, SystemMetadata
+from ..core.config import ensure_data_dir
+from ..core.database import SessionLocal, get_db
+from ..core.db_init import init_db
+from ..core.logging_config import log_performance, setup_loggers
+from ..core.models import Card, CardFace, SystemMetadata
 from .tfidf_index import TfidfIndex, build_tfidf_index
 
 # Logging
@@ -31,12 +31,10 @@ _tfidf_index: TfidfIndex | None = None
 _tfidf_lock = threading.Lock()
 _tfidf_data_version: str | None = None
 _tfidf_last_version_check: float = 0.0  # time.monotonic()
-_scheduler = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _scheduler
     global _tfidf_index
     logger.info("API starting...")
 
@@ -67,22 +65,6 @@ async def lifespan(app: FastAPI):
             finally:
                 db.close()
 
-    def run_update_and_rebuild() -> None:
-        """
-        Background task:
-        - run stale-aware update (diff-ingest)
-        - if ingestion ran, rebuild TF-IDF index
-        """
-        try:
-            updated = update_scryfall_data(force=False)
-            if updated:
-                logger.info("Scryfall update completed; rebuilding TF-IDF index...")
-                rebuild_index()
-            else:
-                logger.info("No Scryfall update needed.")
-        except Exception as e:
-            logger.error("Background update failed: %s", e, exc_info=True)
-
     # Initial TF-IDF build (best-effort; API can still start and lazily build later).
     try:
         rebuild_index()
@@ -90,69 +72,10 @@ async def lifespan(app: FastAPI):
         logger.error("TF-IDF build failed (oracle search disabled until rebuild): %s", e, exc_info=True)
         _tfidf_index = None
 
-    # Start scheduler inside API process.
-    #
-    # Railway best-practice: run scheduled ingestion in a separate worker service.
-    # So in production we default this to disabled unless explicitly enabled.
-    env = os.getenv("ORACLE_TUTOR_API_ENV", "development").lower()
-    on_railway = any(
-        os.getenv(k)
-        for k in (
-            "RAILWAY_ENVIRONMENT",
-            "RAILWAY_PROJECT_ID",
-            "RAILWAY_SERVICE_ID",
-            "RAILWAY_PUBLIC_DOMAIN",
-        )
-    )
-    default_update_enabled = "false" if (env in ("prod", "production") or on_railway) else "true"
-    update_enabled = os.getenv("ORACLE_TUTOR_API_UPDATE_ENABLED", default_update_enabled).lower() in ("1", "true", "yes")
-    if update_enabled:
-        try:
-            from apscheduler.schedulers.background import BackgroundScheduler
-            from apscheduler.triggers.cron import CronTrigger
-
-            update_hour = int(os.getenv("ORACLE_TUTOR_API_UPDATE_HOUR", "2"))
-            update_minute = int(os.getenv("ORACLE_TUTOR_API_UPDATE_MINUTE", "0"))
-            every_days = int(os.getenv("ORACLE_TUTOR_API_UPDATE_EVERY_DAYS", "1"))
-            every_days = max(1, every_days)
-
-            _scheduler = BackgroundScheduler()
-            _scheduler.add_job(
-                run_update_and_rebuild,
-                trigger=CronTrigger(hour=update_hour, minute=update_minute, day=f"*/{every_days}"),
-                id="scryfall_update",
-                name="Scryfall oracle bulk update",
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-            )
-            _scheduler.start()
-            logger.info(
-                "Scheduler started (every %d day(s) at %02d:%02d).",
-                every_days,
-                update_hour,
-                update_minute,
-            )
-        except Exception as e:
-            logger.error("Failed to start scheduler: %s", e, exc_info=True)
-            _scheduler = None
-
-        # Non-blocking startup staleness check/update.
-        threading.Thread(target=run_update_and_rebuild, name="startup_update", daemon=True).start()
-    else:
-        logger.info("Scheduled updates disabled via ORACLE_TUTOR_API_UPDATE_ENABLED=false")
-
     yield
 
     # Shutdown
-    if _scheduler is not None:
-        try:
-            _scheduler.shutdown(wait=False)
-            logger.info("Scheduler stopped.")
-        except Exception as e:
-            logger.warning("Scheduler shutdown failed: %s", e, exc_info=True)
-        finally:
-            _scheduler = None
+    logger.info("API shutting down...")
 
 
 app = FastAPI(lifespan=lifespan, title="oracle-tutor api")
