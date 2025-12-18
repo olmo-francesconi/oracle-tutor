@@ -10,7 +10,7 @@ CARDS_JSON = DATA_DIR / "cards.json"
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
-DB_SCHEMA_VERSION = "0.1.0"
+DB_SCHEMA_VERSION = "1.0.0"
 
 
 def parse_version(version_str: str | None) -> tuple[int, int, int]:
