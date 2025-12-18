@@ -3,11 +3,16 @@ from __future__ import annotations
 import re
 from typing import Callable, Iterable, List, Tuple
 
-from .text_processing import strip_reminder_text
-
 
 _SYMBOL_RE = re.compile(r"\{([^}]+)\}")
 _WORD_RE = re.compile(r"[a-z0-9_]+")
+
+
+def strip_reminder_text(text: str) -> str:
+    """Remove parenthetical reminder text, which is usually noise for search."""
+    if not text:
+        return ""
+    return re.sub(r"\([^)]*\)", "", text)
 
 
 def _emit_symbol_tokens(sym: str) -> List[str]:
