@@ -15,6 +15,7 @@ _NUM_WORDS = {
         ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
     )
 }
+_NUM_WORDS.update({"100": "one hundred", "1000000": "one million", "x": "x", "y": "y", "z": "z"})
 
 
 def strip_reminder_text(text: str) -> str:
@@ -25,8 +26,8 @@ def strip_reminder_text(text: str) -> str:
 
 
 def _get_number_word(count: int | str) -> str:
-    """Convert number or 'x' to word (1→"one", "x"→"x", etc.)."""
-    return _NUM_WORDS.get(str(count), str(count))
+    """Convert number or 'x/y/z' to word."""
+    return _NUM_WORDS.get(str(count).lower().strip(), str(count))
 
 
 def _resolve_single_symbol(symbol: str) -> str:
@@ -35,24 +36,55 @@ def _resolve_single_symbol(symbol: str) -> str:
 
     if s in _COLOR_WORDS:
         return f"{_COLOR_WORDS[s]} mana"
-    if s.isdigit() or s == "x":  # {X} is generic mana, same as numbers
+    
+    # Generic / Variables
+    if s.isdigit() or s in ("x", "y", "z"):
         return f"{_get_number_word(s)} mana"
     
-    mapping = {"t": "tap", "q": "untap", "e": "energy counter"}
+    # Simple mappings
+    mapping = {
+        "t": "tap", 
+        "q": "untap", 
+        "e": "energy counter",
+        "s": "snow mana",
+        "c": "colorless mana",
+        "pw": "planeswalker",
+        "chaos": "chaos symbol",
+        "tk": "ticket counter",
+        "a": "acorn symbol",
+        "i": "chapter one",
+        "ii": "chapter two",
+        "iii": "chapter three",
+        "iv": "chapter four",
+        "v": "chapter five",
+        "∞": "infinity mana"
+    }
     if s in mapping:
         return mapping[s]
 
-    # Hybrid / phyrexian / snow etc
+    # Half mana
+    if s.startswith("h") and s[1:] in _COLOR_WORDS:
+        return f"half {_COLOR_WORDS[s[1:]]} mana"
+
+    # Hybrid / Phyrexian / Multi-part
     parts = re.split(r"/+", s)
-    if any(p in _COLOR_WORDS or p.isdigit() or p == "x" for p in parts):
-        color_parts = []
-        for p in parts:
+    if len(parts) > 1:
+        is_phyrexian = "p" in parts
+        # Filter out 'p' for the color-joining logic
+        clean_parts = [p for p in parts if p != "p"]
+        
+        semantic_parts = []
+        for p in clean_parts:
             if p in _COLOR_WORDS:
-                color_parts.append(_COLOR_WORDS[p])
-            elif p.isdigit() or p == "x":
-                color_parts.append(_NUM_WORDS.get(p, p))
-        if color_parts:
-            return " or ".join(color_parts) + " mana"
+                semantic_parts.append(_COLOR_WORDS[p])
+            elif p.isdigit() or p in ("x", "y", "z"):
+                semantic_parts.append(_get_number_word(p))
+        
+        if semantic_parts:
+            base = " or ".join(semantic_parts)
+            if is_phyrexian:
+                return f"phyrexian {base} mana"
+            return f"{base} mana"
 
     return ""  # Unknown symbol
 
