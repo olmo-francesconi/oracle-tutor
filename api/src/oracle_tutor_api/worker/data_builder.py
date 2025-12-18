@@ -13,7 +13,7 @@ import requests
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from ..core.config import CARDS_JSON, DATA_DIR, DB_SCHEMA_VERSION, ensure_data_dir
+from ..core.config import CARDS_JSON, DATA_DIR, DB_SCHEMA_VERSION, ensure_data_dir, parse_version
 from ..core.db_init import init_db
 from ..core.database import SessionLocal, engine
 from ..core.logging_config import setup_loggers
@@ -415,16 +415,6 @@ def ingest_data_diff(
         session.close()
 
 
-def _parse_version(version_str: str) -> tuple[int, int, int]:
-    if not version_str:
-        return (0, 0, 0)
-    try:
-        a, b, c = version_str.split(".")
-        return (int(a), int(b), int(c))
-    except Exception:
-        return (0, 0, 0)
-
-
 def update_scryfall_data(
     *,
     force: bool = False,
@@ -476,7 +466,7 @@ def update_scryfall_data(
 
     effective_trigger = trigger_type or ("force" if force else "scheduled")
 
-    schema_needs_ingest = _parse_version(str(db_schema_version)) < _parse_version(DB_SCHEMA_VERSION)
+    schema_needs_ingest = parse_version(str(db_schema_version)) < parse_version(DB_SCHEMA_VERSION)
 
     # Stateless optimization:
     # If the DB already reflects the latest remote version, we can skip downloading the JSON
