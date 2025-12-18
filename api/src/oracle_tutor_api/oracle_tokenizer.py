@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Callable, Iterable, List, Tuple
 
 
-_SYMBOL_RE = re.compile(r"\{([^}]+)\}")
 _WORD_RE = re.compile(r"[a-z0-9_]+")
+
+# Symbol mapping constants
+_COLOR_WORDS = {"w": "white", "u": "blue", "b": "black", "r": "red", "g": "green", "c": "colorless"}
+_NUM_WORDS = {
+    str(i): name
+    for i, name in enumerate(
+        ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+    )
+}
 
 
 def strip_reminder_text(text: str) -> str:
@@ -15,138 +24,254 @@ def strip_reminder_text(text: str) -> str:
     return re.sub(r"\([^)]*\)", "", text)
 
 
-def _emit_symbol_tokens(sym: str) -> List[str]:
-    """
-    Convert the inside of {..} into stable lexical tokens.
+def _get_number_word(count: int | str) -> str:
+    """Convert number or 'x' to word (1→"one", "x"→"x", etc.)."""
+    return _NUM_WORDS.get(str(count), str(count))
 
-    Examples:
-      W -> ["sym_w","mana","white"]
-      2/W -> ["sym_2_w","mana","two","white"]
-      T -> ["sym_t","tap"]
-    """
-    s = sym.strip().lower()
-    out: List[str] = []
 
-    # Keep a canonical token that round-trips.
-    canonical = "sym_" + re.sub(r"[^a-z0-9]+", "_", s).strip("_")
-    if canonical:
-        out.append(canonical)
+def _resolve_single_symbol(symbol: str) -> str:
+    """Map single symbol to semantic text. Returns empty string for unknown symbols."""
+    s = symbol.strip().lower()
 
-    # Add “human” tokens to match user queries.
-    color_words = {"w": "white", "u": "blue", "b": "black", "r": "red", "g": "green", "c": "colorless"}
-    num_words = {
-        "0": "zero",
-        "1": "one",
-        "2": "two",
-        "3": "three",
-        "4": "four",
-        "5": "five",
-        "6": "six",
-        "7": "seven",
-        "8": "eight",
-        "9": "nine",
-        "10": "ten",
-    }
+    if s in _COLOR_WORDS:
+        return f"{_COLOR_WORDS[s]} mana"
+    if s.isdigit() or s == "x":  # {X} is generic mana, same as numbers
+        return f"{_get_number_word(s)} mana"
+    
+    mapping = {"t": "tap", "q": "untap", "e": "energy counter"}
+    if s in mapping:
+        return mapping[s]
 
-    if s in color_words:
-        out.extend(["mana", color_words[s]])
-        return out
-    if s.isdigit():
-        out.extend(["mana", num_words.get(s, s)])
-        return out
-    if s == "t":
-        out.extend(["tap"])
-        return out
-    if s == "q":
-        out.extend(["untap"])
-        return out
-    if s == "e":
-        out.extend(["energy", "counter"])
-        return out
-
-    # Hybrid / phyrexian / snow etc — extract components.
-    parts = re.split(r"[/]+", s)
-    if any(p in color_words for p in parts):
-        out.append("mana")
+    # Hybrid / phyrexian / snow etc
+    parts = re.split(r"/+", s)
+    if any(p in _COLOR_WORDS or p.isdigit() or p == "x" for p in parts):
+        color_parts = []
         for p in parts:
-            if p in color_words:
-                out.append(color_words[p])
-            elif p.isdigit():
-                out.append(num_words.get(p, p))
-            elif p in ("p", "phyrexian"):
-                out.append("life")
-    return out
+            if p in _COLOR_WORDS:
+                color_parts.append(_COLOR_WORDS[p])
+            elif p.isdigit() or p == "x":
+                color_parts.append(_NUM_WORDS.get(p, p))
+        if color_parts:
+            return " or ".join(color_parts) + " mana"
+
+    return ""  # Unknown symbol
 
 
-def mtg_tokenize(text: str) -> List[str]:
-    """
-    Tokenize MTG oracle-ish text for TF-IDF:
-    - strips reminder text
-    - emits tokens for {symbols}
-    - normalizes common patterns like +1/+1 and 2/2
-    """
+def _count_consecutive_symbols(text: str, start_pos: int) -> Tuple[int, str]:
+    """Count consecutive identical symbols starting at position. Returns (count, symbol_text)."""
+    if not text or start_pos >= len(text) or text[start_pos] != "{":
+        return 0, ""
+    
+    end_pos = text.find("}", start_pos)
+    if end_pos == -1:
+        return 0, ""
+    
+    symbol = text[start_pos : end_pos + 1]
+    count = 0
+    pos = start_pos
+    
+    while text.startswith(symbol, pos):
+        count += 1
+        pos += len(symbol)
+    
+    return count, symbol
+
+
+def substitute_card_name(text: str, card_name: str | None) -> str:
+    """Replace card name with 'this card'. Handles comma-separated names (legends)."""
+    if not text or not card_name:
+        return text
+    
+    # Replace full card name
+    text = re.sub(re.escape(card_name), "this card", text, flags=re.IGNORECASE)
+    
+    # For legends, replace the shorthand name (everything before the first comma)
+    if "," in card_name:
+        short_name = card_name.split(",")[0].strip()
+        if len(short_name) > 2:
+            text = re.sub(rf"\b{re.escape(short_name)}\b", "this card", text, flags=re.IGNORECASE)
+    
+    return text
+
+
+def normalize_text(text: str) -> str:
+    """Normalize text: lowercase, remove accents, remove apostrophes."""
+    if not text:
+        return ""
+    
+    # Convert to lowercase
+    text = text.lower()
+    
+    # Remove accents and normalize unicode
+    # Use NFKD normalization to decompose characters, then remove combining marks
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    
+    # Remove all types of apostrophes/quotes
+    text = re.sub(r"['\u2018\u2019\u201a\u201b]", "", text)
+    
+    # Normalize other common unicode characters
+    text = text.replace("—", "-").replace("–", "-")  # Em/en dashes to hyphen
+    text = text.replace("…", "...")  # Ellipsis
+    
+    return text
+
+
+def resolve_symbols_inplace(text: str) -> str:
+    """Resolve symbols in-place to semantic text. Handles consecutive identical symbols."""
+    if "{" not in text:
+        return text
+
+    result = []
+    i = 0
+    while i < len(text):
+        if text[i] == "{":
+            count, symbol_text = _count_consecutive_symbols(text, i)
+            if count > 0:
+                symbol_content = symbol_text[1:-1]
+                semantic = _resolve_single_symbol(symbol_content)
+                if semantic:
+                    if count > 1:
+                        number_word = _get_number_word(count)
+                        if semantic.endswith(" mana"):
+                            resolved = f" {number_word} {semantic} "
+                        elif semantic.endswith(" counter"):
+                            resolved = f" {number_word} {semantic}s "
+                        else:
+                            resolved = f" {number_word} {semantic} "
+                    else:
+                        resolved = f" {semantic} "
+                    
+                    result.append(resolved)
+                    i += count * len(symbol_text)
+                    continue
+        
+        result.append(text[i])
+        i += 1
+    return "".join(result)
+
+
+def split_into_phrases(text: str) -> List[str]:
+    """Split text into phrases on line breaks and periods. Filter out empty phrases."""
     if not text:
         return []
+    
+    # Split on both line breaks and periods
+    phrases = re.split(r"[\n.]+", text)
+    
+    # Clean up each phrase and filter empty ones
+    cleaned = [phrase.strip() for phrase in phrases if phrase.strip()]
+    
+    return cleaned
 
-    t = strip_reminder_text(text.lower())
-    t = t.replace("can’t", "cant").replace("can't", "cant")
 
-    # Normalize P/T and counters so they survive splitting.
-    t = re.sub(r"([+-]?\d+)\s*/\s*([+-]?\d+)", r"pt_\1_\2", t)
-    t = re.sub(r"([+-]\d+)\s*/\s*([+-]\d+)", r"ptmod_\1_\2", t)
-    t = re.sub(r"\+(\d+)\s*/\s*\+(\d+)", r"ptmod_plus\1_plus\2", t)
-    t = re.sub(r"-(\d+)\s*/\s*-(\d+)", r"ptmod_minus\1_minus\2", t)
+def tokenize_phrase(phrase: str) -> List[str]:
+    """Tokenize a single phrase into words. Handles P/T patterns and extracts word tokens."""
+    if not phrase:
+        return []
+    
+    # Normalize P/T patterns (e.g., +1/+1, 2/2, +X/+X)
+    def pt_replacer(match: re.Match) -> str:
+        v1, v2 = match.groups()
+        
+        def resolve_val(v: str) -> str:
+            res = []
+            if v.startswith("+"):
+                res.append("plus")
+                num = v[1:]
+            elif v.startswith("-"):
+                res.append("minus")
+                num = v[1:]
+            else:
+                num = v
+            
+            # Use _get_number_word for the number part (handles digits and 'x')
+            word = _get_number_word(num.lower())
+            res.append(word)
+            return " ".join(res)
 
-    # Expand {symbols} into tokens and remove from text (so braces don't pollute).
-    tokens: List[str] = []
-    for m in _SYMBOL_RE.finditer(t):
-        tokens.extend(_emit_symbol_tokens(m.group(1)))
-    t = _SYMBOL_RE.sub(" ", t)
+        # Return space-separated words to allow n-gram analysis to pick up the semantic meaning
+        return f" {resolve_val(v1)} {resolve_val(v2)} "
 
-    # Replace punctuation with spaces, keep underscores from our normalized tokens.
+    # Support digits, X/x, and signs in P/T patterns
+    t = re.sub(r"([+-]?[0-9xX]+)\s*/\s*([+-]?[0-9xX]+)", pt_replacer, phrase)
+    
+    # Replace punctuation with spaces, keep underscores from normalized tokens
     t = re.sub(r"[^a-z0-9_]+", " ", t)
-    tokens.extend(_WORD_RE.findall(t))
-
-    # Drop very short noise, keep 'x' (important in oracle), and keep digits ("3" matters).
+    
+    # Extract word tokens
+    tokens = _WORD_RE.findall(t)
+    
+    # Filter short tokens (keep 'x' and digits)
     return [tok for tok in tokens if len(tok) > 1 or tok == "x" or tok.isdigit()]
 
 
-def mtg_analyzer(text: str) -> List[str]:
-    """scikit-learn analyzer hook."""
-    return mtg_tokenize(text)
+def _tokenize_internal(text: str, card_name: str | None = None) -> List[List[str]]:
+    """Internal core tokenization workflow without n-gram generation. Returns tokens grouped by phrase."""
+    if not text:
+        return []
+        
+    t = strip_reminder_text(text)
+    t = substitute_card_name(t, card_name)
+    t = normalize_text(t)
+    
+    phrases = split_into_phrases(t)
+    all_phrase_tokens: List[List[str]] = []
+    
+    for phrase in phrases:
+        phrase_with_symbols = resolve_symbols_inplace(phrase)
+        phrase_tokens = tokenize_phrase(phrase_with_symbols)
+        if phrase_tokens:
+            all_phrase_tokens.append(phrase_tokens)
+            
+    return all_phrase_tokens
+
+
+def mtg_tokenize(text: str, card_name: str | None = None) -> List[str]:
+    """Tokenize MTG oracle-ish text for TF-IDF."""
+    phrase_tokens_list = _tokenize_internal(text, card_name)
+    return [tok for phrase_tokens in phrase_tokens_list for tok in phrase_tokens]
+
+
+# Special delimiter to separate card_name from oracle_text in analyzer input
+_CARD_NAME_DELIMITER = "\x00\x01CARD_NAME\x01\x00"
 
 
 def make_mtg_analyzer(ngram_range: Tuple[int, int] = (1, 1)) -> Callable[[str], List[str]]:
     """
     Return a scikit-learn-compatible analyzer(text)->tokens callable, with configurable n-grams.
-
-    scikit-learn does not pass arguments into an analyzer callable, so we use a factory/closure.
+    
+    The analyzer expects input in the format: "oracle_text{CARD_NAME_DELIMITER}card_name"
     """
-
     lo, hi = ngram_range
     if lo < 1 or hi < lo:
         raise ValueError("ngram_range must satisfy 1 <= lo <= hi")
 
     def analyzer(text: str) -> List[str]:
-        toks = mtg_tokenize(text)
-        if not toks:
-            return toks
-
-        out: List[str] = []
-        # Unigrams
-        if lo <= 1 <= hi:
-            out.extend(toks)
-
-        # Higher n-grams (currently used for bigrams in TF-IDF)
-        if hi >= 2 and len(toks) >= 2:
-            for n in range(max(2, lo), hi + 1):
-                if len(toks) < n:
-                    break
-                out.extend(
-                    ["__".join(toks[i : i + n]) for i in range(len(toks) - n + 1)]
-                )
-
-        return out
+        card_name: str | None = None
+        if _CARD_NAME_DELIMITER in text:
+            parts = text.split(_CARD_NAME_DELIMITER, 1)
+            text = parts[0]
+            if len(parts) > 1:
+                card_name = parts[1] or None
+        
+        phrase_tokens_list = _tokenize_internal(text, card_name)
+        all_tokens: List[str] = []
+        
+        for phrase_tokens in phrase_tokens_list:
+            # Unigrams
+            if lo <= 1 <= hi:
+                all_tokens.extend(phrase_tokens)
+            
+            # Higher n-grams
+            if hi >= 2:
+                for n in range(max(2, lo), hi + 1):
+                    if len(phrase_tokens) >= n:
+                        all_tokens.extend(
+                            ["__".join(phrase_tokens[i : i + n]) for i in range(len(phrase_tokens) - n + 1)]
+                        )
+        
+        return all_tokens
 
     return analyzer
 

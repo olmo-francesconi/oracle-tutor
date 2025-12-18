@@ -14,7 +14,12 @@ from sklearn.preprocessing import normalize
 from sqlalchemy.orm import Session
 
 from .models import Card, CardFace
-from .oracle_tokenizer import iter_type_filters, make_mtg_analyzer, normalize_type_line
+from .oracle_tokenizer import (
+    _CARD_NAME_DELIMITER,
+    iter_type_filters,
+    make_mtg_analyzer,
+    normalize_type_line,
+)
 
 logger = logging.getLogger("oracle_tutor_api.api")
 
@@ -112,7 +117,9 @@ class TfidfIndex:
             # - dot uses full vectors (query has only its own terms)
             # - doc norm only considers query term dimensions, so extra oracle text doesn't penalize.
             q_vec = cast(Any, self.vectorizer.transform([q]))
+            logger.debug("Query: '%s', tokens: %s", q, self.vectorizer.inverse_transform(q_vec))
             if q_vec.nnz == 0:
+                logger.warning("Query '%s' produced no tokens in vocabulary", q)
                 return []
 
             matrix_raw = cast(Any, self.matrix_raw)
@@ -170,7 +177,16 @@ class TfidfIndex:
 
             matrix_l2 = cast(Any, self.matrix_l2)
             seed_vec = matrix_l2[seed_idx]
+            
+            # Debug: what tokens are in the seed vector?
+            seed_tokens = self.vectorizer.inverse_transform(seed_vec)
+            logger.debug("Seed face_id %d (%s) tokens: %s", seed_face_id, self.face_names[seed_idx], seed_tokens)
+            
             scores = linear_kernel(seed_vec, matrix_l2).ravel()
+            
+            # Debug: top scores before filtering
+            top_raw_idx = np.argsort(scores)[-5:][::-1]
+            logger.debug("Top raw similarities: %s", [(self.face_names[idx], scores[idx]) for idx in top_raw_idx])
 
             mask = self._filter_mask(exclude_card_id=exclude_card_id, card_type=card_type, colors=colors)
             # Also exclude the seed face itself.
@@ -212,7 +228,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     face_colors: List[set[str]] = []
     docs: List[str] = []
 
-    for face_id, card_id, face_name, type_line, oracle_text, colors, _card_name in rows:
+    for face_id, card_id, face_name, type_line, oracle_text, colors, card_name in rows:
         face_ids.append(int(face_id))
         face_card_ids.append(str(card_id))
         face_names.append(face_name or "")
@@ -220,8 +236,12 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         face_type_lines_lower.append((tl_norm or "").lower())
         face_colors.append(set(colors or []))
 
-        # Only use oracle_text for similarity calculation, not type_line
-        docs.append(oracle_text or "")
+        # Pass oracle_text with card_name (face_name) for tokenization
+        # Use face_name as it's the name on the card face, which is what appears in oracle text
+        oracle_doc = oracle_text or ""
+        if face_name:
+            oracle_doc = oracle_doc + _CARD_NAME_DELIMITER + face_name
+        docs.append(oracle_doc)
 
     def _parse_max_df(raw: str) -> int | float:
         """
