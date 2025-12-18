@@ -20,7 +20,6 @@ from .database import SessionLocal, get_db
 from .db_init import init_db
 from .logging_config import log_performance, setup_loggers
 from .models import Card, CardFace, SystemMetadata
-from .text_processing import expand_symbols
 from .tfidf_index import TfidfIndex, build_tfidf_index
 
 # Logging
@@ -472,13 +471,13 @@ def search_oracle_text(
 
     index = _require_index()
 
-    # Expand symbol syntax & strip reminder punctuation in query (helps tokenization).
-    expanded_query = expand_symbols(q)
-    if not expanded_query.strip():
+    # Query is tokenized by the same mtg_tokenize() used for indexing,
+    # so no preprocessing needed - the tokenizer handles symbols and reminder text.
+    if not q.strip():
         return []
 
     results = index.search(
-        query=expanded_query,
+        query=q,
         limit=max(1, min(limit, 100)),
         offset=max(0, offset),
         card_type=card_type,

@@ -14,7 +14,7 @@ from sklearn.preprocessing import normalize
 from sqlalchemy.orm import Session
 
 from .models import Card, CardFace
-from .oracle_tokenizer import iter_type_filters, join_fields, make_mtg_analyzer, normalize_type_line
+from .oracle_tokenizer import iter_type_filters, make_mtg_analyzer, normalize_type_line
 
 logger = logging.getLogger("oracle_tutor_api.api")
 
@@ -220,7 +220,8 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         face_type_lines_lower.append((tl_norm or "").lower())
         face_colors.append(set(colors or []))
 
-        docs.append(join_fields(oracle_text or "", tl_norm))
+        # Only use oracle_text for similarity calculation, not type_line
+        docs.append(oracle_text or "")
 
     def _parse_max_df(raw: str) -> int | float:
         """
