@@ -450,7 +450,7 @@ wheels = [
 
 [[package]]
 name = "oracle-tutor-api"
-version = "0.0.1"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
@@ -472,8 +472,13 @@ worker = [
 
 [package.dev-dependencies]
 test = [
+    { name = "cachetools" },
+    { name = "fastapi" },
     { name = "httpx" },
+    { name = "ijson" },
     { name = "pytest" },
+    { name = "requests" },
+    { name = "scikit-learn" },
 ]
 
 [package.metadata]
@@ -492,8 +497,13 @@ provides-extras = ["api", "worker"]
 
 [package.metadata.requires-dev]
 test = [
+    { name = "cachetools", specifier = ">=5.5.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.27.0" },
+    { name = "ijson", specifier = ">=3.3.0" },
     { name = "pytest", specifier = ">=8.0.0" },
+    { name = "requests", specifier = ">=2.32.0" },
+    { name = "scikit-learn", specifier = ">=1.5.0" },
 ]
 
 [[package]]
