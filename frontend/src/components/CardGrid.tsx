@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from '@phosphor-icons/react';
 import { CardImage } from './CardImage';
 import { getCardImageUrl } from '../utils';
 import type { SimilarCard } from '../types';
@@ -65,7 +65,7 @@ export function CardGrid({
             <div className="flex items-center gap-3">
               {/* Placeholder for future filter controls */}
               <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#262626] border border-white/5 text-[#f5f2eb] hover:bg-[#333] hover:border-[#e3dccb]/30 transition-all text-sm font-medium cursor-pointer shadow-sm active:scale-95">
-                <SlidersHorizontal size={16} />
+                <SlidersHorizontal className="h-4 w-4" />
                 <span>Filters</span>
               </button>
             </div>

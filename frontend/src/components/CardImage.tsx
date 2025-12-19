@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ImageOff } from 'lucide-react';
+import { ImageBroken } from '@phosphor-icons/react';
 
 type CardImageProps = React.ImgHTMLAttributes<HTMLImageElement>;
 
@@ -14,7 +14,7 @@ export function CardImage({ src, alt, className, ...props }: CardImageProps) {
         role="img" 
         aria-label={alt ? `Placeholder for ${alt}` : 'Image placeholder'}
       >
-        <ImageOff size={32} className="mb-2 opacity-50" />
+        <ImageBroken className="h-8 w-8 mb-2 opacity-50" />
         <span className="text-xs font-medium text-center px-4">
           {alt || 'Image unavailable'}
         </span>

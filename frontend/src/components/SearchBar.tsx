@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { MagnifyingGlass } from '@phosphor-icons/react';
 import { searchCards } from '../api';
 import type { CardMatch } from '../types';
 
@@ -127,7 +127,7 @@ export function SearchBar() {
             ${showSuggestions ? 'rounded-t-xl rounded-b-none border-b-[#f5f5f5] focus:border-b-[#f5f5f5]' : 'rounded-xl'}
           `}
         />
-        <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-[#a3a3a3] group-focus-within:text-[#1c1c1c] transition-colors duration-300" />
+        <MagnifyingGlass className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#a3a3a3] group-focus-within:text-[#1c1c1c] transition-colors duration-300" />
       </div>
 
       {showSuggestions && (

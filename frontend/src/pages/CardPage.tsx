@@ -1,11 +1,12 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { getCard, getSimilarCards } from '../api';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from '@phosphor-icons/react';
 import { useEffect, useState, useMemo } from 'react';
 import { CardOverlay } from '../components/CardOverlay';
 import { CardImage } from '../components/CardImage';
 import { CardGrid } from '../components/CardGrid';
+import { DeveloperLinks } from '../components/DeveloperLinks';
 import type { SimilarCard } from '../types';
 import { getCardImageUrl } from '../utils';
 
@@ -88,7 +89,7 @@ export function CardPage() {
       {/* Sidebar - Selected Card Details */}
       <div className="w-full md:w-[380px] flex-shrink-0 h-full overflow-y-auto bg-[#f5f2eb] border-r border-[#e5e5e5] p-5 flex flex-col">
         <Link to="/" className="flex items-center gap-2 text-[#525252] mb-6 hover:text-[#1c1c1c] transition-colors">
-          <ArrowLeft size={16} /> Back to Search
+          <ArrowLeft className="h-4 w-4" /> Back to Search
         </Link>
 
         {/* Card "Paper" Container */}
@@ -131,6 +132,10 @@ export function CardPage() {
                {displayOracle}
              </p>
           </div>
+        </div>
+
+        <div className="mt-auto pt-6">
+          <DeveloperLinks variant="dark" />
         </div>
       </div>
 

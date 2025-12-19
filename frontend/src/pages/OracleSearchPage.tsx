@@ -1,10 +1,11 @@
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { searchOracleText } from '../api';
-import { ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft, MagnifyingGlass } from '@phosphor-icons/react';
 import { useEffect, useState, useMemo } from 'react';
 import { CardOverlay } from '../components/CardOverlay';
 import { CardGrid } from '../components/CardGrid';
+import { DeveloperLinks } from '../components/DeveloperLinks';
 import type { SimilarCard } from '../types';
 
 export function OracleSearchPage() {
@@ -84,13 +85,13 @@ export function OracleSearchPage() {
       {/* Sidebar - Search Details */}
       <div className="w-full md:w-[380px] flex-shrink-0 h-full overflow-y-auto bg-[#f5f2eb] border-r border-[#e5e5e5] p-5 flex flex-col">
         <Link to="/" className="flex items-center gap-2 text-[#525252] mb-6 hover:text-[#1c1c1c] transition-colors">
-          <ArrowLeft size={16} /> Back to Search
+          <ArrowLeft className="h-4 w-4" /> Back to Search
         </Link>
 
         {/* Query "Paper" Container */}
         <div className="bg-white rounded-xl p-5 shadow-lg border border-[#e5e5e5] text-[#1c1c1c]">
            <div className="flex flex-col items-center justify-center aspect-[5/3] w-full mb-5 bg-[#f0f0f0] rounded-lg border border-[#e5e5e5] p-4">
-             <Search size={48} className="text-[#a3a3a3] mb-2" />
+             <MagnifyingGlass className="h-12 w-12 text-[#a3a3a3] mb-2" />
              <span className="text-[#737373] text-sm font-medium">Oracle Search</span>
            </div>
 
@@ -102,7 +103,7 @@ export function OracleSearchPage() {
               placeholder="Describe card meaning..."
               className="w-full p-3 pl-10 text-lg font-medium border-2 border-[#e5e5e5] rounded-lg outline-none focus:border-[#d4d4d4] focus:bg-[#fafafa] transition-all text-[#1c1c1c] bg-white placeholder-[#a3a3a3]"
             />
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#a3a3a3] group-focus-within:text-[#1c1c1c] transition-colors" size={20} />
+            <MagnifyingGlass className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#a3a3a3] group-focus-within:text-[#1c1c1c] transition-colors" />
           </form>
           
           <div className="pt-4 border-t border-[#e5e5e5] mt-4">
@@ -110,6 +111,10 @@ export function OracleSearchPage() {
                Searching for cards with similar meaning to your query.
              </p>
           </div>
+        </div>
+
+        <div className="mt-auto pt-6">
+          <DeveloperLinks variant="dark" />
         </div>
       </div>
 

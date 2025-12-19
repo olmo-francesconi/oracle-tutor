@@ -6,6 +6,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
+import importlib.metadata
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -165,6 +166,17 @@ def root() -> dict[str, str]:
 @app.get("/health", tags=["meta"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+try:
+    API_VERSION = importlib.metadata.version("oracle-tutor-api")
+except importlib.metadata.PackageNotFoundError:
+    API_VERSION = "1.0.0"  # Fallback if package not installed
+
+
+@app.get("/version", tags=["meta"])
+def version() -> dict[str, str]:
+    return {"version": API_VERSION}
 
 
 @app.get("/favicon.ico")

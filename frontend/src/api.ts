@@ -33,3 +33,13 @@ export const searchOracleText = async (query: string, offset: number = 0, limit:
   });
   return response.data;
 };
+
+export const getApiHealth = async (): Promise<{ status: string }> => {
+  const response = await api.get('/health');
+  return response.data;
+};
+
+export const getApiVersion = async (): Promise<{ version: string }> => {
+  const response = await api.get('/version');
+  return response.data;
+};

@@ -1,4 +1,4 @@
-import { X, Search, RefreshCw } from 'lucide-react';
+import { X, MagnifyingGlass, ArrowsClockwise } from '@phosphor-icons/react';
 import { CardImage } from './CardImage';
 import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -125,7 +125,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
           onClick={onClose}
           className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/10 hover:bg-black/20 text-[#1c1c1c] transition-colors"
         >
-          <X size={24} />
+          <X className="h-6 w-6" />
         </button>
 
         {/* Image Section */}
@@ -159,7 +159,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                      }}
                      className="bg-black/60 text-white rounded-full p-3 backdrop-blur-sm hover:bg-black/80 hover:scale-110 transition-all shadow-lg"
                    >
-                      <RefreshCw size={22} />
+                      <ArrowsClockwise className="h-5 w-5" />
                    </button>
                 </div>
               )}
@@ -244,7 +244,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                 onClick={onClose}
                 className="w-full flex items-center justify-center gap-2 bg-[#1c1c1c] text-white py-3 px-6 rounded-xl font-semibold hover:bg-[#333] transition-all shadow-lg hover:shadow-xl active:scale-[0.98]"
               >
-                <Search size={18} />
+                <MagnifyingGlass className="h-4 w-4" />
                 Find Similar Cards
               </Link>
             </div>

@@ -2,6 +2,8 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { SearchBar } from './components/SearchBar';
 import { CardPage } from './pages/CardPage';
 import { OracleSearchPage } from './pages/OracleSearchPage';
+import { SystemStatus } from './components/SystemStatus';
+import { DeveloperLinks } from './components/DeveloperLinks';
 import { useEffect } from 'react';
 
 function Home() {
@@ -16,6 +18,7 @@ function Home() {
         <p className="text-[#525252] mb-8 text-center text-lg font-light">Find cards by semantic meaning, not just keywords.</p>
         <SearchBar />
       </div>
+      <DeveloperLinks variant="light" className="fixed bottom-0 left-0 px-6 py-4" />
     </div>
   );
 }
@@ -30,6 +33,7 @@ function App() {
           <Route path="/card/:id" element={<CardPage />} />
           <Route path="/search" element={<OracleSearchPage />} />
         </Routes>
+        <SystemStatus />
       </div>
     </Router>
   );
