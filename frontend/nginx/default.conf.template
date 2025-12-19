@@ -1,0 +1,77 @@
+server {
+  listen ${PORT};
+
+  server_tokens off;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # Basic hardening headers (safe defaults for a static SPA).
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+  # --- Drop common probe/scanner requests early (no response) ---
+  # Allow ACME / well-known endpoints if you ever add them.
+  location ^~ /.well-known/ {
+    try_files $uri =404;
+  }
+
+  # Dotfiles and secrets (covers /.env, /.git/*, /.DS_Store, etc.)
+  location ~ /\.(?!well-known)(?:.*)$ {
+    return 444;
+  }
+
+  # WordPress / PHP probes
+  location = /xmlrpc.php { return 444; }
+  location = /wp-login.php { return 444; }
+  location ^~ /wp-admin { return 444; }
+  location ^~ /wp-content { return 444; }
+  location ^~ /wp-includes { return 444; }
+  location ^~ /wordpress { return 444; }
+  location ^~ /wp { return 444; }
+  location ^~ /phpmyadmin { return 444; }
+
+  # Serve the SPA (React router) with an index.html fallback.
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  # Same-origin API proxy: frontend calls /api/*, backend expects /*.
+  location ^~ /api/ {
+    # Assign to variable to force dynamic resolution
+    # Must be set BEFORE it is used or rewritten to avoid "uninitialized variable" warnings.
+    set $upstream_target ${API_PROXY_TARGET};
+
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+
+    # Use Railway's internal DNS resolver (IPv6)
+    resolver [fd12::10] valid=10s ipv6=on;
+
+    # IMPORTANT: when proxying to a different Railway service via its public domain,
+    # routing is Host-header based. Use the upstream host, not the frontend host.
+    proxy_set_header Host $proxy_host;
+    # After Real IP processing, $remote_addr is the client IP and $realip_remote_addr
+    # is the trusted proxy hop. Send client IP to the API explicitly.
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+
+    # Log the upstream target for debugging dynamic resolution
+    access_log /dev/stdout main_ext;
+    add_header X-Upstream-Target $upstream_target always;
+    
+    proxy_pass $upstream_target;
+  }
+
+  # Cache immutable build assets aggressively.
+  location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|webp|woff2?)$ {
+    expires 30d;
+    add_header Cache-Control "public, max-age=2592000, immutable";
+    try_files $uri =404;
+  }
+}
+
+
