@@ -13,11 +13,11 @@ const pkg = JSON.parse(
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+  const env = loadEnv(mode, process.cwd(), '')
   return {
     plugins: [react()],
     define: {
-      'APP_VERSION': JSON.stringify(pkg.version),
+      APP_VERSION: JSON.stringify(pkg.version),
     },
     server: {
       allowedHosts: ['oracletutor.org'],

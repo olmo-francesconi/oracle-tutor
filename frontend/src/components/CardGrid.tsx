@@ -1,151 +1,184 @@
-import { useEffect, useState, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { SlidersHorizontal } from '@phosphor-icons/react';
-import { CardImage } from './CardImage';
-import { getCardImageUrl } from '../utils';
-import type { SimilarCard } from '../types';
+import { useEffect, useState, useRef } from 'react'
+import { motion } from 'framer-motion'
+import { SlidersHorizontal } from '@phosphor-icons/react'
+import { CardImage } from './CardImage'
+import { getCardImageUrl } from '../utils'
+import type { SimilarCard } from '../types'
+import { cn } from '../lib/cn'
 
 interface CardGridProps {
-  cards: SimilarCard[];
-  isLoading: boolean;
-  isFetchingNextPage: boolean;
-  hasNextPage: boolean;
-  fetchNextPage: () => void;
-  onCardClick: (card: SimilarCard) => void;
-  noResultsMessage?: React.ReactNode;
-  searchQuery?: string;
+  cards: SimilarCard[]
+  isLoading: boolean
+  isFetchingNextPage: boolean
+  hasNextPage: boolean
+  fetchNextPage: () => void
+  onCardClick: (card: SimilarCard) => void
+  noResultsMessage?: React.ReactNode
+  searchQuery?: string
 }
 
-export function CardGrid({ 
-  cards, 
-  isLoading, 
-  isFetchingNextPage, 
-  hasNextPage, 
-  fetchNextPage, 
+export function CardGrid({
+  cards,
+  isLoading,
+  isFetchingNextPage,
+  hasNextPage,
+  fetchNextPage,
   onCardClick,
   noResultsMessage,
-  searchQuery
+  searchQuery,
 }: CardGridProps) {
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [isLoaderInView, setIsLoaderInView] = useState(false);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isAnimating, setIsAnimating] = useState(false)
+  const [isLoaderInView, setIsLoaderInView] = useState(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Scroll to top when search query changes
   useEffect(() => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' })
     }
-  }, [searchQuery]);
+  }, [searchQuery])
 
   const startNextPageFetch = () => {
-    if (isAnimating) return;
-    if (!hasNextPage) return;
-    if (isFetchingNextPage) return;
-    setIsAnimating(true);
-    fetchNextPage();
-  };
+    if (isAnimating) return
+    if (!hasNextPage) return
+    if (isFetchingNextPage) return
+    setIsAnimating(true)
+    fetchNextPage()
+  }
 
   // Initial loading state is now handled inside the main return to preserve the scroll container ref
-  const showInitialLoader = isLoading && cards.length === 0;
+  const showInitialLoader = isLoading && cards.length === 0
 
   return (
-    <div ref={scrollContainerRef} className="flex-1 h-full overflow-y-auto bg-transparent relative scroll-smooth">
+    <div
+      ref={scrollContainerRef}
+      className="relative h-full flex-1 overflow-y-auto scroll-smooth bg-transparent"
+    >
       {showInitialLoader ? (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex h-full items-center justify-center">
           <div className="flex items-center gap-2 text-[#737373]">
-            <div className="w-2 h-2 bg-[#e3dccb] rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-            <div className="w-2 h-2 bg-[#e3dccb] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-            <div className="w-2 h-2 bg-[#e3dccb] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+            <div
+              className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
+              style={{ animationDelay: '0s' }}
+            ></div>
+            <div
+              className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
+              style={{ animationDelay: '0.2s' }}
+            ></div>
+            <div
+              className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
+              style={{ animationDelay: '0.4s' }}
+            ></div>
           </div>
         </div>
       ) : (
         <>
           {/* Sticky Header with Blur Effect */}
-          <div className="sticky top-0 z-30 flex items-center justify-end px-6 py-4 bg-[#1c1c1c]/70 backdrop-blur-xl border-b border-white/5 transition-all duration-300 supports-[backdrop-filter]:bg-[#1c1c1c]/60">
+          <div className="sticky top-0 z-30 flex items-center justify-end border-b border-white/5 bg-[#1c1c1c]/70 px-6 py-4 backdrop-blur-xl transition-all duration-300 supports-[backdrop-filter]:bg-[#1c1c1c]/60">
             <div className="flex items-center gap-3">
               {/* Placeholder for future filter controls */}
-              <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#262626] border border-white/5 text-[#f5f2eb] hover:bg-[#333] hover:border-[#e3dccb]/30 transition-all text-sm font-medium cursor-pointer shadow-sm active:scale-95">
+              <button className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/5 bg-[#262626] px-4 py-2 text-sm font-medium text-[#f5f2eb] shadow-sm transition-all hover:border-[#e3dccb]/30 hover:bg-[#333] active:scale-95">
                 <SlidersHorizontal className="h-4 w-4" />
                 <span>Filters</span>
               </button>
             </div>
           </div>
-          
+
           {/* Grid with larger cards (fewer columns) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 p-6 pt-6 pb-10">
+          <div className="grid grid-cols-1 gap-6 p-6 pt-6 pb-10 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {cards.map((s, index) => (
-              <motion.div 
-                key={s.id} 
+              <motion.div
+                key={s.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ 
-                  duration: 0.3, 
-                  delay: (index % 60) * 0.05, 
-                  ease: "easeOut" 
+                transition={{
+                  duration: 0.3,
+                  delay: (index % 60) * 0.05,
+                  ease: 'easeOut',
                 }}
                 onAnimationComplete={() => {
                   // Release lock when the last item of the CURRENT BATCH finishes animating
                   if (index === cards.length - 1) {
                     if (isLoaderInView && hasNextPage && !isFetchingNextPage) {
                       // Keep lock and immediately request the next page if the loader is still visible.
-                      fetchNextPage();
+                      fetchNextPage()
                     } else {
-                      setIsAnimating(false);
+                      setIsAnimating(false)
                     }
                   }
                 }}
               >
                 <div
                   onClick={() => onCardClick(s)}
-                  className="group relative aspect-[5/7] overflow-hidden bg-[#262626] shadow-lg hover:-translate-y-1 hover:shadow-2xl hover:ring-1 hover:ring-[#e3dccb]/30 hover:scale-[1.02] border border-white/5 transition-all duration-300 block cursor-pointer" 
+                  className="group relative block aspect-[5/7] cursor-pointer overflow-hidden border border-white/5 bg-[#262626] shadow-lg transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:ring-1 hover:ring-[#e3dccb]/30"
                   style={{ borderRadius: '4.5% / 3.21%' }}
                 >
-                <CardImage 
-                  src={getCardImageUrl(s)} 
-                  alt={s.name}
-                  loading="lazy"
-                  className="w-full h-full object-cover"
-                />
-                
-                {/* Similarity Badge */}
-                <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[#171717]/90 backdrop-blur-md border border-white/5 rounded-full px-3 py-1 flex items-center gap-2 shadow-lg z-10">
-                  <div className={`w-2 h-2 rounded-full ${s.similarity > 0.8 ? 'bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.4)]'}`}></div>
-                  <span className="text-xs font-bold text-[#f5f2eb]">{(s.similarity * 100).toFixed(1)}%</span>
-                </div>
+                  <CardImage
+                    src={getCardImageUrl(s)}
+                    alt={s.name}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
 
-                {/* Hover Name Overlay */}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#171717] via-[#171717]/90 to-transparent p-4 pt-12 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
-                  <p className="text-[#f5f2eb] text-center font-medium text-sm truncate">{s.name}</p>
-                </div>
+                  {/* Similarity Badge */}
+                  <div className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/5 bg-[#171717]/90 px-3 py-1 shadow-lg backdrop-blur-md">
+                    <div
+                      className={cn(
+                        'h-2 w-2 rounded-full',
+                        s.similarity > 0.8
+                          ? 'bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+                          : 'bg-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                      )}
+                    />
+                    <span className="text-xs font-bold text-[#f5f2eb]">
+                      {(s.similarity * 100).toFixed(1)}%
+                    </span>
+                  </div>
+
+                  {/* Hover Name Overlay */}
+                  <div className="absolute inset-x-0 bottom-0 translate-y-full bg-gradient-to-t from-[#171717] via-[#171717]/90 to-transparent p-4 pt-12 transition-transform duration-300 group-hover:translate-y-0">
+                    <p className="truncate text-center text-sm font-medium text-[#f5f2eb]">
+                      {s.name}
+                    </p>
+                  </div>
                 </div>
               </motion.div>
             ))}
           </div>
 
           {/* Loading Indicator / Infinite Scroll Trigger */}
-          <motion.div 
+          <motion.div
             className="flex justify-center py-8"
             onViewportEnter={() => {
-              setIsLoaderInView(true);
-              startNextPageFetch();
+              setIsLoaderInView(true)
+              startNextPageFetch()
             }}
             onViewportLeave={() => setIsLoaderInView(false)}
-            viewport={{ margin: "200px" }} // Preload
+            viewport={{ margin: '200px' }} // Preload
           >
-            {(isFetchingNextPage) && (
+            {isFetchingNextPage && (
               <div className="flex items-center gap-2 text-[#737373]">
-                  <div className="w-2 h-2 bg-[#e3dccb] rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-                  <div className="w-2 h-2 bg-[#e3dccb] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                  <div className="w-2 h-2 bg-[#e3dccb] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                <div
+                  className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
+                  style={{ animationDelay: '0s' }}
+                ></div>
+                <div
+                  className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
+                  style={{ animationDelay: '0.2s' }}
+                ></div>
+                <div
+                  className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
+                  style={{ animationDelay: '0.4s' }}
+                ></div>
               </div>
             )}
             {!isLoading && cards.length === 0 && noResultsMessage}
             {!hasNextPage && cards.length > 0 && (
-              <span className="text-[#525252] text-sm">End of results</span>
+              <span className="text-sm text-[#525252]">End of results</span>
             )}
           </motion.div>
         </>
       )}
     </div>
-  );
+  )
 }

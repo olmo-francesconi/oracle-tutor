@@ -1,45 +1,53 @@
-import axios from 'axios';
-import type { Card, CardMatch, SimilarCard } from './types';
+import axios from 'axios'
+import type { Card, CardMatch, SimilarCard } from './types'
 
-const API_URL = '/api';
+const API_URL = '/api'
 
 const api = axios.create({
   baseURL: API_URL,
-});
+})
 
 export const searchCards = async (query: string): Promise<CardMatch[]> => {
-  if (!query || query.length < 2) return [];
+  if (!query || query.length < 2) return []
   const response = await api.get<CardMatch[]>('/suggest-names', {
     params: { q: query, limit: 10 },
-  });
-  return response.data;
-};
+  })
+  return response.data
+}
 
 export const getCard = async (id: string): Promise<Card> => {
-  const response = await api.get<Card>(`/card/${id}`);
-  return response.data;
-};
+  const response = await api.get<Card>(`/card/${id}`)
+  return response.data
+}
 
-export const getSimilarCards = async (id: string, offset: number = 0, limit: number = 24): Promise<SimilarCard[]> => {
+export const getSimilarCards = async (
+  id: string,
+  offset: number = 0,
+  limit: number = 24
+): Promise<SimilarCard[]> => {
   const response = await api.get<SimilarCard[]>(`/similar-cards/${id}`, {
-    params: { limit, offset }
-  });
-  return response.data;
-};
+    params: { limit, offset },
+  })
+  return response.data
+}
 
-export const searchOracleText = async (query: string, offset: number = 0, limit: number = 24): Promise<SimilarCard[]> => {
+export const searchOracleText = async (
+  query: string,
+  offset: number = 0,
+  limit: number = 24
+): Promise<SimilarCard[]> => {
   const response = await api.get<SimilarCard[]>('/search-oracle', {
-    params: { q: query, limit, offset }
-  });
-  return response.data;
-};
+    params: { q: query, limit, offset },
+  })
+  return response.data
+}
 
 export const getApiHealth = async (): Promise<{ status: string }> => {
-  const response = await api.get('/health');
-  return response.data;
-};
+  const response = await api.get('/health')
+  return response.data
+}
 
 export const getApiVersion = async (): Promise<{ version: string }> => {
-  const response = await api.get('/version');
-  return response.data;
-};
+  const response = await api.get('/version')
+  return response.data
+}
