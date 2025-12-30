@@ -171,7 +171,7 @@ def health() -> dict[str, str]:
 try:
     API_VERSION = importlib.metadata.version("oracle-tutor-api")
 except importlib.metadata.PackageNotFoundError:
-    API_VERSION = "1.0.0"  # Fallback if package not installed
+    API_VERSION = "1.1.0"  # Fallback if package not installed
 
 
 @app.get("/version", tags=["meta"])
