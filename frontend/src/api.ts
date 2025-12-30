@@ -7,6 +7,24 @@ const api = axios.create({
   baseURL: API_URL,
 })
 
+type MatchMode = NonNullable<FilterState['matchMode']>
+
+type SimilarCardsParams = {
+  limit: number
+  offset: number
+  card_type?: string
+  colors?: string
+  format?: string
+  cmc_min?: number
+  cmc_max?: number
+  rarity?: string
+  match_mode?: MatchMode
+}
+
+type OracleSearchParams = SimilarCardsParams & {
+  q: string
+}
+
 export const searchCards = async (query: string): Promise<CardMatch[]> => {
   if (!query || query.length < 2) return []
   const response = await api.get<CardMatch[]>('/suggest-names', {
@@ -26,7 +44,7 @@ export const getSimilarCards = async (
   limit: number = 24,
   filters?: FilterState
 ): Promise<SimilarCard[]> => {
-  const params: any = { limit, offset }
+  const params: SimilarCardsParams = { limit, offset }
   if (filters) {
     if (filters.cardType) params.card_type = filters.cardType
     if (filters.colors) params.colors = filters.colors
@@ -49,7 +67,7 @@ export const searchOracleText = async (
   limit: number = 24,
   filters?: FilterState
 ): Promise<SimilarCard[]> => {
-  const params: any = { q: query, limit, offset }
+  const params: OracleSearchParams = { q: query, limit, offset }
   if (filters) {
     if (filters.cardType) params.card_type = filters.cardType
     if (filters.colors) params.colors = filters.colors

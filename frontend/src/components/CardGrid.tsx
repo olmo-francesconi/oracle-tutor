@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { SlidersHorizontal } from '@phosphor-icons/react'
 import { CardImage } from './CardImage'
 import { FilterBar } from './FilterBar'
 import { getCardImageUrl } from '../utils'
