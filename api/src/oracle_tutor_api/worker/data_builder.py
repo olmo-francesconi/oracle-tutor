@@ -195,6 +195,7 @@ def prepare_parent_card(card_data: Dict[str, Any]) -> Dict[str, Any]:
         "id": card_data.get("id"),
         "name": card_data.get("name"),
         "layout": card_data.get("layout"),
+        "cmc": card_data.get("cmc"),
         "edhrec_rank": card_data.get("edhrec_rank"),
         "rarity": card_data.get("rarity"),
         "legalities": card_data.get("legalities"),
@@ -219,6 +220,7 @@ def normalize_card_data(card: Dict[str, Any]) -> Dict[str, Any]:
         "id": card.get("id"),
         "name": card.get("name"),
         "layout": card.get("layout"),
+        "cmc": card.get("cmc"),
         "edhrec_rank": card.get("edhrec_rank"),
         "rarity": card.get("rarity"),
         "legalities": card.get("legalities"),
@@ -287,6 +289,7 @@ def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
             set_={
                 "name": stmt.excluded.name,
                 "layout": stmt.excluded.layout,
+                "cmc": stmt.excluded.cmc,
                 "edhrec_rank": stmt.excluded.edhrec_rank,
                 "rarity": stmt.excluded.rarity,
                 "legalities": stmt.excluded.legalities,

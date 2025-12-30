@@ -1,34 +1,38 @@
-import { useState } from 'react';
-import { ImageOff } from 'lucide-react';
+import { useState } from 'react'
+import { ImageBroken } from '@phosphor-icons/react'
+import { cn } from '../lib/cn'
 
-type CardImageProps = React.ImgHTMLAttributes<HTMLImageElement>;
+type CardImageProps = React.ImgHTMLAttributes<HTMLImageElement>
 
 export function CardImage({ src, alt, className, ...props }: CardImageProps) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const hasError = !!src && failedSrc === src;
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  const hasError = !!src && failedSrc === src
 
   if (hasError) {
     return (
-      <div 
-        className={`flex flex-col items-center justify-center bg-[#1c1c1c] border border-white/10 text-white/20 select-none ${className}`}
-        role="img" 
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center border border-white/10 bg-[#1c1c1c] text-white/20 select-none',
+          className
+        )}
+        role="img"
         aria-label={alt ? `Placeholder for ${alt}` : 'Image placeholder'}
       >
-        <ImageOff size={32} className="mb-2 opacity-50" />
-        <span className="text-xs font-medium text-center px-4">
+        <ImageBroken className="mb-2 h-8 w-8 opacity-50" />
+        <span className="px-4 text-center text-xs font-medium">
           {alt || 'Image unavailable'}
         </span>
       </div>
-    );
+    )
   }
 
   return (
     <img
       src={src}
       alt={alt}
-      className={className}
+      className={cn(className)}
       onError={() => setFailedSrc(src ?? null)}
       {...props}
     />
-  );
+  )
 }

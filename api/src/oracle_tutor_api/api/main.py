@@ -6,6 +6,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
+import importlib.metadata
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -167,6 +168,17 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+try:
+    API_VERSION = importlib.metadata.version("oracle-tutor-api")
+except importlib.metadata.PackageNotFoundError:
+    API_VERSION = "1.1.0"  # Fallback if package not installed
+
+
+@app.get("/version", tags=["meta"])
+def version() -> dict[str, str]:
+    return {"version": API_VERSION}
+
+
 @app.get("/favicon.ico")
 def favicon():
     return Response(status_code=204)
@@ -309,6 +321,10 @@ def get_similar_cards(
     card_type: Optional[str] = Query(None),
     colors: Optional[str] = Query(None),
     format: Optional[str] = Query(None),
+    cmc_min: Optional[float] = Query(None),
+    cmc_max: Optional[float] = Query(None),
+    rarity: Optional[str] = Query(None),
+    match_mode: str = Query("subset"),
     db: Session = Depends(get_db),
 ):
     index = _require_index()
@@ -337,6 +353,10 @@ def get_similar_cards(
         card_type=card_type,
         colors=colors,
         format=format,
+        cmc_min=cmc_min,
+        cmc_max=cmc_max,
+        rarity=rarity,
+        match_mode=match_mode,
     )
     if not results:
         return []
@@ -387,6 +407,11 @@ def search_oracle_text(
     offset: int = 0,
     card_type: Optional[str] = Query(None),
     colors: Optional[str] = Query(None),
+    format: Optional[str] = Query(None),
+    cmc_min: Optional[float] = Query(None),
+    cmc_max: Optional[float] = Query(None),
+    rarity: Optional[str] = Query(None),
+    match_mode: str = Query("subset"),
     db: Session = Depends(get_db),
 ):
     if not q.strip():
@@ -405,6 +430,11 @@ def search_oracle_text(
         offset=max(0, offset),
         card_type=card_type,
         colors=colors,
+        format=format,
+        cmc_min=cmc_min,
+        cmc_max=cmc_max,
+        rarity=rarity,
+        match_mode=match_mode,
     )
     if not results:
         return []
