@@ -6,7 +6,7 @@ import { searchOracleText } from '../api'
 import { CardGrid } from '../components/CardGrid'
 import { CardOverlay } from '../components/CardOverlay'
 import { DeveloperLinks } from '../components/DeveloperLinks'
-import type { SimilarCard } from '../types'
+import type { FilterState, SimilarCard } from '../types'
 
 export function OracleSearchPage() {
   const [searchParams] = useSearchParams()
@@ -14,6 +14,7 @@ export function OracleSearchPage() {
   const navigate = useNavigate()
   const [selectedCard, setSelectedCard] = useState<SimilarCard | null>(null)
   const [searchTerm, setSearchTerm] = useState(query)
+  const [filters, setFilters] = useState<FilterState>({})
 
   const {
     data: similarData,
@@ -22,9 +23,9 @@ export function OracleSearchPage() {
     isFetchingNextPage,
     isLoading: similarLoading,
   } = useInfiniteQuery({
-    queryKey: ['oracle-search', query],
+    queryKey: ['oracle-search', query, filters],
     queryFn: ({ pageParam = 0 }) => {
-      return searchOracleText(query, pageParam, 60)
+      return searchOracleText(query, pageParam, 60, filters)
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
@@ -132,6 +133,8 @@ export function OracleSearchPage() {
         onCardClick={setSelectedCard}
         noResultsMessage={noResultsMessage}
         searchQuery={query}
+        filters={filters}
+        onFilterChange={setFilters}
       />
     </div>
   )

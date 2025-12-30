@@ -35,3 +35,13 @@ export interface CardMatch {
   similarity?: number
   rank?: number
 }
+
+export interface FilterState {
+  cardType?: string
+  colors?: string
+  format?: string
+  cmcMin?: number
+  cmcMax?: number
+  rarity?: string
+  matchMode?: 'exact' | 'subset'
+}

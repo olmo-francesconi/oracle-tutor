@@ -2,8 +2,9 @@ import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { SlidersHorizontal } from '@phosphor-icons/react'
 import { CardImage } from './CardImage'
+import { FilterBar } from './FilterBar'
 import { getCardImageUrl } from '../utils'
-import type { SimilarCard } from '../types'
+import type { SimilarCard, FilterState } from '../types'
 import { cn } from '../lib/cn'
 
 interface CardGridProps {
@@ -15,6 +16,8 @@ interface CardGridProps {
   onCardClick: (card: SimilarCard) => void
   noResultsMessage?: React.ReactNode
   searchQuery?: string
+  filters?: FilterState
+  onFilterChange?: (filters: FilterState) => void
 }
 
 export function CardGrid({
@@ -26,8 +29,11 @@ export function CardGrid({
   onCardClick,
   noResultsMessage,
   searchQuery,
+  filters,
+  onFilterChange,
 }: CardGridProps) {
   const [isAnimating, setIsAnimating] = useState(false)
+
   const [isLoaderInView, setIsLoaderInView] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -74,13 +80,11 @@ export function CardGrid({
       ) : (
         <>
           {/* Sticky Header with Blur Effect */}
-          <div className="sticky top-0 z-30 flex items-center justify-end border-b border-white/5 bg-[#1c1c1c]/70 px-6 py-4 backdrop-blur-xl transition-all duration-300 supports-[backdrop-filter]:bg-[#1c1c1c]/60">
-            <div className="flex items-center gap-3">
-              {/* Placeholder for future filter controls */}
-              <button className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/5 bg-[#262626] px-4 py-2 text-sm font-medium text-[#f5f2eb] shadow-sm transition-all hover:border-[#e3dccb]/30 hover:bg-[#333] active:scale-95">
-                <SlidersHorizontal className="h-4 w-4" />
-                <span>Filters</span>
-              </button>
+          <div className="sticky top-0 z-30 flex items-center justify-center border-b border-white/5 bg-[#1c1c1c]/70 px-6 py-4 backdrop-blur-xl transition-all duration-300 supports-[backdrop-filter]:bg-[#1c1c1c]/60">
+            <div className="flex w-full max-w-7xl items-center gap-3">
+              {filters && onFilterChange && (
+                <FilterBar filters={filters} onFilterChange={onFilterChange} />
+              )}
             </div>
           </div>
 

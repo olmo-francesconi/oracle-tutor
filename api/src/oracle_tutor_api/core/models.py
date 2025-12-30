@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -37,6 +37,7 @@ class Card(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, index=True)
     layout: Mapped[str | None] = mapped_column(String, nullable=True)
+    cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rarity: Mapped[str | None] = mapped_column(String, nullable=True)
     legalities: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -48,6 +49,7 @@ class Card(Base):
             "id": self.id,
             "name": self.name,
             "layout": self.layout,
+            "cmc": self.cmc,
             "edhrec_rank": self.edhrec_rank,
             "rarity": self.rarity,
             "legalities": self.legalities,

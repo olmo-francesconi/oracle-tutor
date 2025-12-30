@@ -42,9 +42,12 @@ class TfidfIndex:
     face_names: List[str]
     face_type_lines_lower: List[str]
     face_colors: List[set[str]]
+    face_legalities: List[dict]
+    face_cmcs: List[float]
+    face_rarities: List[str]
     built_at: float
 
-    # cache key: (query_or_seed, card_type, colors, format) -> List[(face_id, score)]
+    # cache key: (query_or_seed, card_type, colors, format, cmc_min, cmc_max, rarity, match_mode) -> List[(face_id, score)]
     cache: TTLCache
 
     def _filter_mask(
@@ -53,9 +56,16 @@ class TfidfIndex:
         exclude_card_id: str | None,
         card_type: str | None,
         colors: str | None,
+        format: str | None,
+        cmc_min: float | None,
+        cmc_max: float | None,
+        rarity: str | None,
+        match_mode: str = "subset",  # "subset" or "exact"
     ) -> List[bool]:
         type_filters = list(iter_type_filters(card_type))
-        want_colors = _parse_colors(colors)
+        # Handle colorless logic: if colors="C" (or similar indicator) treat as empty set
+        is_colorless_search = colors == "C"
+        want_colors = set() if is_colorless_search else _parse_colors(colors)
 
         mask: List[bool] = [True] * len(self.face_ids)
         for i in range(len(mask)):
@@ -67,9 +77,46 @@ class TfidfIndex:
                 if not any(t in tl for t in type_filters):
                     mask[i] = False
                     continue
-            if want_colors:
-                if not want_colors.issubset(self.face_colors[i]):
+            
+            # Color filtering
+            face_c = self.face_colors[i]
+            if is_colorless_search:
+                # Must be strictly colorless
+                if len(face_c) > 0:
                     mask[i] = False
+                    continue
+            elif want_colors:
+                if match_mode == "exact":
+                    # Exact Match: Must match colors exactly (e.g. W+G means exactly Selesnya).
+                    # This excludes Mono-W, Mono-G, and WBG.
+                    if face_c != want_colors:
+                        mask[i] = False
+                        continue
+                else:
+                    # Subset (default): Must contain at least these colors
+                    if not want_colors.issubset(face_c):
+                        mask[i] = False
+                        continue
+
+            if format:
+                # legalities is a dict like {"commander": "legal", "modern": "banned"}
+                # we want "legal" or "restricted"
+                legality = self.face_legalities[i].get(format, "not_legal")
+                if legality not in ("legal", "restricted"):
+                    mask[i] = False
+                    continue
+            if cmc_min is not None:
+                if self.face_cmcs[i] < cmc_min:
+                    mask[i] = False
+                    continue
+            if cmc_max is not None:
+                if self.face_cmcs[i] > cmc_max:
+                    mask[i] = False
+                    continue
+            if rarity:
+                if self.face_rarities[i] != rarity:
+                    mask[i] = False
+                    continue
         return mask
 
     def _rank(
@@ -100,7 +147,11 @@ class TfidfIndex:
         offset: int,
         card_type: str | None = None,
         colors: str | None = None,
-        format: str | None = None,  # kept for cache key parity with legacy
+        format: str | None = None,
+        cmc_min: float | None = None,
+        cmc_max: float | None = None,
+        rarity: str | None = None,
+        match_mode: str = "subset",
         cache_top_k: int = 1000,
     ) -> List[Tuple[int, float]]:
         if not self.face_ids:
@@ -109,7 +160,7 @@ class TfidfIndex:
         if not q:
             return []
 
-        cache_key = (f"q:{q}", card_type, colors, format)
+        cache_key = (f"q:{q}", card_type, colors, format, cmc_min, cmc_max, rarity, match_mode)
         if cache_key in self.cache:
             cached = self.cache[cache_key]
         else:
@@ -145,7 +196,16 @@ class TfidfIndex:
             scores = np.zeros_like(dot_scores, dtype=float)
             ok = denom > 0
             scores[ok] = dot_scores[ok] / denom[ok]
-            mask = self._filter_mask(exclude_card_id=None, card_type=card_type, colors=colors)
+            mask = self._filter_mask(
+                exclude_card_id=None,
+                card_type=card_type,
+                colors=colors,
+                format=format,
+                cmc_min=cmc_min,
+                cmc_max=cmc_max,
+                rarity=rarity,
+                match_mode=match_mode,
+            )
             ranked = self._rank(scores, mask=mask, top_k=cache_top_k)
             cached = [(self.face_ids[i], s) for i, s in ranked]
             self.cache[cache_key] = cached
@@ -162,11 +222,15 @@ class TfidfIndex:
         card_type: str | None = None,
         colors: str | None = None,
         format: str | None = None,
+        cmc_min: float | None = None,
+        cmc_max: float | None = None,
+        rarity: str | None = None,
+        match_mode: str = "subset",
         cache_top_k: int = 1000,
     ) -> List[Tuple[int, float]]:
         if not self.face_ids:
             return []
-        cache_key = (f"similar:{seed_face_id}", card_type, colors, format)
+        cache_key = (f"similar:{seed_face_id}", card_type, colors, format, cmc_min, cmc_max, rarity, match_mode)
         if cache_key in self.cache:
             cached = self.cache[cache_key]
         else:
@@ -188,7 +252,16 @@ class TfidfIndex:
             top_raw_idx = np.argsort(scores)[-5:][::-1]
             logger.debug("Top raw similarities: %s", [(self.face_names[idx], scores[idx]) for idx in top_raw_idx])
 
-            mask = self._filter_mask(exclude_card_id=exclude_card_id, card_type=card_type, colors=colors)
+            mask = self._filter_mask(
+                exclude_card_id=exclude_card_id,
+                card_type=card_type,
+                colors=colors,
+                format=format,
+                cmc_min=cmc_min,
+                cmc_max=cmc_max,
+                rarity=rarity,
+                match_mode=match_mode,
+            )
             # Also exclude the seed face itself.
             mask[seed_idx] = False
 
@@ -216,6 +289,9 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
             CardFace.oracle_text,
             CardFace.colors,
             Card.name.label("card_name"),
+            Card.legalities,
+            Card.cmc,
+            Card.rarity,
         )
         .join(Card, CardFace.card_id == Card.id)
         .all()
@@ -226,15 +302,32 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     face_names: List[str] = []
     face_type_lines_lower: List[str] = []
     face_colors: List[set[str]] = []
+    face_legalities: List[dict] = []
+    face_cmcs: List[float] = []
+    face_rarities: List[str] = []
     docs: List[str] = []
 
-    for face_id, card_id, face_name, type_line, oracle_text, colors, card_name in rows:
+    for (
+        face_id,
+        card_id,
+        face_name,
+        type_line,
+        oracle_text,
+        colors,
+        card_name,
+        legalities,
+        cmc,
+        rarity,
+    ) in rows:
         face_ids.append(int(face_id))
         face_card_ids.append(str(card_id))
         face_names.append(face_name or "")
         tl_norm = normalize_type_line(type_line)
         face_type_lines_lower.append((tl_norm or "").lower())
         face_colors.append(set(colors or []))
+        face_legalities.append(legalities or {})
+        face_cmcs.append(float(cmc or 0.0))
+        face_rarities.append(rarity or "")
 
         # Pass oracle_text with card_name (face_name) for tokenization
         # Use face_name as it's the name on the card face, which is what appears in oracle text
@@ -357,6 +450,9 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         face_names=face_names,
         face_type_lines_lower=face_type_lines_lower,
         face_colors=face_colors,
+        face_legalities=face_legalities,
+        face_cmcs=face_cmcs,
+        face_rarities=face_rarities,
         built_at=time.time(),
         cache=TTLCache(maxsize=100, ttl=600),
     )

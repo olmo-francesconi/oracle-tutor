@@ -321,6 +321,10 @@ def get_similar_cards(
     card_type: Optional[str] = Query(None),
     colors: Optional[str] = Query(None),
     format: Optional[str] = Query(None),
+    cmc_min: Optional[float] = Query(None),
+    cmc_max: Optional[float] = Query(None),
+    rarity: Optional[str] = Query(None),
+    match_mode: str = Query("subset"),
     db: Session = Depends(get_db),
 ):
     index = _require_index()
@@ -349,6 +353,10 @@ def get_similar_cards(
         card_type=card_type,
         colors=colors,
         format=format,
+        cmc_min=cmc_min,
+        cmc_max=cmc_max,
+        rarity=rarity,
+        match_mode=match_mode,
     )
     if not results:
         return []
@@ -399,6 +407,11 @@ def search_oracle_text(
     offset: int = 0,
     card_type: Optional[str] = Query(None),
     colors: Optional[str] = Query(None),
+    format: Optional[str] = Query(None),
+    cmc_min: Optional[float] = Query(None),
+    cmc_max: Optional[float] = Query(None),
+    rarity: Optional[str] = Query(None),
+    match_mode: str = Query("subset"),
     db: Session = Depends(get_db),
 ):
     if not q.strip():
@@ -417,6 +430,11 @@ def search_oracle_text(
         offset=max(0, offset),
         card_type=card_type,
         colors=colors,
+        format=format,
+        cmc_min=cmc_min,
+        cmc_max=cmc_max,
+        rarity=rarity,
+        match_mode=match_mode,
     )
     if not results:
         return []

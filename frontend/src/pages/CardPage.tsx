@@ -7,7 +7,7 @@ import { CardGrid } from '../components/CardGrid'
 import { CardImage } from '../components/CardImage'
 import { CardOverlay } from '../components/CardOverlay'
 import { DeveloperLinks } from '../components/DeveloperLinks'
-import type { SimilarCard } from '../types'
+import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 
 export function CardPage() {
@@ -17,6 +17,7 @@ export function CardPage() {
     card: SimilarCard
   } | null>(null)
   const selectedCard = selected?.routeId === (id ?? '') ? selected.card : null
+  const [filters, setFilters] = useState<FilterState>({})
 
   const {
     data: card,
@@ -35,9 +36,9 @@ export function CardPage() {
     isFetchingNextPage,
     isLoading: similarLoading,
   } = useInfiniteQuery({
-    queryKey: ['similar', id],
+    queryKey: ['similar', id, filters],
     queryFn: ({ pageParam = 0 }) => {
-      return getSimilarCards(id!, pageParam, 60)
+      return getSimilarCards(id!, pageParam, 60, filters)
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
@@ -178,6 +179,8 @@ export function CardPage() {
         hasNextPage={!!hasNextPage}
         fetchNextPage={fetchNextPage}
         onCardClick={(c) => setSelected({ routeId: id ?? '', card: c })}
+        filters={filters}
+        onFilterChange={setFilters}
       />
     </div>
   )
