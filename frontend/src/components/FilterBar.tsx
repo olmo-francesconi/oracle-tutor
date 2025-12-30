@@ -1,5 +1,5 @@
 import { Funnel, ArrowCounterClockwise, X } from '@phosphor-icons/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '../lib/cn'
 import type { FilterState } from '../types'
@@ -45,7 +45,7 @@ const CARD_TYPES = [
 interface FilterInputsProps {
   localFilters: FilterState
   isExclusive: boolean
-  updateFilter: (key: keyof FilterState, value: any) => void
+  updateFilter: <K extends keyof FilterState>(key: K, value: FilterState[K]) => void
   toggleExclusive: () => void
   handleColorClick: (color: string) => void
   isMobile?: boolean
@@ -197,24 +197,14 @@ function FilterInputs({
 export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
   const [localFilters, setLocalFilters] = useState<FilterState>(filters)
   const [hasChanges, setHasChanges] = useState(false)
-  const [isExclusive, setIsExclusive] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [showInline, setShowInline] = useState(true)
-  const [isMounted, setIsMounted] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const measureBarRef = useRef<HTMLDivElement>(null)
 
-  // Sync local state when props change externally
-  useEffect(() => {
-    setLocalFilters(filters)
-    setHasChanges(false)
-    setIsExclusive(filters.matchMode === 'exact')
-  }, [filters])
-
-  useEffect(() => {
-    setIsMounted(true)
-  }, [])
+  // If the user hasn't modified the draft, always reflect the latest committed filters.
+  const draftFilters: FilterState = hasChanges ? localFilters : filters
+  const isExclusive = draftFilters.matchMode === 'exact'
 
   const handleApply = () => {
     onFilterChange(localFilters)
@@ -225,7 +215,6 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
   const handleReset = () => {
     const emptyFilters: FilterState = {}
     setLocalFilters(emptyFilters)
-    setIsExclusive(false)
     onFilterChange(emptyFilters)
     setHasChanges(false)
     setIsModalOpen(false)
@@ -235,21 +224,17 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
     key: K,
     value: FilterState[K]
   ) => {
-    setLocalFilters((prev) => {
-      const next = { ...prev, [key]: value }
-      setHasChanges(true)
-      return next
-    })
+    // Always base updates on the currently rendered draft state, not potentially stale local state.
+    setLocalFilters({ ...draftFilters, [key]: value })
+    setHasChanges(true)
   }
 
   const toggleExclusive = () => {
-    const newExclusive = !isExclusive
-    setIsExclusive(newExclusive)
-    updateFilter('matchMode', newExclusive ? 'exact' : 'subset')
+    updateFilter('matchMode', isExclusive ? 'subset' : 'exact')
   }
 
   const handleColorClick = (color: string) => {
-    const currentColors = localFilters.colors ? localFilters.colors.split('') : []
+    const currentColors = draftFilters.colors ? draftFilters.colors.split('') : []
     const isSelected = currentColors.includes(color)
 
     let newColors = [...currentColors]
@@ -280,45 +265,40 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
   ).length
 
   // Shared props for inputs
-  const inputProps = useMemo(
-    () => ({
-      localFilters,
-      isExclusive,
-      updateFilter,
-      toggleExclusive,
-      handleColorClick,
-    }),
-    [localFilters, isExclusive]
-  )
-
-  const recomputeLayout = () => {
-    const containerW = containerRef.current?.clientWidth ?? 0
-    const neededW = measureBarRef.current?.scrollWidth ?? 0
-    if (containerW <= 0 || neededW <= 0) return
-
-    // Small hysteresis to avoid flicker when near the threshold.
-    const hysteresisPx = 24
-    setShowInline((prev) => {
-      if (prev) return containerW >= (neededW - hysteresisPx)
-      return containerW >= (neededW + hysteresisPx)
-    })
+  const inputProps = {
+    localFilters: draftFilters,
+    isExclusive,
+    updateFilter,
+    toggleExclusive,
+    handleColorClick,
   }
 
-  useLayoutEffect(() => {
-    recomputeLayout()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const showInline = useSyncExternalStore(
+    (onStoreChange) => {
+      // Subscribe to size changes (container + window).
+      const el = containerRef.current
+      let ro: ResizeObserver | null = null
 
-  useEffect(() => {
-    recomputeLayout()
+      if (typeof ResizeObserver !== 'undefined' && el) {
+        ro = new ResizeObserver(() => onStoreChange())
+        ro.observe(el)
+      } else {
+        window.addEventListener('resize', onStoreChange)
+      }
 
-    const el = containerRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => recomputeLayout())
-    ro.observe(el)
-    return () => ro.disconnect()
-    // Recompute when controls that affect width change.
-  }, [hasChanges, isExclusive, localFilters.colors, localFilters.cardType, localFilters.format, localFilters.rarity])
+      return () => {
+        if (ro) ro.disconnect()
+        window.removeEventListener('resize', onStoreChange)
+      }
+    },
+    () => {
+      const containerW = containerRef.current?.clientWidth ?? 0
+      const neededW = measureBarRef.current?.scrollWidth ?? 0
+      if (containerW <= 0 || neededW <= 0) return true
+      return containerW >= neededW
+    },
+    () => true
+  )
 
   return (
     <>
@@ -399,7 +379,7 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
       </div>
 
       {/* Mobile Filter Modal (Portal to body so it overlays the entire card grid) */}
-      {isMounted && isModalOpen
+      {isModalOpen
         ? createPortal(
             <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60 backdrop-blur-sm">
               <div className="flex min-h-full items-start justify-center p-4 sm:items-center">
