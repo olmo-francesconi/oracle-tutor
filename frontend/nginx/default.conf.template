@@ -61,7 +61,6 @@ server {
 
     # Log the upstream target for debugging dynamic resolution
     access_log /dev/stdout main_ext;
-    add_header X-Upstream-Target $upstream_target always;
     
     proxy_pass $upstream_target;
   }
