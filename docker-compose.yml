@@ -13,6 +13,8 @@ services:
 
   api:
     build: ./api
+    ports:
+      - "8000:8000"
     volumes:
       - ./api/data:/app/data
       - ./api/tests:/app/tests
