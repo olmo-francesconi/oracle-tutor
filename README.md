@@ -24,44 +24,43 @@ A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
     # Or via the official installer (macOS/Linux)
     # curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
-4.  Create a virtual environment and install dependencies:
+4.  Create a virtual environment and install dependencies (locked via `uv.lock`):
     ```bash
-    uv venv
-    uv pip install -r requirements.txt
-    uv pip install -e .
+    uv sync --extra api --extra worker
     ```
 
 ## Quick Start
 
 ### 1. Initialize Data
-Before searching, you need to download the card database from Scryfall and build the local index.
+Before searching, you need to ingest the latest Scryfall Oracle bulk data into the database.
 
 ```bash
 # From the api directory
-python -m oracle_tutor_api.data_builder
+uv run python -m oracle_tutor_api.worker.main --strict --trigger-type manual
 ```
 
-This creates `data/cards.json` and `data/card_names.json`. The database can be automatically updated daily (see [Daily Updates](#daily-updates) below).
+This stores bulk metadata/files under `api/data/` (optional) and ingests cards into Postgres.
 
 ### 2. Run the API Server
-Start the HTTP API using Uvicorn:
+Start the HTTP API:
 
 ```bash
 # From the api directory
-uvicorn oracle_tutor_api.api:app --reload
+uv run hypercorn oracle_tutor_api.api.main:app --reload --bind 0.0.0.0:8000
 ```
 
 **Endpoints:**
 
 -   `GET /search?q=lotus&limit=5` - Fuzzy search for cards by name.
 -   `GET /suggest-names?q=lotus&limit=5` - Search for card names only.
+-   `GET /search-oracle?q=deals%203%20damage&limit=20&offset=0` - Semantic-ish oracle text search.
+-   `GET /card/{card_id}` - Fetch a full card (including faces).
+-   `GET /similar-cards/{card_id}` - Find similar cards by oracle text.
 
 **Example:**
 ```bash
 curl "http://localhost:8000/search?q=black%20lotus&limit=5"
 ```
-
-**Note:** The API automatically starts a background scheduler for daily updates when it starts. See [Daily Updates](#daily-updates) for configuration options.
 
 ### 3. Run the Web Frontend (Optional)
 
@@ -69,11 +68,11 @@ A modern, interactive web frontend is available for easy searching:
 
 ```bash
 cd frontend
-npm install
-npm start
+npm ci
+npm run dev
 ```
 
-Then open your browser to `http://localhost:3000`.
+Then open your browser to `http://localhost:5173`.
 
 The frontend features:
 - Real-time autocomplete suggestions as you type
@@ -99,7 +98,6 @@ Set these in Railway (do not rely on local defaults):
 - **API service**
   - `DATABASE_URL` = Railway Postgres connection string
   - `ORACLE_TUTOR_API_ENV=production`
-  - `ORACLE_TUTOR_API_UPDATE_ENABLED=false` (recommended; run ingestion in Worker)
   - *(optional)* `ORACLE_TUTOR_API_CORS_ORIGINS=` leave unset for same-origin; if you ever need cross-origin, set a comma-separated allowlist.
   - *(optional)* `ORACLE_TUTOR_LOG_TO_FILES=true` only if you want `/app/data/*.log` in addition to stdout.
   - `PORT` is injected by Railway automatically; the Dockerfile listens on it.
@@ -134,14 +132,13 @@ Set these in Railway (do not rely on local defaults):
 
 The card database can be kept in sync with Scryfall's latest data. When updates are available, the system will:
 1. Download the latest bulk data from Scryfall
-2. Rebuild the JSON index files
-3. Update the TF-IDF search engine
-4. Automatically reload the API data (if running)
+2. Diff-ingest changes into Postgres
+3. The API notices the DB version change and rebuilds its in-memory TF-IDF index (throttled polling)
 
 ### Recommended: Railway Cron + one-shot worker
 
 On Railway, the recommended approach is:
-- **API service**: `ORACLE_TUTOR_API_UPDATE_ENABLED=false` (no scheduler in the web process)
+- **API service**: web process only (no scheduled ingestion in the web container)
 - **Worker service**: triggered by a **Railway Cron** schedule once per day
 
 The worker command runs the stale-aware update once and exits:

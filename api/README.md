@@ -9,17 +9,24 @@ This folder contains a minimal FastAPI service managed by **uv**.
 
 - **Create venv + install deps**:
   - `cd api`
-  - `uv sync`
+  - `uv sync --extra api --extra worker`
 
 - **Run the API**:
-  - `uv run hypercorn oracle_tutor_api.main:app --reload --bind 0.0.0.0:8000`
+  - `uv run hypercorn oracle_tutor_api.api.main:app --reload --bind 0.0.0.0:8000`
+
+- **Ingest/update data (one-shot worker)**:
+  - `uv run python -m oracle_tutor_api.worker.main --strict --trigger-type manual`
 
 ### Production / Railway env vars
 
 - **DATABASE_URL**: required in production (and on Railway). Prefer using Railway Postgres' provided connection string.
 - **ORACLE_TUTOR_API_ENV**: set to `production` in production. (If you forget this on Railway, the app still treats Railway as production to avoid insecure defaults.)
-- **ORACLE_TUTOR_API_UPDATE_ENABLED**: recommended `false` on the API service; run scheduled ingestion in a separate worker service instead.
 - **ORACLE_TUTOR_API_CORS_ORIGINS**: leave unset for same-origin. If you need cross-origin access, set a comma-separated allowlist.
+
+### Database configuration precedence
+
+- **Production / Railway**: set `DATABASE_URL` (required; the API refuses to start without it in production).
+- **Local/dev**: you can either set `DATABASE_URL`, or set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` (see `src/oracle_tutor_api/core/database.py`).
 
 ### One-shot worker (Railway Cron)
 
@@ -57,7 +64,6 @@ Recommended environment variables:
 
 - `ORACLE_TUTOR_API_ENV=production`
 - `DATABASE_URL=...` (from Railway Postgres)
-- `ORACLE_TUTOR_API_UPDATE_ENABLED=false` (run updates in the worker service instead)
  - `PORT` is injected by Railway automatically; the Dockerfile listens on it.
 
 Optional:
