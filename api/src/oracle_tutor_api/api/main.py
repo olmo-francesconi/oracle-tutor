@@ -184,12 +184,15 @@ def favicon():
     return Response(status_code=204)
 
 
-def _require_index() -> TfidfIndex:
+def _require_index(db: Session | None = None) -> TfidfIndex:
     """
     Ensure the global TF-IDF index is present and (eventually) consistent with DB updates.
 
     The worker updates `system_metadata(key='scryfall_data')` when ingestion completes.
     We poll that row (throttled) and rebuild this in-memory index when it changes.
+
+    If a request DB session is provided, reuse it to avoid opening an extra connection
+    for the version check/rebuild.
     """
     global _tfidf_index, _tfidf_data_version, _tfidf_last_version_check
 
@@ -207,7 +210,10 @@ def _require_index() -> TfidfIndex:
                 should_check2 = (_tfidf_index is None) or ((now2 - _tfidf_last_version_check) >= check_every_s)
                 if should_check2:
                     _tfidf_last_version_check = now2
-                    db = SessionLocal()
+                    close_after = False
+                    if db is None:
+                        db = SessionLocal()
+                        close_after = True
                     try:
                         meta = db.get(SystemMetadata, "scryfall_data")
                         db_version: str | None = None
@@ -228,7 +234,8 @@ def _require_index() -> TfidfIndex:
                                 _tfidf_index = build_tfidf_index(db)
                                 _tfidf_data_version = db_version
                     finally:
-                        db.close()
+                        if close_after:
+                            db.close()
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"TF-IDF index not loaded yet: {e}") from e
 
@@ -327,7 +334,7 @@ def get_similar_cards(
     match_mode: str = Query("subset"),
     db: Session = Depends(get_db),
 ):
-    index = _require_index()
+    index = _require_index(db)
 
     target_card = db.get(Card, card_id)
     if not target_card:
@@ -417,7 +424,7 @@ def search_oracle_text(
     if not q.strip():
         return []
 
-    index = _require_index()
+    index = _require_index(db)
 
     # Query is tokenized by the same mtg_tokenize() used for indexing,
     # so no preprocessing needed - the tokenizer handles symbols and reminder text.
