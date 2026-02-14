@@ -38,6 +38,7 @@ class TfidfIndex:
     matrix_raw: Any  # scipy sparse matrix, NOT normalized (norm=None)
     matrix_l2: Any  # scipy sparse matrix, L2-normalized rows
     face_ids: List[int]
+    face_id_to_idx: dict[int, int]
     face_card_ids: List[str]
     face_names: List[str]
     face_type_lines_lower: List[str]
@@ -234,9 +235,8 @@ class TfidfIndex:
         if cache_key in self.cache:
             cached = self.cache[cache_key]
         else:
-            try:
-                seed_idx = self.face_ids.index(seed_face_id)
-            except ValueError:
+            seed_idx = self.face_id_to_idx.get(seed_face_id)
+            if seed_idx is None:
                 return []
 
             matrix_l2 = cast(Any, self.matrix_l2)
@@ -441,11 +441,13 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     elapsed_ms = (time.perf_counter() - started) * 1000
     logger.info("TF-IDF index built: %d faces, %d features, %.2f ms", len(face_ids), len(vectorizer.vocabulary_), elapsed_ms)
 
+    face_id_to_idx = {face_id: i for i, face_id in enumerate(face_ids)}
     return TfidfIndex(
         vectorizer=vectorizer,
         matrix_raw=matrix_raw,
         matrix_l2=matrix_l2,
         face_ids=face_ids,
+        face_id_to_idx=face_id_to_idx,
         face_card_ids=face_card_ids,
         face_names=face_names,
         face_type_lines_lower=face_type_lines_lower,
