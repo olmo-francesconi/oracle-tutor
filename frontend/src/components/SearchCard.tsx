@@ -60,6 +60,10 @@ export function SearchCard() {
       ? bestMatch.name.slice(nameQuery.length)
       : ''
 
+  // Determine if we have any valid suggestions to show in stack
+  const hasSuggestions = suggestions.length > 0
+  const showSearch = !hasSuggestions || isUIActive
+
   const handleActivity = () => {
     setIsUIActive(true)
     if (activityTimeoutRef.current) clearTimeout(activityTimeoutRef.current)
@@ -139,6 +143,45 @@ export function SearchCard() {
       fetchMoreSuggestions()
     }
   }
+
+  // Desktop keyboard navigation for the card stack.
+  // (Ignore keystrokes when an input/textarea is focused to avoid breaking typing/caret movement.)
+  useEffect(() => {
+    const isTextInputFocused = () => {
+      const el = document.activeElement as HTMLElement | null
+      if (!el) return false
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return true
+      if (el.isContentEditable) return true
+      return Boolean(el.closest('[contenteditable="true"], [role="textbox"]'))
+    }
+
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (suggestions.length === 0) return
+      if (showSearch && isTextInputFocused()) return
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        advanceFocusedIndex(-1)
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        advanceFocusedIndex(1)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [suggestions.length, focusedIndex, hasMore, isLoadingMore, suggestions, showSearch])
+
+  // When the UI fades out but the input is still focused, blur it so arrow-key navigation works.
+  useEffect(() => {
+    if (!hasSuggestions) return
+    if (showSearch) return
+    const el = document.activeElement as HTMLElement | null
+    if (!el) return
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.blur()
+  }, [hasSuggestions, showSearch])
 
   const isInteractiveTarget = (target: EventTarget | null) => {
     const el = target as HTMLElement | null
@@ -234,9 +277,6 @@ export function SearchCard() {
     if (e.key === 'Tab' && !e.shiftKey && completion) {
       e.preventDefault()
       setNameQuery(nameQuery + completion)
-    } else if (e.key === 'ArrowRight' && completion && e.currentTarget.selectionStart === nameQuery.length) {
-      e.preventDefault()
-      setNameQuery(nameQuery + completion)
     } else if (e.key === 'ArrowDown') {
       if (suggestions.length > 0) {
         e.preventDefault()
@@ -265,10 +305,6 @@ export function SearchCard() {
     }
   }
 
-
-  // Determine if we have any valid suggestions to show in stack
-  const hasSuggestions = suggestions.length > 0
-  const showSearch = !hasSuggestions || isUIActive
 
   return (
     <div 
