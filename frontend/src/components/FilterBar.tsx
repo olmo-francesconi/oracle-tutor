@@ -28,8 +28,6 @@ const FORMATS = [
   'Pauper',
 ]
 
-const RARITIES = ['Common', 'Uncommon', 'Rare', 'Mythic']
-
 const CARD_TYPES = [
   'Creature',
   'Instant',

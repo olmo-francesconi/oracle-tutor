@@ -7,6 +7,10 @@ import { CardGrid } from '../components/CardGrid'
 import { CardImage } from '../components/CardImage'
 import { CardOverlay } from '../components/CardOverlay'
 import { DeveloperLinks } from '../components/DeveloperLinks'
+import { MobileDrawer } from '../components/MobileDrawer'
+import { MobileResultsHeader } from '../components/MobileResultsHeader'
+import { MobileBottomBar } from '../components/MobileBottomBar'
+import { SidebarSystemStatus } from '../components/SidebarSystemStatus'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 
@@ -18,6 +22,7 @@ export function CardPage() {
   } | null>(null)
   const selectedCard = selected?.routeId === (id ?? '') ? selected.card : null
   const [filters, setFilters] = useState<FilterState>({})
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
   const {
     data: card,
@@ -94,14 +99,76 @@ export function CardPage() {
   const mainCardImageUrl = getCardImageUrl(card)
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-transparent md:flex-row">
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
       {/* Overlay Component */}
       {selectedCard && (
         <CardOverlay card={selectedCard} onClose={() => setSelected(null)} />
       )}
 
+      {/* Mobile Drawer - Card Details */}
+      <MobileDrawer
+        isOpen={isDetailsOpen}
+        title="Details"
+        onClose={() => setIsDetailsOpen(false)}
+      >
+        {/* Card "Paper" Container */}
+        <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
+          {/* Card Image */}
+          <div
+            className="relative mb-5 aspect-[5/7] w-full overflow-hidden bg-[#f0f0f0] shadow-lg ring-1 ring-black/5"
+            style={{ borderRadius: '4.5% / 3.21%' }}
+          >
+            <CardImage
+              src={mainCardImageUrl}
+              alt={card.name}
+              className="h-full w-full object-cover"
+            />
+          </div>
+
+          <h1 className="mb-2 text-2xl leading-tight font-bold text-[#1c1c1c]">
+            {card.name}
+          </h1>
+
+          <div className="mb-4 flex flex-col gap-3">
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
+                Type
+              </span>
+              <span className="font-medium">{displayType}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
+                  Mana
+                </span>
+                <span className="font-medium">{displayMana || 'None'}</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
+                  Rank
+                </span>
+                <span className="font-medium">#{card.edhrec_rank}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-[#e5e5e5] pt-4">
+            <span className="mb-2 block text-xs font-semibold tracking-wider text-[#737373] uppercase">
+              Oracle Text
+            </span>
+            <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
+              {displayOracle}
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-6">
+          <DeveloperLinks variant="dark" />
+        </div>
+      </MobileDrawer>
+
       {/* Sidebar - Selected Card Details */}
-      <div className="flex h-full w-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:w-[380px]">
+      <div className="hidden h-full w-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:flex md:w-[380px]">
         <Link
           to="/"
           className="mb-6 flex items-center gap-2 text-[#525252] transition-colors hover:text-[#1c1c1c]"
@@ -166,13 +233,25 @@ export function CardPage() {
           </div>
         </div>
 
-        <div className="mt-auto pt-6">
+        <div className="mt-auto flex items-end justify-between gap-6 pt-6">
           <DeveloperLinks variant="dark" />
+          <SidebarSystemStatus />
         </div>
       </div>
 
       {/* Main Content - Similar Cards Grid */}
       <CardGrid
+        header={
+          <MobileResultsHeader
+            backTo="/"
+            title={card.name}
+            titleVariant="card"
+            drawerLabel="Details"
+            onOpenDrawer={() => setIsDetailsOpen(true)}
+            filters={filters}
+            onFilterChange={setFilters}
+          />
+        }
         cards={similarCards}
         isLoading={similarLoading}
         isFetchingNextPage={isFetchingNextPage}
@@ -182,6 +261,8 @@ export function CardPage() {
         filters={filters}
         onFilterChange={setFilters}
       />
+
+      <MobileBottomBar />
     </div>
   )
 }

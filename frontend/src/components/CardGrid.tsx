@@ -17,6 +17,8 @@ interface CardGridProps {
   searchQuery?: string
   filters?: FilterState
   onFilterChange?: (filters: FilterState) => void
+  header?: React.ReactNode
+  showFloatingFilters?: boolean
 }
 
 export function CardGrid({
@@ -30,6 +32,8 @@ export function CardGrid({
   searchQuery,
   filters,
   onFilterChange,
+  header,
+  showFloatingFilters = true,
 }: CardGridProps) {
   const [isAnimating, setIsAnimating] = useState(false)
 
@@ -59,6 +63,7 @@ export function CardGrid({
       ref={scrollContainerRef}
       className="relative h-full flex-1 overflow-y-auto scroll-smooth bg-transparent"
     >
+      {header}
       {showInitialLoader ? (
         <div className="flex h-full items-center justify-center">
           <div className="flex items-center gap-2 text-[#737373]">
@@ -79,14 +84,14 @@ export function CardGrid({
       ) : (
         <>
           {/* Floating Filter Button */}
-          {filters && onFilterChange && (
-            <div className="fixed top-6 right-8 z-40">
+          {showFloatingFilters && filters && onFilterChange && (
+            <div className="fixed top-6 right-8 z-40 hidden md:block">
               <FilterBar filters={filters} onFilterChange={onFilterChange} />
             </div>
           )}
 
           {/* Grid with larger cards (fewer columns) */}
-          <div className="grid grid-cols-1 gap-6 p-6 pb-10 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 p-3 pb-24 sm:gap-5 sm:p-6 sm:pb-24 sm:grid-cols-2 md:gap-4 md:p-4 md:pb-10 md:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
             {cards.map((s, index) => (
               <motion.div
                 key={s.id}
