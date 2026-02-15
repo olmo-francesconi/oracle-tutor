@@ -279,7 +279,7 @@ export function SearchCard() {
           </div>
 
           {/* Inner Elements Container */}
-          <div className="flex flex-col gap-[9px] flex-1 relative z-10">
+          <div className="flex flex-col gap-[48px] flex-1 relative z-10">
               {/* Art Box (Placeholder) */}
               <div className={cn(
                   "relative flex-1 rounded-[2px] border border-[#a89f91] bg-[#adaba5] overflow-hidden shadow-inner flex items-center justify-center transition-opacity duration-500",
@@ -290,12 +290,6 @@ export function SearchCard() {
                       "Knowledge is power, and power is what we seek."
                   </div>
               </div>
-
-              {/* Type Line (Empty) */}
-              <div className={cn(
-                  "h-[34px] shrink-0 rounded-[4px] border border-[#a89f91] bg-white/90 shadow-sm transition-opacity duration-500",
-                  hasSuggestions ? "opacity-0" : "opacity-100"
-              )}></div>
 
               {/* Text Box (Oracle Search) */}
               <div className={cn(

@@ -24,7 +24,7 @@ export const SystemStatus: React.FC = () => {
 
   return (
     <div
-      className="pointer-events-none fixed right-0 bottom-0 z-50 flex flex-col items-end px-6 py-4 text-[10px] font-medium tracking-[0.2em] uppercase"
+      className="pointer-events-none absolute right-0 bottom-0 z-50 flex flex-col items-end px-6 py-4 text-[10px] font-medium tracking-[0.2em] uppercase"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >

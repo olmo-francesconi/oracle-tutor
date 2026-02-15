@@ -37,7 +37,7 @@ function Home() {
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-transparent text-[#f5f1e8]">
+      <div className="relative min-h-screen bg-transparent text-[#f5f1e8]">
         {/* Header/Nav can be added here if needed, but legacy Home was centered without a top nav */}
         <Routes>
           <Route path="/" element={<Home />} />
