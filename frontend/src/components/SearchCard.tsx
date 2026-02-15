@@ -323,32 +323,25 @@ export function SearchCard() {
   }
 
   const handleNameKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') {
-      handleActivity()
-    }
+    // Keep the "active UI" while typing or using completion/nav keys.
+    // Important: the suggestion card stack should only be navigated with left/right.
+    if (!['ArrowUp', 'ArrowDown'].includes(e.key)) handleActivity()
+
     if (e.key === 'Tab' && !e.shiftKey && completion) {
       e.preventDefault()
       setNameQuery(nameQuery + completion)
-    } else if (e.key === 'ArrowDown') {
-      if (suggestions.length > 0) {
-        e.preventDefault()
-        
-        const nextIndex = focusedIndex + 1
-        if (nextIndex < suggestions.length) {
-          setFocusedIndex(nextIndex)
-        }
-        
-        if (hasMore && !isLoadingMore && suggestions.length - nextIndex <= 5) {
-          fetchMoreSuggestions()
-        }
-      }
-    } else if (e.key === 'ArrowUp') {
-      if (suggestions.length > 0) {
-        e.preventDefault()
-        if (focusedIndex > 0) {
-          setFocusedIndex((prev) => prev - 1)
-        }
-      }
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      if (suggestions.length === 0) return
+
+      // Always use left/right to navigate the suggested-images stack (even while
+      // the textbox is visible/focused). Up/down are intentionally ignored below.
+      e.preventDefault()
+      advanceFocusedIndex(e.key === 'ArrowLeft' ? -1 : 1)
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      // Intentionally ignore up/down here.
+      // (We don't want the suggested images stack to move with ArrowUp/ArrowDown.)
+      return
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (bestMatch) {
@@ -356,7 +349,6 @@ export function SearchCard() {
       }
     }
   }
-
 
   return (
     <div 
