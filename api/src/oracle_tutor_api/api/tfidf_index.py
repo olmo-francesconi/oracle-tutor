@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..core.models import Card, CardFace
 from .oracle_tokenizer import (
     _CARD_NAME_DELIMITER,
+    _TYPE_LINE_DELIMITER,
     iter_type_filters,
     make_mtg_analyzer,
     normalize_type_line,
@@ -329,11 +330,13 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         face_cmcs.append(float(cmc or 0.0))
         face_rarities.append(rarity or "")
 
-        # Pass oracle_text with card_name (face_name) for tokenization
+        # Pass oracle_text with card_name (face_name) and type_line for tokenization
         # Use face_name as it's the name on the card face, which is what appears in oracle text
         oracle_doc = oracle_text or ""
         if face_name:
             oracle_doc = oracle_doc + _CARD_NAME_DELIMITER + face_name
+        if type_line:
+            oracle_doc = oracle_doc + _TYPE_LINE_DELIMITER + type_line
         docs.append(oracle_doc)
 
     def _parse_max_df(raw: str) -> int | float:
