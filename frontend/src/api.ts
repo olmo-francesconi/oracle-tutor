@@ -29,11 +29,13 @@ type OracleSearchParams = SimilarCardsParams & {
 export const searchCards = async (
   query: string,
   limit: number = 10,
-  offset: number = 0
+  offset: number = 0,
+  signal?: AbortSignal
 ): Promise<CardMatch[]> => {
   if (!query || query.length < 2) return []
   const response = await api.get<CardMatch[]>('/suggest-names', {
     params: { q: query, limit, offset },
+    signal,
   })
   return response.data
 }

@@ -67,6 +67,20 @@ body {
   position: relative;
 }
 
+/* Mobile/perf: fixed backgrounds + blend/filter overlays can cause scroll jank. */
+@media (max-width: 768px), (hover: none) {
+  body {
+    background-attachment: scroll;
+  }
+
+  body::before {
+    /* Keep a subtle grain, but avoid expensive compositing on mobile. */
+    opacity: 0.08;
+    mix-blend-mode: normal;
+    filter: none;
+  }
+}
+
 /* Subtle grain effect (global, all pages) */
 body::before {
   content: '';

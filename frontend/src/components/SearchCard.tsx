@@ -47,6 +47,17 @@ export function SearchCard() {
   
   const navigate = useNavigate()
   const nameWrapperRef = useRef<HTMLDivElement>(null)
+  const offsetsByIdRef = useRef<Map<string, ReturnType<typeof getRandomOffsets>>>(
+    new Map()
+  )
+
+  const getOffsets = useCallback((id: string) => {
+    const existing = offsetsByIdRef.current.get(id)
+    if (existing) return existing
+    const next = getRandomOffsets(id)
+    offsetsByIdRef.current.set(id, next)
+    return next
+  }, [])
 
   // Derived state for completion
   const bestMatch = suggestions.length > 0 && focusedIndex >= 0 && focusedIndex < suggestions.length 
@@ -79,36 +90,73 @@ export function SearchCard() {
     }
   }, [])
 
-  // Prefetch next 5 images
+  // Prefetch a couple of upcoming images (idle to avoid competing with typing).
   useEffect(() => {
-    const toPrefetch = suggestions.slice(focusedIndex, focusedIndex + 5)
-    toPrefetch.forEach(s => {
-       const url = getCardImageUrl({ id: s.id, name: s.name })
-       const img = new Image()
-       img.src = url
-    })
+    const toPrefetch = suggestions.slice(focusedIndex, focusedIndex + 2)
+    if (toPrefetch.length === 0) return
+    if (document.visibilityState === 'hidden') return
+
+    let cancelled = false
+    const run = () => {
+      if (cancelled) return
+      for (const s of toPrefetch) {
+        const url = getCardImageUrl({ id: s.id, name: s.name }, 'small')
+        const img = new Image()
+        img.decoding = 'async'
+        img.loading = 'lazy'
+        img.src = url
+      }
+    }
+
+    const idle = (globalThis as any).requestIdleCallback as
+      | ((cb: () => void, opts?: { timeout?: number }) => number)
+      | undefined
+    const cancelIdle = (globalThis as any).cancelIdleCallback as
+      | ((id: number) => void)
+      | undefined
+
+    if (idle && cancelIdle) {
+      const id = idle(run, { timeout: 1000 })
+      return () => {
+        cancelled = true
+        cancelIdle(id)
+      }
+    }
+
+    const t = setTimeout(run, 0)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
   }, [suggestions, focusedIndex])
 
   // Debounce for name search
   useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (nameQuery.length >= 2) {
-        try {
-          const results = await searchCards(nameQuery, 10, 0)
-          setSuggestions(results)
-          setFocusedIndex(0)
-          setHasMore(results.length === 10)
-        } catch (e) {
-          console.error(e)
-        }
-      } else {
-        setSuggestions([])
-        setFocusedIndex(0)
-        setHasMore(false)
-      }
-    }, 300)
+    if (nameQuery.length < 2) {
+      setSuggestions([])
+      setFocusedIndex(0)
+      setHasMore(false)
+      return
+    }
 
-    return () => clearTimeout(timer)
+    const controller = new AbortController()
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchCards(nameQuery, 10, 0, controller.signal)
+        if (controller.signal.aborted) return
+        setSuggestions(results)
+        setFocusedIndex(0)
+        setHasMore(results.length === 10)
+      } catch (e) {
+        if (!controller.signal.aborted) console.error(e)
+      }
+    }, 250)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
   }, [nameQuery])
 
   const fetchMoreSuggestions = useCallback(async () => {
@@ -333,10 +381,11 @@ export function SearchCard() {
         <AnimatePresence initial={false}>
           {suggestions.slice(focusedIndex, focusedIndex + 5).map((card, i) => {
              const index = i // 0 is top
-             const url = getCardImageUrl({ id: card.id, name: card.name })
+             const urlNormal = getCardImageUrl({ id: card.id, name: card.name }, 'normal')
+             const urlLarge = getCardImageUrl({ id: card.id, name: card.name }, 'large')
              
              // Calculate random offsets based on card ID so they persist with the card
-             const offsets = getRandomOffsets(card.id)
+             const offsets = getOffsets(card.id)
              
              // Top card (index 0) should be centered and stable
              const isTop = index === 0
@@ -365,8 +414,12 @@ export function SearchCard() {
                  style={{ pointerEvents: isTop ? 'auto' : 'none' }}
                >
                  <img 
-                   src={url} 
+                   src={urlNormal}
+                   srcSet={`${urlNormal} 1x, ${urlLarge} 2x`}
+                   sizes="400px"
                    alt={card.name}
+                   loading="lazy"
+                   decoding="async"
                    className="h-full w-full object-cover rounded-[18px]"
                  />
                </motion.div>

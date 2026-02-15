@@ -1,6 +1,15 @@
 import type { Card, SimilarCard } from './types'
 
-export function getCardImageUrl(card: Card | SimilarCard): string {
+export type CardImageSize = 'small' | 'normal' | 'large'
+
+type CardImageLike = Pick<Card, 'id'> &
+  Partial<Pick<Card, 'layout' | 'name'>> &
+  Partial<Pick<SimilarCard, 'card_name'>>
+
+export function getCardImageUrl(
+  card: Card | SimilarCard | CardImageLike,
+  size: CardImageSize = 'normal'
+): string {
   let side = 'front'
 
   // Layouts that physically have a back side
@@ -32,5 +41,5 @@ export function getCardImageUrl(card: Card | SimilarCard): string {
   const id = card.id
   if (!id || id.length < 2) return ''
 
-  return `https://cards.scryfall.io/normal/${side}/${id[0]}/${id[1]}/${id}.jpg`
+  return `https://cards.scryfall.io/${size}/${side}/${id[0]}/${id[1]}/${id}.jpg`
 }

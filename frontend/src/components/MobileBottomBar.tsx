@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DeveloperLinks } from './DeveloperLinks'
 
 export function MobileBottomBar() {
   const [keyboardOffset, setKeyboardOffset] = useState(0)
+  const lastOffsetRef = useRef(0)
+  const rafIdRef = useRef<number | null>(null)
 
   // Keep the fixed bar visible above the iOS keyboard by tracking VisualViewport.
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
 
-    const update = () => {
+    const computeOffset = () => {
       const offsetTop = vv.offsetTop || 0
       // iOS/embedded webviews can report confusing viewport metrics when the keyboard opens.
       // Use the smaller of VisualViewport height and documentElement clientHeight as the
@@ -19,19 +21,39 @@ export function MobileBottomBar() {
       const visibleH = docH > 0 ? Math.min(docH, visualH) : visualH
 
       // Position our fixed bar relative to the visual viewport bottom.
-      const offset = Math.max(0, window.innerHeight - visibleH - offsetTop)
-      setKeyboardOffset(offset)
+      return Math.max(0, window.innerHeight - visibleH - offsetTop)
     }
 
+    const update = () => {
+      const next = computeOffset()
+      if (next === lastOffsetRef.current) return
+      lastOffsetRef.current = next
+      setKeyboardOffset(next)
+    }
+
+    const schedule = () => {
+      if (rafIdRef.current != null) return
+      rafIdRef.current = window.requestAnimationFrame(() => {
+        rafIdRef.current = null
+        update()
+      })
+    }
+
+    // Initial measurement.
     update()
-    vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
-    window.addEventListener('orientationchange', update)
+
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule)
+    window.addEventListener('orientationchange', schedule)
 
     return () => {
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
-      window.removeEventListener('orientationchange', update)
+      vv.removeEventListener('resize', schedule)
+      vv.removeEventListener('scroll', schedule)
+      window.removeEventListener('orientationchange', schedule)
+      if (rafIdRef.current != null) {
+        window.cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
     }
   }, [])
 
