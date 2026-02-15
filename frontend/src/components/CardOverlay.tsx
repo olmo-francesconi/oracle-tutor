@@ -138,7 +138,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
       />
 
       {/* Modal Content - Fixed height to prevent resizing on flip */}
-      <div className="relative flex h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-hidden rounded-2xl bg-[#f5f2eb] shadow-2xl md:h-[750px] md:flex-row">
+      <div className="relative flex max-h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-y-auto rounded-2xl bg-[#f5f2eb] shadow-2xl md:h-[750px] md:max-h-none md:flex-row md:overflow-hidden">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -148,14 +148,14 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
         </button>
 
         {/* Image Section */}
-        <div className="relative flex w-full items-center justify-center overflow-y-auto bg-[#e5e5e5] p-8 md:w-1/2">
-          {/* Wrapper: Defines size and captures hover ("group") */}
-          <div className="group relative aspect-[5/7] w-full max-w-[360px]">
+        <div className="relative flex w-full items-center justify-center bg-[#e5e5e5] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
+          {/* Wrapper: size to viewport on mobile; fixed aspect box on desktop */}
+          <div className="group relative inline-block overflow-hidden rounded-[4.5%/3.21%] shadow-2xl ring-1 ring-black/10 md:aspect-[5/7] md:w-full md:max-w-[360px]">
             {/* Rotating Card Container */}
             <div
               onClick={hasMultipleFaces ? handleFlip : undefined}
               className={cn(
-                'h-full w-full shrink-0 overflow-hidden rounded-[4.5%/3.21%] shadow-2xl ring-1 ring-black/10 transition-all duration-[250ms] ease-in-out',
+                'h-full w-full shrink-0 transition-all duration-[250ms] ease-in-out',
                 hasMultipleFaces && 'cursor-pointer'
               )}
               style={{
@@ -167,7 +167,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
               <CardImage
                 src={imageUrl}
                 alt={displayData.name}
-                className="h-full w-full object-cover"
+                className="block max-h-[55vh] w-auto max-w-full object-contain md:h-full md:w-full md:max-h-none"
               />
 
               {/* Flip Symbol (Top Right) */}
@@ -189,13 +189,13 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
         </div>
 
         {/* Details Section */}
-        <div className="flex w-full flex-col overflow-y-auto bg-white p-8 text-[#1c1c1c] md:w-1/2 md:p-10">
+        <div className="flex w-full flex-col bg-white p-5 text-[#1c1c1c] sm:p-8 md:w-1/2 md:overflow-y-auto md:p-10">
           <div className="flex-1">
-            <h2 className="mb-2 text-3xl font-bold text-[#1c1c1c]">
+            <h2 className="mb-2 text-2xl font-bold text-[#1c1c1c] sm:text-3xl">
               {displayName}
             </h2>
 
-            <div className="mb-6 flex items-center gap-3 text-[#737373]">
+            <div className="mb-5 flex items-center gap-3 text-[#737373] sm:mb-6">
               {initialCard.similarity !== undefined && (
                 <span
                   className={cn(
@@ -213,31 +213,23 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
             {/* Animated Details Container */}
             <div
               className={cn(
-                'space-y-6 transition-opacity duration-[125ms] ease-in-out',
+                'space-y-5 transition-opacity duration-[125ms] ease-in-out sm:space-y-6',
                 isFlipping ? 'opacity-0' : 'opacity-100'
               )}
             >
-              <div>
-                <span className="mb-1 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
-                  Type
-                </span>
-                <span className="text-lg font-medium">
+              <p className="text-base leading-snug font-medium text-[#404040] sm:text-lg">
+                <span className="text-[#1c1c1c]">
                   {displayData.type_line || '—'}
+                </span>{' '}
+                <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
+                  •
                 </span>
-              </div>
+                <span className="text-[#1c1c1c]">
+                  {displayData.mana_cost || 'None'}
+                </span>
+              </p>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="mb-1 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
-                    Mana Cost
-                  </span>
-                  <span className="text-lg font-medium">
-                    {displayData.mana_cost || 'None'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="border-t border-[#f5f5f5] pt-6">
+              <div className="border-t border-[#f5f5f5] pt-5 sm:pt-6">
                 <span className="mb-2 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
                   Oracle Text
                 </span>

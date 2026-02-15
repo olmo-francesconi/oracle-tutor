@@ -111,58 +111,52 @@ export function CardPage() {
         onClose={() => setIsDetailsOpen(false)}
       >
         {/* Card "Paper" Container */}
-        <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
-          {/* Card Image */}
-          <div
-            className="relative mb-5 aspect-[5/7] w-full overflow-hidden bg-[#f0f0f0] shadow-lg ring-1 ring-black/5"
-            style={{ borderRadius: '4.5% / 3.21%' }}
-          >
-            <CardImage
-              src={mainCardImageUrl}
-              alt={card.name}
-              className="h-full w-full object-cover"
-            />
-          </div>
+        <div className="rounded-xl border border-[#e5e5e5] bg-white p-4 text-[#1c1c1c] shadow-lg">
+          {/* Compact top row: full card (no crop) + key stats */}
+          <div className="flex gap-4">
+            <button
+              type="button"
+              className="relative aspect-[5/7] w-[42%] max-w-[180px] shrink-0 overflow-hidden bg-[#f0f0f0] shadow-lg ring-1 ring-black/5"
+              style={{ borderRadius: '4.5% / 3.21%' }}
+              onClick={() => {
+                setSelected({
+                  routeId: id ?? '',
+                  card: { ...card, similarity: 1 } as SimilarCard,
+                })
+                setIsDetailsOpen(false)
+              }}
+              aria-label="Open large card view"
+            >
+              <CardImage
+                src={mainCardImageUrl}
+                alt={card.name}
+                className="h-full w-full object-contain"
+              />
+            </button>
 
-          <h1 className="mb-2 text-2xl leading-tight font-bold text-[#1c1c1c]">
-            {card.name}
-          </h1>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl leading-tight font-bold text-[#1c1c1c]">
+                {card.name}
+              </h1>
 
-          <div className="mb-4 flex flex-col gap-3">
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                Type
-              </span>
-              <span className="font-medium">{displayType}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                  Mana
+              <p className="mt-2 text-sm leading-snug font-medium text-[#404040]">
+                <span className="text-[#1c1c1c]">{displayType || '—'}</span>{' '}
+                <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
+                  •
                 </span>
-                <span className="font-medium">{displayMana || 'None'}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                  Rank
-                </span>
-                <span className="font-medium">#{card.edhrec_rank}</span>
-              </div>
+                <span className="text-[#1c1c1c]">{displayMana || 'None'}</span>
+              </p>
             </div>
           </div>
 
-          <div className="border-t border-[#e5e5e5] pt-4">
-            <span className="mb-2 block text-xs font-semibold tracking-wider text-[#737373] uppercase">
+          <div className="mt-4 border-t border-[#e5e5e5] pt-4">
+            <span className="mb-2 block text-[11px] font-semibold tracking-wider text-[#737373] uppercase">
               Oracle Text
             </span>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
+            <p className="text-[13px] leading-snug whitespace-pre-wrap text-[#404040]">
               {displayOracle}
             </p>
           </div>
-        </div>
-
-        <div className="pt-6">
-          <DeveloperLinks variant="dark" />
         </div>
       </MobileDrawer>
 
@@ -199,27 +193,14 @@ export function CardPage() {
             {card.name}
           </h1>
 
-          <div className="mb-4 flex flex-col gap-3">
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                Type
+          <div className="mb-4">
+            <p className="text-sm leading-snug font-medium text-[#404040]">
+              <span className="text-[#1c1c1c]">{displayType || '—'}</span>{' '}
+              <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
+                •
               </span>
-              <span className="font-medium">{displayType}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                  Mana
-                </span>
-                <span className="font-medium">{displayMana || 'None'}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                  Rank
-                </span>
-                <span className="font-medium">#{card.edhrec_rank}</span>
-              </div>
-            </div>
+              <span className="text-[#1c1c1c]">{displayMana || 'None'}</span>
+            </p>
           </div>
 
           <div className="border-t border-[#e5e5e5] pt-4">
