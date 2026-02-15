@@ -10,6 +10,7 @@ import { DeveloperLinks } from '../components/DeveloperLinks'
 import { MobileDrawer } from '../components/MobileDrawer'
 import { MobileResultsHeader } from '../components/MobileResultsHeader'
 import { MobileBottomBar } from '../components/MobileBottomBar'
+import { SymbolText } from '../components/SymbolText'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 
@@ -144,7 +145,9 @@ export function CardPage() {
                 <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
                   •
                 </span>
-                <span className="text-[#1c1c1c]">{displayMana || 'None'}</span>
+                <span className="text-[#1c1c1c]">
+                  <SymbolText text={displayMana || 'None'} />
+                </span>
               </p>
             </div>
           </div>
@@ -154,7 +157,7 @@ export function CardPage() {
               Oracle Text
             </span>
             <p className="text-[13px] leading-snug whitespace-pre-wrap text-[#404040]">
-              {displayOracle}
+              <SymbolText text={displayOracle} />
             </p>
           </div>
         </div>
@@ -199,7 +202,9 @@ export function CardPage() {
               <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
                 •
               </span>
-              <span className="text-[#1c1c1c]">{displayMana || 'None'}</span>
+              <span className="text-[#1c1c1c]">
+                <SymbolText text={displayMana || 'None'} />
+              </span>
             </p>
           </div>
 
@@ -208,7 +213,7 @@ export function CardPage() {
               Oracle Text
             </span>
             <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
-              {displayOracle}
+              <SymbolText text={displayOracle} />
             </p>
           </div>
         </div>

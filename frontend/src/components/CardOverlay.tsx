@@ -7,6 +7,7 @@ import { cn } from '../lib/cn'
 import type { SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 import { CardImage } from './CardImage'
+import { SymbolText } from './SymbolText'
 
 interface CardOverlayProps {
   card: SimilarCard
@@ -142,9 +143,10 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 rounded-full bg-black/10 p-2 text-[#1c1c1c] transition-colors hover:bg-black/20"
+          className="absolute top-4 right-4 z-10 rounded-full bg-[#1c1c1c]/80 p-2.5 text-white shadow-lg ring-1 ring-black/20 backdrop-blur-sm transition-all hover:bg-[#1c1c1c] hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e3dccb]"
+          aria-label="Close"
         >
-          <X className="h-6 w-6" />
+          <X className="h-6 w-6" weight="bold" />
         </button>
 
         {/* Image Section */}
@@ -225,7 +227,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                   •
                 </span>
                 <span className="text-[#1c1c1c]">
-                  {displayData.mana_cost || 'None'}
+                  <SymbolText text={displayData.mana_cost || 'None'} />
                 </span>
               </p>
 
@@ -244,14 +246,14 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                         }
                       >
                         <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
-                          {face.oracle_text || 'No oracle text.'}
+                          <SymbolText text={face.oracle_text || 'No oracle text.'} />
                         </p>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
-                    {displayData.oracle_text || 'No oracle text.'}
+                    <SymbolText text={displayData.oracle_text || 'No oracle text.'} />
                   </p>
                 )}
               </div>

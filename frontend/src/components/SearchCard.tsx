@@ -1,6 +1,6 @@
 import { MagnifyingGlass } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { OracleInput } from './OracleInput'
 import { searchCards } from '../api'
@@ -83,7 +83,7 @@ export function SearchCard() {
   useEffect(() => {
     const toPrefetch = suggestions.slice(focusedIndex, focusedIndex + 5)
     toPrefetch.forEach(s => {
-       const url = getCardImageUrl({ id: s.id, name: s.name } as any)
+       const url = getCardImageUrl({ id: s.id, name: s.name })
        const img = new Image()
        img.src = url
     })
@@ -111,7 +111,7 @@ export function SearchCard() {
     return () => clearTimeout(timer)
   }, [nameQuery])
 
-  const fetchMoreSuggestions = async () => {
+  const fetchMoreSuggestions = useCallback(async () => {
     if (!hasMore || isLoadingMore) return
 
     setIsLoadingMore(true)
@@ -129,9 +129,9 @@ export function SearchCard() {
     } finally {
       setIsLoadingMore(false)
     }
-  }
+  }, [hasMore, isLoadingMore, nameQuery, suggestions.length])
 
-  const advanceFocusedIndex = (delta: -1 | 1) => {
+  const advanceFocusedIndex = useCallback((delta: -1 | 1) => {
     if (suggestions.length === 0) return
 
     const nextIndex = focusedIndex + delta
@@ -142,7 +142,7 @@ export function SearchCard() {
     if (hasMore && !isLoadingMore && suggestions.length - nextIndex <= 5) {
       fetchMoreSuggestions()
     }
-  }
+  }, [fetchMoreSuggestions, focusedIndex, hasMore, isLoadingMore, suggestions.length])
 
   // Desktop keyboard navigation for the card stack.
   // (Ignore keystrokes when an input/textarea is focused to avoid breaking typing/caret movement.)
@@ -172,7 +172,11 @@ export function SearchCard() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [suggestions.length, focusedIndex, hasMore, isLoadingMore, suggestions, showSearch])
+  }, [
+    suggestions.length,
+    showSearch,
+    advanceFocusedIndex,
+  ])
 
   // When the UI fades out but the input is still focused, blur it so arrow-key navigation works.
   useEffect(() => {
@@ -329,7 +333,7 @@ export function SearchCard() {
         <AnimatePresence initial={false}>
           {suggestions.slice(focusedIndex, focusedIndex + 5).map((card, i) => {
              const index = i // 0 is top
-             const url = getCardImageUrl({ id: card.id, name: card.name } as any)
+             const url = getCardImageUrl({ id: card.id, name: card.name })
              
              // Calculate random offsets based on card ID so they persist with the card
              const offsets = getRandomOffsets(card.id)
