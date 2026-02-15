@@ -122,13 +122,14 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
     fullCard?.name || initialCard.card_name || initialCard.name
 
   // External URLs
-  const encodedName = encodeURIComponent(displayName)
-  const scryfallUrl = `https://scryfall.com/search?q=${encodedName}`
-  const edhrecUrl = `https://edhrec.com/cards/${displayName
+  const cardSlug = displayName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')}`
-  const gathererUrl = `https://gatherer.wizards.com/Pages/Search/Default.aspx?name=+[${encodedName}]`
+    .replace(/^-|-$/g, '')
+  const encodedName = encodeURIComponent(displayName)
+  const scryfallUrl = `https://scryfall.com/card/${initialCard.id}`
+  const edhrecUrl = `https://edhrec.com/cards/${cardSlug}`
+  const moxfieldUrl = `https://www.moxfield.com/search/cards?q=${encodedName}`
 
   return (
     <div className="fixed inset-0 z-[100] flex animate-[fadeIn_0.2s_ease-out] items-center justify-center p-4 sm:p-8">
@@ -295,17 +296,17 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                   EDHREC
                 </a>
                 <a
-                  href={gathererUrl}
+                  href={moxfieldUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 rounded-md bg-[#f5f5f5] px-3 py-1.5 text-xs font-semibold text-[#525252] transition-colors hover:bg-[#e5e5e5] hover:text-[#1c1c1c]"
                 >
                   <img
-                    src="https://www.google.com/s2/favicons?domain=wizards.com&sz=32"
+                    src="https://www.google.com/s2/favicons?domain=moxfield.com&sz=32"
                     alt=""
                     className="h-4 w-4 rounded-sm opacity-80"
                   />
-                  Gatherer
+                  Moxfield
                 </a>
               </div>
             </div>
