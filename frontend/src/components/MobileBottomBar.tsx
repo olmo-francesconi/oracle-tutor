@@ -1,92 +1,54 @@
-import { useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { useQuery } from '@tanstack/react-query'
-import { getApiHealth, getApiVersion } from '../api'
-import { cn } from '../lib/cn'
+import { useEffect, useState } from 'react'
 import { DeveloperLinks } from './DeveloperLinks'
 
 export function MobileBottomBar() {
-  const [isOpen, setIsOpen] = useState(false)
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
 
-  const { data: healthData } = useQuery({
-    queryKey: ['apiHealth'],
-    queryFn: getApiHealth,
-    refetchInterval: 30000,
-  })
+  // Keep the fixed bar visible above the iOS keyboard by tracking VisualViewport.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
 
-  const { data: versionData } = useQuery({
-    queryKey: ['apiVersion'],
-    queryFn: getApiVersion,
-    staleTime: Infinity,
-  })
+    const update = () => {
+      const offsetTop = vv.offsetTop || 0
+      // iOS/embedded webviews can report confusing viewport metrics when the keyboard opens.
+      // Use the smaller of VisualViewport height and documentElement clientHeight as the
+      // "actually visible" height.
+      const docH = document.documentElement?.clientHeight || 0
+      const visualH = vv.height || window.innerHeight
+      const visibleH = docH > 0 ? Math.min(docH, visualH) : visualH
 
-  const isHealthy = healthData?.status === 'ok'
-  const apiStatus = isHealthy ? 'Healthy' : 'Unknown'
-  const apiVersion = versionData?.version || '…'
+      // Position our fixed bar relative to the visual viewport bottom.
+      const offset = Math.max(0, window.innerHeight - visibleH - offsetTop)
+      setKeyboardOffset(offset)
+    }
+
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    window.addEventListener('orientationchange', update)
+
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+      window.removeEventListener('orientationchange', update)
+    }
+  }, [])
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 md:hidden">
-      <div className="border-t border-white/10 bg-[#1c1c1c]/75 backdrop-blur-md">
-        <div className="flex items-center justify-between gap-3 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => setIsOpen((v) => !v)}
-            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-medium tracking-[0.18em] uppercase text-white/70"
-          >
-            <span>API</span>
-            <span className="text-white/30">v{apiVersion}</span>
-            <span className="text-white/30">·</span>
-            <span
-              className={cn(isHealthy ? 'text-green-300/80' : 'text-red-300/80')}
-            >
-              {apiStatus}
-            </span>
-            <span
-              className={cn(
-                'ml-1 h-1.5 w-1.5 rounded-full',
-                isHealthy ? 'bg-green-400/70' : 'bg-red-400/70'
-              )}
-            />
-          </button>
-
-          <DeveloperLinks
-            variant="light"
-            className="flex-row items-center gap-3 text-left"
-          />
-        </div>
-
-        <AnimatePresence>
-          {isOpen ? (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 6 }}
-              transition={{ duration: 0.15 }}
-              className="px-3 pb-3"
-            >
-              <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-[11px] text-white/70">
-                <div className="flex items-center justify-between">
-                  <span className="text-white/40">Frontend</span>
-                  <span className="font-mono text-white/60">v{APP_VERSION}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between">
-                  <span className="text-white/40">API</span>
-                  <span className="font-mono text-white/60">v{apiVersion}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between">
-                  <span className="text-white/40">Status</span>
-                  <span
-                    className={cn(
-                      isHealthy ? 'text-green-300/80' : 'text-red-300/80'
-                    )}
-                  >
-                    {apiStatus}
-                  </span>
-                </div>
-              </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 md:hidden"
+      style={{
+        transform: keyboardOffset ? `translateY(-${keyboardOffset}px)` : undefined,
+        transition: 'transform 150ms ease-out',
+      }}
+    >
+      <div className="border-t border-white/10 bg-[#1c1c1c]/75 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+        <DeveloperLinks
+          variant="light"
+          split
+          className="px-3 py-2"
+        />
       </div>
     </div>
   )

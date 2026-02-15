@@ -1,6 +1,14 @@
 @import 'tailwindcss';
 @import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Goudy+Bookletter+1911&display=swap');
 
+/* Prevent horizontal layout expansion on mobile (e.g. transformed card stacks). */
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -82,6 +90,8 @@ body::before {
 #root {
   position: relative;
   z-index: 1;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 /* Scrollbar styling */

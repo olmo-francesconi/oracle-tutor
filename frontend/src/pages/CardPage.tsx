@@ -10,7 +10,6 @@ import { DeveloperLinks } from '../components/DeveloperLinks'
 import { MobileDrawer } from '../components/MobileDrawer'
 import { MobileResultsHeader } from '../components/MobileResultsHeader'
 import { MobileBottomBar } from '../components/MobileBottomBar'
-import { SidebarSystemStatus } from '../components/SidebarSystemStatus'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 
@@ -235,7 +234,6 @@ export function CardPage() {
 
         <div className="mt-auto flex items-end justify-between gap-6 pt-6">
           <DeveloperLinks variant="dark" />
-          <SidebarSystemStatus />
         </div>
       </div>
 

@@ -137,7 +137,7 @@ function FilterInputs({
                   e.target.value ? Number(e.target.value) : undefined
                 )
               }
-              className="h-10 w-12 flex-1 rounded-l-lg bg-transparent px-2 text-center text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="h-10 w-12 flex-1 rounded-l-lg bg-transparent px-2 text-center text-base md:text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
             <div className="h-4 w-px bg-white/10" />
             <input
@@ -152,7 +152,7 @@ function FilterInputs({
                   e.target.value ? Number(e.target.value) : undefined
                 )
               }
-              className="h-10 w-12 flex-1 rounded-r-lg bg-transparent px-2 text-center text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="h-10 w-12 flex-1 rounded-r-lg bg-transparent px-2 text-center text-base md:text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
           </div>
         </div>

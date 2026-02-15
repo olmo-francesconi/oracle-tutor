@@ -36,7 +36,7 @@ export function OracleInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="w-full h-full resize-none bg-transparent text-[14px] text-[#1c1c1c] placeholder-[#737373] outline-none font-serif leading-relaxed font-['Crimson_Text']"
+        className="w-full h-full resize-none bg-transparent text-[16px] md:text-[14px] text-[#1c1c1c] placeholder-[#737373] outline-none font-serif leading-relaxed font-['Crimson_Text']"
       />
       <div className="mt-auto flex justify-end pt-2">
         <button 

@@ -36,6 +36,14 @@ export function SearchCard() {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isUIActive, setIsUIActive] = useState(false)
   const activityTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const swipeStartRef = useRef<{
+    x: number
+    y: number
+    t: number
+    pointerId: number
+    active: boolean
+  } | null>(null)
+  const didSwipeRef = useRef(false)
   
   const navigate = useNavigate()
   const nameWrapperRef = useRef<HTMLDivElement>(null)
@@ -119,6 +127,89 @@ export function SearchCard() {
     }
   }
 
+  const advanceFocusedIndex = (delta: -1 | 1) => {
+    if (suggestions.length === 0) return
+
+    const nextIndex = focusedIndex + delta
+    if (nextIndex < 0 || nextIndex >= suggestions.length) return
+
+    setFocusedIndex(nextIndex)
+
+    if (hasMore && !isLoadingMore && suggestions.length - nextIndex <= 5) {
+      fetchMoreSuggestions()
+    }
+  }
+
+  const isInteractiveTarget = (target: EventTarget | null) => {
+    const el = target as HTMLElement | null
+    if (!el) return false
+    return Boolean(el.closest('input, textarea, button, a, [role="button"], [data-no-swipe="true"]'))
+  }
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!suggestions.length) return
+    if (isInteractiveTarget(e.target)) return
+
+    // Only react to primary touch/pen/mouse.
+    if (e.isPrimary === false) return
+
+    didSwipeRef.current = false
+
+    // Ensure we still receive the pointer up even if it ends outside.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      // no-op: not all browsers support pointer capture in all scenarios
+    }
+
+    swipeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      t: Date.now(),
+      pointerId: e.pointerId,
+      active: true
+    }
+  }
+
+  const handlePointerUpOrCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current
+    if (!start?.active) return
+    if (e.pointerId !== start.pointerId) return
+
+    swipeStartRef.current = null
+
+    // Ignore if the user interacted with inputs/buttons.
+    if (isInteractiveTarget(e.target)) return
+
+    const dt = Date.now() - start.t
+    if (dt > 800) return
+
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+
+    // Swipe: require a mostly-horizontal gesture.
+    if (absX >= 60 && absX >= absY * 1.2) {
+      if (dx < 0) {
+        didSwipeRef.current = true
+        advanceFocusedIndex(1)
+      } else {
+        didSwipeRef.current = true
+        advanceFocusedIndex(-1)
+      }
+      return
+    }
+
+    // Tap: treat a short, near-stationary pointer as "open top card".
+    if (dt <= 500 && absX <= 10 && absY <= 10) {
+      if (bestMatch) {
+        handleNameSelect(bestMatch.id)
+      }
+    }
+  }
+
   const handleNameSelect = (id: string) => {
     setNameQuery('')
     navigate(`/card/${id}`)
@@ -183,13 +274,22 @@ export function SearchCard() {
     <div 
       className="relative w-full max-w-[400px] aspect-[63/88] rounded-[18px] shadow-2xl bg-[#1c1c1c]"
       onMouseMove={handleActivity}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUpOrCancel}
+      onPointerCancel={handlePointerUpOrCancel}
       onMouseLeave={() => {
         if (activityTimeoutRef.current) clearTimeout(activityTimeoutRef.current)
         setIsUIActive(false)
       }}
+      style={{ touchAction: suggestions.length ? 'pan-y' : 'auto' }}
     >
       {/* Card Stack */}
-      <div className="absolute inset-0 z-0 overflow-visible rounded-[18px]">
+      <div
+        className={cn(
+          "absolute inset-0 overflow-visible rounded-[18px]",
+          hasSuggestions && !showSearch ? "z-20" : "z-0"
+        )}
+      >
         <AnimatePresence initial={false}>
           {suggestions.slice(focusedIndex, focusedIndex + 5).map((card, i) => {
              const index = i // 0 is top
@@ -218,7 +318,11 @@ export function SearchCard() {
                  }}
                  exit={{ opacity: 0 }}
                  transition={{ duration: 0.3 }}
-                 className="absolute top-0 left-0 h-full w-full rounded-[18px] shadow-xl origin-bottom-left"
+                 className={cn(
+                   "absolute top-0 left-0 h-full w-full rounded-[18px] shadow-xl origin-bottom-left",
+                   isTop ? "cursor-pointer" : ""
+                 )}
+                 style={{ pointerEvents: isTop ? 'auto' : 'none' }}
                >
                  <img 
                    src={url} 
@@ -233,15 +337,16 @@ export function SearchCard() {
 
       {/* Content Container */}
       <div className={cn(
-          "absolute inset-[16px] flex flex-col gap-[9px] z-10 p-[9px] rounded-[12px] transition-colors duration-500",
-          !hasSuggestions ? "bg-[#d1c8b8]" : "bg-transparent"
+          "absolute inset-[16px] flex flex-col gap-[9px] p-[9px] rounded-[12px] transition-colors duration-500",
+          !hasSuggestions ? "bg-[#d1c8b8]" : "bg-transparent",
+          showSearch ? "z-30" : "z-10"
       )}>
           
           {/* Name Line (Search by Name) - Always visible on top */}
           <div 
             className={cn(
               "relative h-[34px] z-20 shrink-0 flex items-center -mt-[1px] mx-[1px] transition-opacity duration-500",
-              showSearch ? "opacity-100" : "opacity-0"
+              showSearch ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
             )} 
             ref={nameWrapperRef}
           >
@@ -255,7 +360,7 @@ export function SearchCard() {
             >
               
               {/* Ghost Text Overlay */}
-              <div className="pointer-events-none absolute inset-0 flex items-center px-[8px] font-bold text-[14px] font-['Goudy_Bookletter_1911']">
+              <div className="pointer-events-none absolute inset-0 flex items-center px-[8px] font-bold text-[16px] md:text-[14px] font-['Goudy_Bookletter_1911']">
                 <span className="opacity-0 whitespace-pre">{nameQuery}</span>
                 <span className="text-[#a3a3a3] whitespace-pre">{completion}</span>
               </div>
@@ -267,7 +372,7 @@ export function SearchCard() {
                 onKeyDown={handleNameKeyDown}
                 onFocus={handleActivity}
                 placeholder="Search by card name..."
-                className="relative z-10 w-full bg-transparent p-0 text-[14px] font-bold text-[#1c1c1c] placeholder-[#737373] outline-none font-['Goudy_Bookletter_1911']"
+                className="relative z-10 w-full bg-transparent p-0 text-[16px] md:text-[14px] font-bold text-[#1c1c1c] placeholder-[#737373] outline-none font-['Goudy_Bookletter_1911']"
               />
               {!nameQuery && <MagnifyingGlass className="relative z-10 h-[16px] w-[16px] text-[#737373] shrink-0" />}
             </div>

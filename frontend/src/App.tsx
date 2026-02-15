@@ -3,7 +3,6 @@ import { Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import { DeveloperLinks } from './components/DeveloperLinks'
 import { SearchCard } from './components/SearchCard'
 import { MobileBottomBar } from './components/MobileBottomBar'
-import { SystemStatus } from './components/SystemStatus'
 import { CardPage } from './pages/CardPage'
 import { OracleSearchPage } from './pages/OracleSearchPage'
 
@@ -31,7 +30,6 @@ function Home() {
         variant="light"
         className="fixed bottom-0 left-0 hidden px-6 py-4 md:block"
       />
-      <SystemStatus />
       <MobileBottomBar />
     </div>
   )
