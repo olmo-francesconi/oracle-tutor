@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import { DeveloperLinks } from './components/DeveloperLinks'
-import { SearchBar } from './components/SearchBar'
+import { SearchCard } from './components/SearchCard'
 import { SystemStatus } from './components/SystemStatus'
 import { CardPage } from './pages/CardPage'
 import { OracleSearchPage } from './pages/OracleSearchPage'
@@ -12,16 +12,20 @@ function Home() {
   }, [])
 
   return (
-    <div className="relative z-10 flex min-h-[80vh] flex-col items-center justify-center px-4">
-      <div className="w-full max-w-[600px] animate-[fadeIn_0.5s_ease-in] rounded-[24px] border border-white/20 bg-[#f5f2eb]/95 p-10 text-[#1c1c1c] shadow-2xl backdrop-blur-xl">
-        <h1 className="mb-4 text-center text-5xl font-bold tracking-tight text-[#1c1c1c]">
+    <div className="relative z-10 flex min-h-[80vh] flex-col items-center justify-center gap-12 px-4 py-12">
+      <div className="animate-[fadeIn_0.5s_ease-in] text-center">
+        <h1 className="mb-4 text-6xl font-bold tracking-tight text-[#f5f2eb] drop-shadow-lg">
           Oracle Tutor
         </h1>
-        <p className="mb-8 text-center text-lg font-light text-[#525252]">
+        <p className="text-xl font-light text-[#d4d4d4] drop-shadow-md">
           Find cards by semantic meaning, not just keywords.
         </p>
-        <SearchBar />
       </div>
+
+      <div className="w-full max-w-[400px] animate-[slideUp_0.5s_ease-out_0.2s] opacity-0" style={{ animationFillMode: 'forwards' }}>
+        <SearchCard />
+      </div>
+
       <DeveloperLinks
         variant="light"
         className="fixed bottom-0 left-0 px-6 py-4"

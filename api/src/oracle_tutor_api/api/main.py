@@ -281,10 +281,11 @@ def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
 
 @app.get("/suggest-names", response_model=List[CardNameMatch])
 @log_performance(logger=logger)
-def search_card_names(q: str, limit: int = 5, db: Session = Depends(get_db)):
+def search_card_names(q: str, limit: int = 5, offset: int = 0, db: Session = Depends(get_db)):
     if not q.strip():
         return []
     limit = max(1, min(limit, 25))
+    offset = max(0, offset)
 
     if db.bind and db.bind.dialect.name == "postgresql":
         distance = Card.name.op("<->")(q)
@@ -292,6 +293,7 @@ def search_card_names(q: str, limit: int = 5, db: Session = Depends(get_db)):
             db.query(Card.name, Card.id)
             .filter(or_(Card.name.op("%")(q), Card.name.ilike(f"%{q}%")))
             .order_by(distance, Card.edhrec_rank.asc().nulls_last())
+            .offset(offset)
             .limit(limit)
             .all()
         )
@@ -301,6 +303,7 @@ def search_card_names(q: str, limit: int = 5, db: Session = Depends(get_db)):
         db.query(Card.name, Card.id)
         .filter(Card.name.ilike(f"%{q}%"))
         .order_by(Card.name.asc())
+        .offset(offset)
         .limit(limit)
         .all()
     )
