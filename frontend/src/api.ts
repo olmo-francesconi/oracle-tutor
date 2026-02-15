@@ -19,6 +19,7 @@ type SimilarCardsParams = {
   cmc_max?: number
   rarity?: string
   match_mode?: MatchMode
+  color_feature?: 'identity' | 'colors'
 }
 
 type OracleSearchParams = SimilarCardsParams & {
@@ -57,6 +58,7 @@ export const getSimilarCards = async (
     if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
     if (filters.rarity) params.rarity = filters.rarity
     if (filters.matchMode) params.match_mode = filters.matchMode
+    if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
   const response = await api.get<SimilarCard[]>(`/similar-cards/${id}`, {
@@ -80,6 +82,7 @@ export const searchOracleText = async (
     if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
     if (filters.rarity) params.rarity = filters.rarity
     if (filters.matchMode) params.match_mode = filters.matchMode
+    if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
   const response = await api.get<SimilarCard[]>('/search-oracle', {

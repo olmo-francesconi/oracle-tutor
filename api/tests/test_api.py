@@ -31,7 +31,11 @@ def test_search_oracle(client):
     assert "c1" in ids
     assert "c2" in ids
     assert "c4" in ids
-    assert "c3" not in ids
+    # c3 matches "target" now that we have c5 (which doesn't have "target"), so "target" is no longer IDF=0.
+    # But it should be ranked lower than c1/c2/c4 which match multiple terms.
+    assert ids.index("c1") < ids.index("c3")
+    assert ids.index("c2") < ids.index("c3")
+
 
 
 def test_search_oracle_long_text_not_penalized(client):

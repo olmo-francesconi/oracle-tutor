@@ -213,6 +213,7 @@ def prepare_parent_card(card_data: Dict[str, Any]) -> Dict[str, Any]:
         "edhrec_rank": card_data.get("edhrec_rank"),
         "rarity": card_data.get("rarity"),
         "legalities": card_data.get("legalities"),
+        "color_identity": card_data.get("color_identity"),
     }
 
 
@@ -238,6 +239,7 @@ def normalize_card_data(card: Dict[str, Any]) -> Dict[str, Any]:
         "edhrec_rank": card.get("edhrec_rank"),
         "rarity": card.get("rarity"),
         "legalities": card.get("legalities"),
+        "color_identity": card.get("color_identity"),
     }
 
     faces = card.get("card_faces") or [card]
@@ -307,6 +309,7 @@ def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
                 "edhrec_rank": stmt.excluded.edhrec_rank,
                 "rarity": stmt.excluded.rarity,
                 "legalities": stmt.excluded.legalities,
+                "color_identity": stmt.excluded.color_identity,
             },
         )
         session.execute(stmt)

@@ -40,6 +40,7 @@ class Card(Base):
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rarity: Mapped[str | None] = mapped_column(String, nullable=True)
+    color_identity: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     legalities: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     faces: Mapped[list["CardFace"]] = relationship(back_populates="card", cascade="all, delete-orphan")

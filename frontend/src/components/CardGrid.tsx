@@ -78,17 +78,15 @@ export function CardGrid({
         </div>
       ) : (
         <>
-          {/* Sticky Header with Blur Effect */}
-          <div className="sticky top-0 z-30 flex items-center justify-center border-b border-white/5 bg-[#1c1c1c]/70 px-6 py-4 backdrop-blur-xl transition-all duration-300 supports-[backdrop-filter]:bg-[#1c1c1c]/60">
-            <div className="flex w-full max-w-7xl items-center gap-3">
-              {filters && onFilterChange && (
-                <FilterBar filters={filters} onFilterChange={onFilterChange} />
-              )}
+          {/* Floating Filter Button */}
+          {filters && onFilterChange && (
+            <div className="fixed top-6 right-8 z-40">
+              <FilterBar filters={filters} onFilterChange={onFilterChange} />
             </div>
-          </div>
+          )}
 
           {/* Grid with larger cards (fewer columns) */}
-          <div className="grid grid-cols-1 gap-6 p-6 pt-6 pb-10 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-6 p-6 pb-10 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {cards.map((s, index) => (
               <motion.div
                 key={s.id}

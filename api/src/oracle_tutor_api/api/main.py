@@ -334,7 +334,8 @@ def get_similar_cards(
     cmc_min: Optional[float] = Query(None),
     cmc_max: Optional[float] = Query(None),
     rarity: Optional[str] = Query(None),
-    match_mode: str = Query("subset"),
+    match_mode: str = Query("at_least"),
+    color_feature: str = Query("identity"),
     db: Session = Depends(get_db),
 ):
     index = _require_index(db)
@@ -367,6 +368,7 @@ def get_similar_cards(
         cmc_max=cmc_max,
         rarity=rarity,
         match_mode=match_mode,
+        color_feature=color_feature,
     )
     if not results:
         return []
@@ -421,7 +423,8 @@ def search_oracle_text(
     cmc_min: Optional[float] = Query(None),
     cmc_max: Optional[float] = Query(None),
     rarity: Optional[str] = Query(None),
-    match_mode: str = Query("subset"),
+    match_mode: str = Query("at_least"),
+    color_feature: str = Query("identity"),
     db: Session = Depends(get_db),
 ):
     if not q.strip():
@@ -445,6 +448,7 @@ def search_oracle_text(
         cmc_max=cmc_max,
         rarity=rarity,
         match_mode=match_mode,
+        color_feature=color_feature,
     )
     if not results:
         return []
