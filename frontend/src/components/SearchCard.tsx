@@ -2,6 +2,7 @@ import { MagnifyingGlass } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { OracleInput } from './OracleInput'
 import { searchCards } from '../api'
 import { cn } from '../lib/cn'
 import type { CardMatch } from '../types'
@@ -173,12 +174,6 @@ export function SearchCard() {
     }
   }
 
-  const handleOracleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleOracleSearch()
-    }
-  }
 
   // Determine if we have any valid suggestions to show in stack
   const hasSuggestions = suggestions.length > 0
@@ -292,27 +287,15 @@ export function SearchCard() {
               </div>
 
               {/* Text Box (Oracle Search) */}
-              <div className={cn(
-                  "h-[38%] shrink-0 rounded-[2px] border border-[#a89f91] bg-[#e6e2d6] p-[8px] shadow-inner flex flex-col transition-opacity duration-500",
+              <OracleInput
+                value={oracleQuery}
+                onChange={setOracleQuery}
+                onSearch={() => handleOracleSearch()}
+                className={cn(
+                  "h-[38%] shrink-0",
                   hasSuggestions ? "opacity-0 pointer-events-none" : "opacity-100"
-              )}>
-                <textarea
-                    value={oracleQuery}
-                    onChange={(e) => setOracleQuery(e.target.value)}
-                    onKeyDown={handleOracleKeyDown}
-                    placeholder="Search for cards with similar meaning (oracle text)..."
-                    className="w-full h-full resize-none bg-transparent text-[14px] text-[#1c1c1c] placeholder-[#737373] outline-none font-serif leading-relaxed font-['Crimson_Text']"
-                />
-                <div className="mt-auto flex justify-end">
-                    <button 
-                        onClick={() => handleOracleSearch()}
-                        disabled={!oracleQuery.trim()}
-                        className="text-[10px] italic text-[#525252] hover:text-[#1c1c1c] disabled:opacity-50"
-                    >
-                        (Press Enter to search)
-                    </button>
-                </div>
-              </div>
+                )}
+              />
           </div>
 
       </div>
