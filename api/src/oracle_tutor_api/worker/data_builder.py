@@ -21,7 +21,7 @@ from ..core.models import Card, CardFace, IngestionLog, SystemMetadata
 
 logger = logging.getLogger("oracle_tutor_api.data")
 
-BULK_DATA_URL = "https://api.scryfall.com/bulk-data/oracle-cards"
+BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
 BATCH_SIZE = 500
 
 META_JSON = DATA_DIR / "scryfall_meta.json"
@@ -324,6 +324,54 @@ def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
             session.bulk_insert_mappings(CardFace, faces_to_insert)
 
 
+def select_best_printing(current: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compare two card objects (printings) and return the one we prefer to keep.
+    Preference order:
+    1. Paper over Digital (unless Digital is the only option).
+    2. Oldest release date.
+    3. Lowest collector number (tie-breaker).
+    """
+    # 1. Paper preference
+    curr_games = current.get("games") or []
+    cand_games = candidate.get("games") or []
+    curr_is_paper = "paper" in curr_games
+    cand_is_paper = "paper" in cand_games
+
+    if curr_is_paper and not cand_is_paper:
+        return current
+    if cand_is_paper and not curr_is_paper:
+        return candidate
+
+    # 2. Release date (prefer older)
+    curr_date = current.get("released_at") or "9999-99-99"
+    cand_date = candidate.get("released_at") or "9999-99-99"
+
+    if cand_date < curr_date:
+        return candidate
+    if curr_date < cand_date:
+        return current
+
+    # 3. Collector number (tie-breaker, prefer lower/lexicographically smaller)
+    # This helps stabilize choice within the same set
+    curr_cn = current.get("collector_number") or "zzzz"
+    cand_cn = candidate.get("collector_number") or "zzzz"
+
+    # Try integer comparison if possible, else string
+    try:
+        if int(cand_cn) < int(curr_cn):
+            return candidate
+        if int(curr_cn) < int(cand_cn):
+            return current
+    except ValueError:
+        if cand_cn < curr_cn:
+            return candidate
+        if curr_cn < cand_cn:
+            return current
+
+    return current
+
+
 def ingest_data_diff(
     new_path: Path,
     old_path: Optional[Path],
@@ -331,7 +379,7 @@ def ingest_data_diff(
     *,
     trigger_type: str = "scheduled",
 ) -> None:
-    logger.info("Starting smart database ingestion...")
+    logger.info("Starting smart database ingestion (with printing selection)...")
     session = SessionLocal()
 
     log_entry = IngestionLog(status="started", schema_version=DB_SCHEMA_VERSION, trigger_type=trigger_type)
@@ -346,54 +394,105 @@ def ingest_data_diff(
             logger.info("Cleanup removed unplayables: %s", cleanup_stats)
             session.commit()
 
-        old_cards_map: Dict[str, Dict[str, Any]] = {}
-        if old_path and old_path.exists():
-            old_cards_map = load_existing_cards_map(old_path)
+        # Load existing cards map (keyed by oracle_id for stability, or id if we want to track specific printings)
+        # NOTE: Since we are now selecting printings dynamically, the "id" in our DB might change for the same card
+        # if a better printing becomes available (unlikely for "oldest", but possible if we change logic).
+        # For diffing, we should probably compare based on oracle_id to see if the *content* changed,
+        # but our DB schema uses Scryfall UUID as primary key.
+        #
+        # Strategy:
+        # 1. Read NEW file fully (it's big, but we need to reduce it).
+        # 2. Build map of oracle_id -> best_printing_card_object.
+        # 3. Compare this map against DB state.
 
-        stats = {"added": 0, "modified": 0, "deleted": 0, "skipped": 0, "unchanged": 0}
+        logger.info("Reading and reducing new bulk data...")
+        best_printings: Dict[str, Dict[str, Any]] = {}
+        stats = {"seen": 0, "kept": 0, "skipped": 0}
 
-        batch: List[Dict[str, Any]] = []
         with new_path.open("rb") as f:
             stream = ijson.items(f, "item")
             for card in stream:
+                stats["seen"] += 1
                 if should_skip_card(card):
                     stats["skipped"] += 1
                     continue
 
-                card_id = card.get("id")
-                existing = old_cards_map.pop(card_id, None)
+                oracle_id = card.get("oracle_id")
+                if not oracle_id:
+                    # Fallback for cards without oracle_id (rare, usually tokens/etc we skip anyway)
+                    continue
 
-                update_needed = False
-                if existing is None:
-                    stats["added"] += 1
-                    update_needed = True
+                if oracle_id not in best_printings:
+                    best_printings[oracle_id] = card
                 else:
-                    new_norm = normalize_card_data(card)
-                    if new_norm != existing:
-                        stats["modified"] += 1
-                        update_needed = True
-                    else:
-                        stats["unchanged"] += 1
+                    best_printings[oracle_id] = select_best_printing(best_printings[oracle_id], card)
 
-                if update_needed:
-                    batch.append(card)
-                    if len(batch) >= BATCH_SIZE:
-                        ingest_batch(session, batch)
-                        session.commit()
-                        batch = []
-                        logger.info("Processed batch. Stats: %s", stats)
+        stats["kept"] = len(best_printings)
+        logger.info("Reduction complete. Stats: %s", stats)
+
+        # Now we have the list of cards we WANT to be in the DB.
+        # We need to see what to add/update/delete.
+        # Since we might be switching from one printing ID to another for the same oracle_id,
+        # "modified" is tricky.
+        #
+        # Simplification:
+        # We will iterate over our `best_printings` values.
+        # For each card, we check if its specific UUID is in the DB.
+        # If yes -> check for updates.
+        # If no -> check if we have another card with same oracle_id?
+        # Actually, our `load_existing_cards_map` loads by ID.
+        #
+        # Let's load existing IDs from DB to know what to delete.
+        # (We can't easily use the old JSON file for diffing because we are changing the selection logic
+        # on the fly, and the old JSON might be the raw file, not our reduced set).
+
+        # Fetch all existing IDs from DB
+        existing_ids = set(session.scalars(select(Card.id)).all())
+        logger.info("Found %d existing cards in DB.", len(existing_ids))
+
+        ingest_stats = {"added": 0, "modified": 0, "deleted": 0, "unchanged": 0}
+        batch: List[Dict[str, Any]] = []
+
+        # We need to handle the case where we swap printing A for printing B.
+        # We should insert B and delete A.
+        # Since we are iterating over the NEW set (B), we will insert B.
+        # A will be left in `existing_ids` and deleted at the end.
+
+        # Optimization: To detect "modified" (same ID, content changed), we need the old data.
+        # But for now, `merge` (upsert) handles added/modified/unchanged safely for Postgres.
+        # We just need to count them.
+
+        for card in best_printings.values():
+            card_id = card.get("id")
+            if card_id in existing_ids:
+                existing_ids.remove(card_id)
+                # Ideally we'd check if content changed to inc 'modified' vs 'unchanged'
+                # For now, we'll just count as "processed" or assume unchanged if we don't check.
+                # Let's assume unchanged for stats unless we actually check.
+                # (To do it right, we'd need to fetch the row or have the old map).
+                ingest_stats["unchanged"] += 1 # Approximation
+            else:
+                ingest_stats["added"] += 1
+
+            batch.append(card)
+            if len(batch) >= BATCH_SIZE:
+                ingest_batch(session, batch)
+                session.commit()
+                batch = []
 
         if batch:
             ingest_batch(session, batch)
             session.commit()
 
-        deleted_ids = list(old_cards_map.keys())
-        stats["deleted"] = len(deleted_ids)
-        if deleted_ids:
-            logger.info("Deleting %d removed cards...", len(deleted_ids))
+        # Remaining existing_ids are cards that are no longer the "best printing"
+        # (or were removed entirely).
+        ingest_stats["deleted"] = len(existing_ids)
+        if existing_ids:
+            logger.info("Deleting %d obsolete cards/printings...", len(existing_ids))
             chunk_size = 1000
-            for i in range(0, len(deleted_ids), chunk_size):
-                session.execute(delete(Card).where(Card.id.in_(deleted_ids[i : i + chunk_size])))
+            existing_ids_list = list(existing_ids)
+            for i in range(0, len(existing_ids_list), chunk_size):
+                session.execute(delete(Card).where(Card.id.in_(existing_ids_list[i : i + chunk_size])))
                 session.commit()
 
         sys_meta = SystemMetadata(
@@ -408,12 +507,12 @@ def ingest_data_diff(
         if log_entry:
             log_entry.status = "success"
             log_entry.completed_at = datetime.utcnow()
-            log_entry.records_processed = stats["added"] + stats["modified"] + stats["unchanged"]
+            log_entry.records_processed = ingest_stats["added"] + ingest_stats["unchanged"] # + modified
             log_entry.records_skipped = stats["skipped"]
-            log_entry.error_message = json.dumps(stats)
+            log_entry.error_message = json.dumps(ingest_stats)
 
         session.commit()
-        logger.info("Ingestion complete. Stats: %s", stats)
+        logger.info("Ingestion complete. Stats: %s", ingest_stats)
     except Exception as e:
         logger.error("Ingestion failed: %s", e, exc_info=True)
         session.rollback()
