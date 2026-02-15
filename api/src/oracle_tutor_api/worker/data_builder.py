@@ -115,7 +115,21 @@ def should_skip_card(card: Dict[str, Any]) -> bool:
     if isinstance(games, list):
         # If Scryfall tells us the card isn't in paper, treat as digital-only.
         if "paper" not in games:
-            return True
+            # EXCEPTION: Some cards (like Vintage Masters reprints) may be the "representative"
+            # object in Scryfall's oracle-cards file and listed as MTGO-only, but the card
+            # itself exists in paper (and is legal/banned/restricted in paper formats).
+            # We check if it has any paper legality status.
+            legalities = card.get("legalities") or {}
+            paper_formats = {
+                "standard", "pioneer", "modern", "legacy", "vintage", "commander", "pauper"
+            }
+            # If it's legal, banned, or restricted in any paper format, we keep it.
+            is_paper_legal = any(
+                legalities.get(fmt) in ("legal", "restricted", "banned")
+                for fmt in paper_formats
+            )
+            if not is_paper_legal:
+                return True
 
     # Arena-rebalanced cards (prefixed "A-") should be excluded.
     name = (card.get("name") or "").strip()

@@ -73,3 +73,22 @@ def test_should_skip_card_does_not_skip_paper_card_that_has_arena_id() -> None:
     assert should_skip_card(card) is False
 
 
+def test_should_not_skip_digital_representative_if_paper_legal() -> None:
+    # This simulates the "Black Lotus" case where the oracle-cards representative
+    # is the Vintage Masters (online-only) version, but the card is legal/restricted in Vintage.
+    card = {
+        "name": "Black Lotus",
+        "layout": "normal",
+        "type_line": "Artifact",
+        "games": ["mtgo"],
+        "legalities": {
+            "standard": "not_legal",
+            "pioneer": "not_legal",
+            "modern": "not_legal",
+            "legacy": "banned",
+            "vintage": "restricted",
+            "commander": "banned",
+            "pauper": "not_legal",
+        },
+    }
+    assert should_skip_card(card) is False
