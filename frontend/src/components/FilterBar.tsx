@@ -1,5 +1,5 @@
 import { Funnel, ArrowCounterClockwise, X } from '@phosphor-icons/react'
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '../lib/cn'
 import type { FilterState } from '../types'
@@ -10,12 +10,12 @@ interface FilterBarProps {
 }
 
 const COLORS = [
-  { value: 'W', label: 'White', color: 'bg-yellow-100', text: 'text-yellow-900', glow: 'shadow-[0_0_10px_rgba(253,224,71,0.6)]' },
-  { value: 'U', label: 'Blue', color: 'bg-blue-100', text: 'text-blue-900', glow: 'shadow-[0_0_10px_rgba(147,197,253,0.6)]' },
-  { value: 'B', label: 'Black', color: 'bg-gray-400', text: 'text-gray-900', glow: 'shadow-[0_0_10px_rgba(156,163,175,0.6)]' },
-  { value: 'R', label: 'Red', color: 'bg-red-100', text: 'text-red-900', glow: 'shadow-[0_0_10px_rgba(252,165,165,0.6)]' },
-  { value: 'G', label: 'Green', color: 'bg-green-100', text: 'text-green-900', glow: 'shadow-[0_0_10px_rgba(134,239,172,0.6)]' },
-  { value: 'C', label: 'Colorless', color: 'bg-slate-200', text: 'text-slate-600', glow: 'shadow-[0_0_10px_rgba(203,213,225,0.6)]' },
+  { value: 'W', label: 'White', color: 'bg-[#f0f0e0]', text: 'text-[#4a4a4a]', glow: 'shadow-[0_0_10px_rgba(240,240,224,0.4)]' },
+  { value: 'U', label: 'Blue', color: 'bg-[#c1d7e8]', text: 'text-[#1e3a8a]', glow: 'shadow-[0_0_10px_rgba(193,215,232,0.4)]' },
+  { value: 'B', label: 'Black', color: 'bg-[#bab1ab]', text: 'text-[#1c1c1c]', glow: 'shadow-[0_0_10px_rgba(186,177,171,0.4)]' },
+  { value: 'R', label: 'Red', color: 'bg-[#e8c1c1]', text: 'text-[#7f1d1d]', glow: 'shadow-[0_0_10px_rgba(232,193,193,0.4)]' },
+  { value: 'G', label: 'Green', color: 'bg-[#c6e0c8]', text: 'text-[#14532d]', glow: 'shadow-[0_0_10px_rgba(198,224,200,0.4)]' },
+  { value: 'C', label: 'Colorless', color: 'bg-[#dcdcdc]', text: 'text-[#475569]', glow: 'shadow-[0_0_10px_rgba(220,220,220,0.4)]' },
 ]
 
 const FORMATS = [
@@ -27,8 +27,6 @@ const FORMATS = [
   'Commander',
   'Pauper',
 ]
-
-const RARITIES = ['Common', 'Uncommon', 'Rare', 'Mythic']
 
 const CARD_TYPES = [
   'Creature',
@@ -44,77 +42,165 @@ const CARD_TYPES = [
 
 interface FilterInputsProps {
   localFilters: FilterState
-  isExclusive: boolean
   updateFilter: <K extends keyof FilterState>(key: K, value: FilterState[K]) => void
-  toggleExclusive: () => void
   handleColorClick: (color: string) => void
   isMobile?: boolean
 }
 
 function FilterInputs({
   localFilters,
-  isExclusive,
   updateFilter,
-  toggleExclusive,
   handleColorClick,
   isMobile = false,
 }: FilterInputsProps) {
   return (
-    <div className={cn("flex items-center gap-6", isMobile && "flex-col items-stretch gap-6")}>
-      {/* Colors */}
-      <div className={cn("flex items-center gap-2", isMobile && "justify-between")}>
-        <div className="flex items-center gap-2">
-          {COLORS.map((c) => {
-            const isSelected = localFilters.colors?.includes(c.value)
-            return (
-              <button
-                key={c.value}
-                onClick={() => handleColorClick(c.value)}
-                className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all duration-300',
-                  isSelected
-                    ? `${c.color} ${c.text} scale-110 shadow-sm ring-1 ring-white/20`
-                    : 'bg-[#333] text-[#737373] hover:bg-[#404040]'
-                )}
-                title={c.label}
-              >
-                {c.value}
-              </button>
-            )
-          })}
-        </div>
-        
-        {/* Exclusive Toggle */}
+    <div className={cn("flex flex-col items-center gap-4", isMobile && "w-full gap-6")}>
+      {/* Row 1: Colors */}
+      <div className="flex items-center gap-2">
+        {COLORS.map((c) => {
+          const isSelected = localFilters.colors?.includes(c.value)
+          return (
+            <button
+              key={c.value}
+              onClick={() => handleColorClick(c.value)}
+              className={cn(
+                'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all duration-300',
+                isSelected
+                  ? `${c.color} ${c.text} scale-110 shadow-sm ring-1 ring-white/20`
+                  : 'bg-[#333] text-[#737373] hover:bg-[#404040]'
+              )}
+              title={c.label}
+            >
+              {c.value}
+            </button>
+          )
+        })}
+      </div>
+      
+      {/* Row 2: Mode Buttons */}
+      <div className="flex items-center gap-2">
+        {/* Match Mode Selector */}
         <button
-          onClick={toggleExclusive}
+          onClick={() => {
+            const modes: ('at_least' | 'at_most' | 'exact')[] = ['at_least', 'at_most', 'exact']
+            const current = localFilters.matchMode || 'at_least'
+            const next = modes[(modes.indexOf(current) + 1) % modes.length]
+            updateFilter('matchMode', next)
+          }}
           className={cn(
-            'ml-1 flex h-8 items-center gap-2 rounded-lg border border-white/5 bg-[#333] px-3 text-xs font-bold transition-all hover:bg-[#404040]',
-            isExclusive
-              ? 'text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
-              : 'text-[#737373]'
+            'flex h-8 w-32 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-[#333] px-3 text-xs font-bold whitespace-nowrap transition-all hover:bg-[#404040] hover:text-[#f5f2eb]',
+            localFilters.matchMode && localFilters.matchMode !== 'at_least' ? 'text-[#e3dccb] border-[#e3dccb]/30' : 'text-[#737373]'
           )}
-          title="Match Exact Colors Only"
+          title="Color Match Mode"
         >
-          <div
-            className={cn(
-              'h-2 w-2 rounded-full transition-colors',
-              isExclusive
-                ? 'bg-emerald-400 shadow-[0_0_5px_currentColor]'
-                : 'bg-[#525252]'
-            )}
-          />
-          Exact
+          {localFilters.matchMode === 'exact' ? 'Exact' : localFilters.matchMode === 'at_most' ? 'At Most' : 'At Least'}
+        </button>
+
+        {/* Color Feature Selector */}
+        <button
+          onClick={() => {
+            const features: ('identity' | 'colors')[] = ['identity', 'colors']
+            const current = localFilters.colorFeature || 'identity'
+            const next = features[(features.indexOf(current) + 1) % features.length]
+            updateFilter('colorFeature', next)
+          }}
+          className={cn(
+            'flex h-8 w-32 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-[#333] px-3 text-xs font-bold whitespace-nowrap transition-all hover:bg-[#404040] hover:text-[#f5f2eb]',
+            localFilters.colorFeature === 'colors' ? 'text-[#e3dccb] border-[#e3dccb]/30' : 'text-[#737373]'
+          )}
+          title="Filter by Color Identity or Mana Cost"
+        >
+          {localFilters.colorFeature === 'colors' ? 'Cost' : 'Identity'}
         </button>
       </div>
 
-      {/* Selects Group */}
-      <div className={cn("flex items-center gap-3", isMobile && "flex-col items-stretch")}>
+      {/* Spacer */}
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+      {/* Row 3: CMC and Rarity */}
+      <div className="flex items-center gap-4">
+        {/* CMC */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-[#737373]">
+            CMC
+          </span>
+          <div className="flex items-center rounded-lg border border-white/10 bg-[#333]">
+            <input
+              type="number"
+              placeholder="0"
+              min="0"
+              max="20"
+              value={localFilters.cmcMin ?? ''}
+              onChange={(e) =>
+                updateFilter(
+                  'cmcMin',
+                  e.target.value ? Number(e.target.value) : undefined
+                )
+              }
+              className="h-10 w-12 flex-1 rounded-l-lg bg-transparent px-2 text-center text-base md:text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+            <div className="h-4 w-px bg-white/10" />
+            <input
+              type="number"
+              placeholder="∞"
+              min="0"
+              max="20"
+              value={localFilters.cmcMax ?? ''}
+              onChange={(e) =>
+                updateFilter(
+                  'cmcMax',
+                  e.target.value ? Number(e.target.value) : undefined
+                )
+              }
+              className="h-10 w-12 flex-1 rounded-r-lg bg-transparent px-2 text-center text-base md:text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+          </div>
+        </div>
+
+        {/* Rarity Circle */}
+        <button
+          onClick={() => {
+            const rarities = ['common', 'uncommon', 'rare', 'mythic']
+            const current = localFilters.rarity
+            let next: string | undefined
+            
+            if (!current) {
+              next = 'common'
+            } else {
+              const idx = rarities.indexOf(current)
+              if (idx === rarities.length - 1) {
+                next = undefined
+              } else {
+                next = rarities[idx + 1]
+              }
+            }
+            updateFilter('rarity', next)
+          }}
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 text-xs font-bold transition-all',
+            !localFilters.rarity && 'bg-[#333] text-[#737373] hover:bg-[#404040]',
+            localFilters.rarity === 'common' && 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+            localFilters.rarity === 'uncommon' && 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+            localFilters.rarity === 'rare' && 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+            localFilters.rarity === 'mythic' && 'bg-orange-600/20 text-orange-400 border-orange-600/30'
+          )}
+          title="Rarity"
+        >
+          {localFilters.rarity ? localFilters.rarity[0].toUpperCase() : 'R'}
+        </button>
+      </div>
+
+      {/* Spacer */}
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+      {/* Row 4: Type and Format */}
+      <div className="flex items-center gap-2">
         <select
           value={localFilters.cardType || ''}
           onChange={(e) =>
             updateFilter('cardType', e.target.value || undefined)
           }
-          className="h-10 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:border-[#e3dccb]/50"
+          className="h-10 w-32 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:border-[#e3dccb]/50"
         >
           <option value="">Type</option>
           {CARD_TYPES.map((t) => (
@@ -127,7 +213,7 @@ function FilterInputs({
         <select
           value={localFilters.format || ''}
           onChange={(e) => updateFilter('format', e.target.value || undefined)}
-          className="h-10 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:border-[#e3dccb]/50"
+          className="h-10 w-32 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:border-[#e3dccb]/50"
         >
           <option value="">Format</option>
           {FORMATS.map((f) => (
@@ -136,57 +222,6 @@ function FilterInputs({
             </option>
           ))}
         </select>
-
-        <select
-          value={localFilters.rarity || ''}
-          onChange={(e) => updateFilter('rarity', e.target.value || undefined)}
-          className="h-10 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:border-[#e3dccb]/50"
-        >
-          <option value="">Rarity</option>
-          {RARITIES.map((r) => (
-            <option key={r} value={r.toLowerCase()}>
-              {r}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* CMC */}
-      <div className={cn("flex items-center gap-2", isMobile && "justify-between")}>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#737373]">
-          CMC
-        </span>
-        <div className={cn("flex items-center rounded-lg border border-white/10 bg-[#333]", isMobile && "flex-1 ml-4")}>
-          <input
-            type="number"
-            placeholder="0"
-            min="0"
-            max="20"
-            value={localFilters.cmcMin ?? ''}
-            onChange={(e) =>
-              updateFilter(
-                'cmcMin',
-                e.target.value ? Number(e.target.value) : undefined
-              )
-            }
-            className="h-10 w-12 flex-1 rounded-l-lg bg-transparent px-2 text-center text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-          <div className="h-4 w-px bg-white/10" />
-          <input
-            type="number"
-            placeholder="∞"
-            min="0"
-            max="20"
-            value={localFilters.cmcMax ?? ''}
-            onChange={(e) =>
-              updateFilter(
-                'cmcMax',
-                e.target.value ? Number(e.target.value) : undefined
-              )
-            }
-            className="h-10 w-12 flex-1 rounded-r-lg bg-transparent px-2 text-center text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-        </div>
       </div>
     </div>
   )
@@ -199,12 +234,8 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
   const [hasChanges, setHasChanges] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
 
-  const containerRef = useRef<HTMLDivElement>(null)
-  const measureBarRef = useRef<HTMLDivElement>(null)
-
   // If the user hasn't modified the draft, always reflect the latest committed filters.
   const draftFilters: FilterState = hasChanges ? localFilters : filters
-  const isExclusive = draftFilters.matchMode === 'exact'
 
   const handleApply = () => {
     onFilterChange(localFilters)
@@ -227,10 +258,6 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
     // Always base updates on the currently rendered draft state, not potentially stale local state.
     setLocalFilters({ ...draftFilters, [key]: value })
     setHasChanges(true)
-  }
-
-  const toggleExclusive = () => {
-    updateFilter('matchMode', isExclusive ? 'subset' : 'exact')
   }
 
   const handleColorClick = (color: string) => {
@@ -267,116 +294,34 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
   // Shared props for inputs
   const inputProps = {
     localFilters: draftFilters,
-    isExclusive,
     updateFilter,
-    toggleExclusive,
     handleColorClick,
   }
 
-  const showInline = useSyncExternalStore(
-    (onStoreChange) => {
-      // Subscribe to size changes (container + window).
-      const el = containerRef.current
-      let ro: ResizeObserver | null = null
-
-      if (typeof ResizeObserver !== 'undefined' && el) {
-        ro = new ResizeObserver(() => onStoreChange())
-        ro.observe(el)
-      } else {
-        window.addEventListener('resize', onStoreChange)
-      }
-
-      return () => {
-        if (ro) ro.disconnect()
-        window.removeEventListener('resize', onStoreChange)
-      }
-    },
-    () => {
-      const containerW = containerRef.current?.clientWidth ?? 0
-      const neededW = measureBarRef.current?.scrollWidth ?? 0
-      if (containerW <= 0 || neededW <= 0) return true
-      return containerW >= neededW
-    },
-    () => true
-  )
-
   return (
     <>
-      <div ref={containerRef} className="w-full">
-        {/* Hidden measurement bar (offscreen). Used to decide when to switch layouts dynamically. */}
-        <div className="pointer-events-none fixed -left-[9999px] top-0 opacity-0">
-          <div
-            ref={measureBarRef}
-            className="flex w-max items-center justify-between gap-4 rounded-xl border border-white/5 bg-[#262626] px-6 py-3 shadow-sm"
-          >
-            <div className="flex items-center">
-              <FilterInputs {...inputProps} />
-            </div>
-            <div className="flex flex-shrink-0 items-center gap-3 border-l border-white/10 pl-6">
-              <button className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/5 bg-[#333] text-[#737373]">
-                <ArrowCounterClockwise className="h-5 w-5" />
-              </button>
-              <button className="flex h-10 items-center gap-2 rounded-lg bg-[#e3dccb] px-6 text-sm font-bold text-[#1c1c1c]">
-                <Funnel weight="fill" className="h-4 w-4" />
-                Apply
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Inline bar when it fits */}
-        {showInline ? (
-          <div className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/5 bg-[#262626] px-6 py-3 shadow-sm">
-            <div className="flex flex-1 items-center">
-              <FilterInputs {...inputProps} />
-            </div>
-
-            <div className="flex flex-shrink-0 items-center gap-3 border-l border-white/10 pl-6">
-              <button
-                onClick={handleReset}
-                className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/5 bg-[#333] text-[#737373] transition-all hover:bg-[#404040] hover:text-[#f5f2eb]"
-                title="Reset Filters"
-              >
-                <ArrowCounterClockwise className="h-5 w-5" />
-              </button>
-              <button
-                onClick={handleApply}
-                disabled={!hasChanges}
-                className={cn(
-                  'flex h-10 items-center gap-2 rounded-lg px-6 text-sm font-bold transition-all',
-                  hasChanges
-                    ? 'cursor-pointer bg-[#e3dccb] text-[#1c1c1c] shadow-lg hover:bg-white active:scale-95'
-                    : 'cursor-not-allowed bg-[#333] text-[#737373] opacity-50'
-                )}
-              >
-                <Funnel weight="fill" className="h-4 w-4" />
-                Apply
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex w-full justify-end">
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className={cn(
-                'flex cursor-pointer items-center gap-2 rounded-lg border border-white/5 bg-[#262626] px-4 py-2 text-sm font-medium text-[#f5f2eb] shadow-sm transition-all hover:border-[#e3dccb]/30 hover:bg-[#333] active:scale-95',
-                activeCount > 0 && 'border-[#e3dccb]/30 bg-[#333]'
-              )}
-            >
-              <Funnel
-                className={cn('h-4 w-4', activeCount > 0 && 'text-[#e3dccb]')}
-                weight={activeCount > 0 ? 'fill' : 'regular'}
-              />
-              <span>Filters</span>
-              {activeCount > 0 && (
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e3dccb] text-xs font-bold text-[#1c1c1c]">
-                  {activeCount}
-                </span>
-              )}
-            </button>
-          </div>
+      <button
+        onClick={() => {
+          setLocalFilters(filters)
+          setHasChanges(false)
+          setIsModalOpen(true)
+        }}
+        className={cn(
+          'flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-[#1c1c1c]/80 px-4 py-2 text-sm font-medium text-[#f5f2eb] shadow-lg backdrop-blur-md transition-all hover:border-[#e3dccb]/30 hover:bg-[#262626] active:scale-95',
+          activeCount > 0 && 'border-[#e3dccb]/30 bg-[#262626]'
         )}
-      </div>
+      >
+        <Funnel
+          className={cn('h-4 w-4', activeCount > 0 && 'text-[#e3dccb]')}
+          weight={activeCount > 0 ? 'fill' : 'regular'}
+        />
+        <span>Filters</span>
+        {activeCount > 0 && (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e3dccb] text-xs font-bold text-[#1c1c1c]">
+            {activeCount}
+          </span>
+        )}
+      </button>
 
       {/* Mobile Filter Modal (Portal to body so it overlays the entire card grid) */}
       {isModalOpen
@@ -387,7 +332,11 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
                   <div className="mb-6 flex items-center justify-between">
                     <h3 className="text-lg font-bold text-[#f5f2eb]">Filters</h3>
                     <button
-                      onClick={() => setIsModalOpen(false)}
+                      onClick={() => {
+                        setLocalFilters(filters)
+                        setHasChanges(false)
+                        setIsModalOpen(false)
+                      }}
                       className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] transition-colors hover:bg-[#333] hover:text-[#f5f2eb]"
                     >
                       <X className="h-5 w-5" />

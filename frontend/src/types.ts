@@ -43,5 +43,6 @@ export interface FilterState {
   cmcMin?: number
   cmcMax?: number
   rarity?: string
-  matchMode?: 'exact' | 'subset'
+  matchMode?: 'exact' | 'at_most' | 'at_least'
+  colorFeature?: 'identity' | 'colors'
 }

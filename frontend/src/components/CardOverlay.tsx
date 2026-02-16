@@ -7,6 +7,7 @@ import { cn } from '../lib/cn'
 import type { SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 import { CardImage } from './CardImage'
+import { SymbolText } from './SymbolText'
 
 interface CardOverlayProps {
   card: SimilarCard
@@ -121,13 +122,14 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
     fullCard?.name || initialCard.card_name || initialCard.name
 
   // External URLs
-  const encodedName = encodeURIComponent(displayName)
-  const scryfallUrl = `https://scryfall.com/search?q=${encodedName}`
-  const edhrecUrl = `https://edhrec.com/cards/${displayName
+  const cardSlug = displayName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')}`
-  const gathererUrl = `https://gatherer.wizards.com/Pages/Search/Default.aspx?name=+[${encodedName}]`
+    .replace(/^-|-$/g, '')
+  const encodedName = encodeURIComponent(displayName)
+  const scryfallUrl = `https://scryfall.com/card/${initialCard.id}`
+  const edhrecUrl = `https://edhrec.com/cards/${cardSlug}`
+  const moxfieldUrl = `https://www.moxfield.com/search/cards?q=${encodedName}`
 
   return (
     <div className="fixed inset-0 z-[100] flex animate-[fadeIn_0.2s_ease-out] items-center justify-center p-4 sm:p-8">
@@ -138,24 +140,25 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
       />
 
       {/* Modal Content - Fixed height to prevent resizing on flip */}
-      <div className="relative flex h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-hidden rounded-2xl bg-[#f5f2eb] shadow-2xl md:h-[750px] md:flex-row">
+      <div className="relative flex max-h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-y-auto rounded-2xl bg-[#f5f2eb] shadow-2xl md:h-[750px] md:max-h-none md:flex-row md:overflow-hidden">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 rounded-full bg-black/10 p-2 text-[#1c1c1c] transition-colors hover:bg-black/20"
+          className="absolute top-4 right-4 z-10 rounded-full bg-[#1c1c1c]/80 p-2.5 text-white shadow-lg ring-1 ring-black/20 backdrop-blur-sm transition-all hover:bg-[#1c1c1c] hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e3dccb]"
+          aria-label="Close"
         >
-          <X className="h-6 w-6" />
+          <X className="h-6 w-6" weight="bold" />
         </button>
 
         {/* Image Section */}
-        <div className="relative flex w-full items-center justify-center overflow-y-auto bg-[#e5e5e5] p-8 md:w-1/2">
-          {/* Wrapper: Defines size and captures hover ("group") */}
-          <div className="group relative aspect-[5/7] w-full max-w-[360px]">
+        <div className="relative flex w-full items-center justify-center bg-[#e5e5e5] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
+          {/* Wrapper: size to viewport on mobile; fixed aspect box on desktop */}
+          <div className="group relative inline-block overflow-hidden rounded-[4.5%/3.21%] shadow-2xl ring-1 ring-black/10 md:aspect-[5/7] md:w-full md:max-w-[360px]">
             {/* Rotating Card Container */}
             <div
               onClick={hasMultipleFaces ? handleFlip : undefined}
               className={cn(
-                'h-full w-full shrink-0 overflow-hidden rounded-[4.5%/3.21%] shadow-2xl ring-1 ring-black/10 transition-all duration-[250ms] ease-in-out',
+                'h-full w-full shrink-0 transition-all duration-[250ms] ease-in-out',
                 hasMultipleFaces && 'cursor-pointer'
               )}
               style={{
@@ -167,7 +170,7 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
               <CardImage
                 src={imageUrl}
                 alt={displayData.name}
-                className="h-full w-full object-cover"
+                className="block max-h-[55vh] w-auto max-w-full object-contain md:h-full md:w-full md:max-h-none"
               />
 
               {/* Flip Symbol (Top Right) */}
@@ -189,13 +192,13 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
         </div>
 
         {/* Details Section */}
-        <div className="flex w-full flex-col overflow-y-auto bg-white p-8 text-[#1c1c1c] md:w-1/2 md:p-10">
+        <div className="flex w-full flex-col bg-white p-5 text-[#1c1c1c] sm:p-8 md:w-1/2 md:overflow-y-auto md:p-10">
           <div className="flex-1">
-            <h2 className="mb-2 text-3xl font-bold text-[#1c1c1c]">
+            <h2 className="mb-2 text-2xl font-bold text-[#1c1c1c] sm:text-3xl">
               {displayName}
             </h2>
 
-            <div className="mb-6 flex items-center gap-3 text-[#737373]">
+            <div className="mb-5 flex items-center gap-3 text-[#737373] sm:mb-6">
               {initialCard.similarity !== undefined && (
                 <span
                   className={cn(
@@ -213,31 +216,23 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
             {/* Animated Details Container */}
             <div
               className={cn(
-                'space-y-6 transition-opacity duration-[125ms] ease-in-out',
+                'space-y-5 transition-opacity duration-[125ms] ease-in-out sm:space-y-6',
                 isFlipping ? 'opacity-0' : 'opacity-100'
               )}
             >
-              <div>
-                <span className="mb-1 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
-                  Type
-                </span>
-                <span className="text-lg font-medium">
+              <p className="text-base leading-snug font-medium text-[#404040] sm:text-lg">
+                <span className="text-[#1c1c1c]">
                   {displayData.type_line || '—'}
+                </span>{' '}
+                <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
+                  •
                 </span>
-              </div>
+                <span className="text-[#1c1c1c]">
+                  <SymbolText text={displayData.mana_cost || 'None'} />
+                </span>
+              </p>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="mb-1 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
-                    Mana Cost
-                  </span>
-                  <span className="text-lg font-medium">
-                    {displayData.mana_cost || 'None'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="border-t border-[#f5f5f5] pt-6">
+              <div className="border-t border-[#f5f5f5] pt-5 sm:pt-6">
                 <span className="mb-2 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
                   Oracle Text
                 </span>
@@ -252,14 +247,14 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                         }
                       >
                         <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
-                          {face.oracle_text || 'No oracle text.'}
+                          <SymbolText text={face.oracle_text || 'No oracle text.'} />
                         </p>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
-                    {displayData.oracle_text || 'No oracle text.'}
+                    <SymbolText text={displayData.oracle_text || 'No oracle text.'} />
                   </p>
                 )}
               </div>
@@ -301,17 +296,17 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
                   EDHREC
                 </a>
                 <a
-                  href={gathererUrl}
+                  href={moxfieldUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 rounded-md bg-[#f5f5f5] px-3 py-1.5 text-xs font-semibold text-[#525252] transition-colors hover:bg-[#e5e5e5] hover:text-[#1c1c1c]"
                 >
                   <img
-                    src="https://www.google.com/s2/favicons?domain=wizards.com&sz=32"
+                    src="https://www.google.com/s2/favicons?domain=moxfield.com&sz=32"
                     alt=""
                     className="h-4 w-4 rounded-sm opacity-80"
                   />
-                  Gatherer
+                  Moxfield
                 </a>
               </div>
             </div>

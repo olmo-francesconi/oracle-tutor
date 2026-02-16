@@ -8,12 +8,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
+def _utcnow_naive() -> datetime.datetime:
+    """Return naive UTC datetime without deprecated utcnow()."""
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+
 class SystemMetadata(Base):
     __tablename__ = "system_metadata"
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     data_updated_at: Mapped[str] = mapped_column(String)
-    last_ingestion: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    last_ingestion: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive)
     schema_version: Mapped[str | None] = mapped_column(String, default="0.0")
 
 
@@ -21,7 +26,7 @@ class IngestionLog(Base):
     __tablename__ = "ingestion_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    started_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    started_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive)
     completed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String)  # started/success/failed
     records_processed: Mapped[int] = mapped_column(Integer, default=0)
@@ -40,6 +45,7 @@ class Card(Base):
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rarity: Mapped[str | None] = mapped_column(String, nullable=True)
+    color_identity: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     legalities: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     faces: Mapped[list["CardFace"]] = relationship(back_populates="card", cascade="all, delete-orphan")

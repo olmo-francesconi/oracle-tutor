@@ -238,12 +238,71 @@ def tokenize_phrase(phrase: str) -> List[str]:
     return [tok for tok in tokens if len(tok) > 1 or tok == "x" or tok.isdigit()]
 
 
-def _tokenize_internal(text: str, card_name: str | None = None) -> List[List[str]]:
+# Special delimiter to separate card_name from oracle_text in analyzer input
+_CARD_NAME_DELIMITER = "\x00\x01CARD_NAME\x01\x00"
+# Special delimiter to separate type_line from oracle_text/card_name in analyzer input
+_TYPE_LINE_DELIMITER = "\x00\x01TYPE_LINE\x01\x00"
+
+BASIC_LAND_TYPE_TO_MANA = {
+    "Plains": "{W}",
+    "Island": "{U}",
+    "Swamp": "{B}",
+    "Mountain": "{R}",
+    "Forest": "{G}",
+}
+
+
+def _generate_mana_ability(type_line: str) -> str | None:
+    """
+    Generate implicit mana ability for basic land types.
+    e.g. "Basic Land — Plains" -> "{T}: Add {W}."
+    """
+    if not type_line:
+        return None
+
+    tokens = type_line.replace("—", " ").replace("-", " ").split()
+
+    found_types = []
+    seen_types = set()
+
+    for token in tokens:
+        if token in BASIC_LAND_TYPE_TO_MANA and token not in seen_types:
+            found_types.append(token)
+            seen_types.add(token)
+
+    if not found_types:
+        return None
+
+    mana_symbols = [BASIC_LAND_TYPE_TO_MANA[t] for t in found_types]
+
+    if len(mana_symbols) == 1:
+        return f"{{T}}: Add {mana_symbols[0]}."
+    elif len(mana_symbols) == 2:
+        return f"{{T}}: Add {mana_symbols[0]} or {mana_symbols[1]}."
+    else:
+        joined = ", ".join(mana_symbols[:-1])
+        return f"{{T}}: Add {joined}, or {mana_symbols[-1]}."
+
+
+def _tokenize_internal(text: str, card_name: str | None = None, type_line: str | None = None) -> List[List[str]]:
     """Internal core tokenization workflow without n-gram generation. Returns tokens grouped by phrase."""
-    if not text:
-        return []
-        
-    t = strip_reminder_text(text)
+    
+    # 1. Strip reminder text first (so we don't duplicate ability if it was only in reminder text)
+    t = strip_reminder_text(text or "")
+
+    # 2. Inject implicit mana ability if applicable
+    if type_line:
+        mana_ability = _generate_mana_ability(type_line)
+        if mana_ability:
+            # Check if ability is already present in the stripped text
+            # We do a simple check. Since we stripped reminder text, if it's not here, it wasn't explicit.
+            # Normalizing both to be safe for check
+            # Actually, let's just append it. If it's duplicated in token stream, TF-IDF handles term frequency.
+            # But for cleaner tokens, we can check.
+            # Let's just append it as a new "phrase" essentially.
+            t = f"{t}\n{mana_ability}"
+
+    # 3. Standard processing
     t = substitute_card_name(t, card_name)
     t = normalize_text(t)
     
@@ -259,21 +318,17 @@ def _tokenize_internal(text: str, card_name: str | None = None) -> List[List[str
     return all_phrase_tokens
 
 
-def mtg_tokenize(text: str, card_name: str | None = None) -> List[str]:
+def mtg_tokenize(text: str, card_name: str | None = None, type_line: str | None = None) -> List[str]:
     """Tokenize MTG oracle-ish text for TF-IDF."""
-    phrase_tokens_list = _tokenize_internal(text, card_name)
+    phrase_tokens_list = _tokenize_internal(text, card_name, type_line)
     return [tok for phrase_tokens in phrase_tokens_list for tok in phrase_tokens]
-
-
-# Special delimiter to separate card_name from oracle_text in analyzer input
-_CARD_NAME_DELIMITER = "\x00\x01CARD_NAME\x01\x00"
 
 
 def make_mtg_analyzer(ngram_range: Tuple[int, int] = (1, 1)) -> Callable[[str], List[str]]:
     """
     Return a scikit-learn-compatible analyzer(text)->tokens callable, with configurable n-grams.
     
-    The analyzer expects input in the format: "oracle_text{CARD_NAME_DELIMITER}card_name"
+    The analyzer expects input in the format: "oracle_text{CARD_NAME_DELIMITER}card_name{TYPE_LINE_DELIMITER}type_line"
     """
     lo, hi = ngram_range
     if lo < 1 or hi < lo:
@@ -281,13 +336,23 @@ def make_mtg_analyzer(ngram_range: Tuple[int, int] = (1, 1)) -> Callable[[str], 
 
     def analyzer(text: str) -> List[str]:
         card_name: str | None = None
+        type_line: str | None = None
+
+        # Parse type_line first (it's appended last)
+        if _TYPE_LINE_DELIMITER in text:
+            parts = text.split(_TYPE_LINE_DELIMITER, 1)
+            text = parts[0]
+            if len(parts) > 1:
+                type_line = parts[1] or None
+
+        # Parse card_name
         if _CARD_NAME_DELIMITER in text:
             parts = text.split(_CARD_NAME_DELIMITER, 1)
             text = parts[0]
             if len(parts) > 1:
                 card_name = parts[1] or None
         
-        phrase_tokens_list = _tokenize_internal(text, card_name)
+        phrase_tokens_list = _tokenize_internal(text, card_name, type_line)
         all_tokens: List[str] = []
         
         for phrase_tokens in phrase_tokens_list:

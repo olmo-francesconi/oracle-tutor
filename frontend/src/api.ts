@@ -19,16 +19,23 @@ type SimilarCardsParams = {
   cmc_max?: number
   rarity?: string
   match_mode?: MatchMode
+  color_feature?: 'identity' | 'colors'
 }
 
 type OracleSearchParams = SimilarCardsParams & {
   q: string
 }
 
-export const searchCards = async (query: string): Promise<CardMatch[]> => {
+export const searchCards = async (
+  query: string,
+  limit: number = 10,
+  offset: number = 0,
+  signal?: AbortSignal
+): Promise<CardMatch[]> => {
   if (!query || query.length < 2) return []
   const response = await api.get<CardMatch[]>('/suggest-names', {
-    params: { q: query, limit: 10 },
+    params: { q: query, limit, offset },
+    signal,
   })
   return response.data
 }
@@ -53,6 +60,7 @@ export const getSimilarCards = async (
     if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
     if (filters.rarity) params.rarity = filters.rarity
     if (filters.matchMode) params.match_mode = filters.matchMode
+    if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
   const response = await api.get<SimilarCard[]>(`/similar-cards/${id}`, {
@@ -76,6 +84,7 @@ export const searchOracleText = async (
     if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
     if (filters.rarity) params.rarity = filters.rarity
     if (filters.matchMode) params.match_mode = filters.matchMode
+    if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
   const response = await api.get<SimilarCard[]>('/search-oracle', {

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..core.models import Card, CardFace
 from .oracle_tokenizer import (
     _CARD_NAME_DELIMITER,
+    _TYPE_LINE_DELIMITER,
     iter_type_filters,
     make_mtg_analyzer,
     normalize_type_line,
@@ -38,10 +39,12 @@ class TfidfIndex:
     matrix_raw: Any  # scipy sparse matrix, NOT normalized (norm=None)
     matrix_l2: Any  # scipy sparse matrix, L2-normalized rows
     face_ids: List[int]
+    face_id_to_idx: dict[int, int]
     face_card_ids: List[str]
     face_names: List[str]
     face_type_lines_lower: List[str]
     face_colors: List[set[str]]
+    face_color_identities: List[set[str]]
     face_legalities: List[dict]
     face_cmcs: List[float]
     face_rarities: List[str]
@@ -60,7 +63,8 @@ class TfidfIndex:
         cmc_min: float | None,
         cmc_max: float | None,
         rarity: str | None,
-        match_mode: str = "subset",  # "subset" or "exact"
+        match_mode: str = "at_least",  # "at_least", "at_most", or "exact"
+        color_feature: str = "identity",  # "identity" or "colors"
     ) -> List[bool]:
         type_filters = list(iter_type_filters(card_type))
         # Handle colorless logic: if colors="C" (or similar indicator) treat as empty set
@@ -79,7 +83,11 @@ class TfidfIndex:
                     continue
             
             # Color filtering
-            face_c = self.face_colors[i]
+            if color_feature == "colors":
+                face_c = self.face_colors[i]
+            else:
+                face_c = self.face_color_identities[i]
+
             if is_colorless_search:
                 # Must be strictly colorless
                 if len(face_c) > 0:
@@ -88,12 +96,18 @@ class TfidfIndex:
             elif want_colors:
                 if match_mode == "exact":
                     # Exact Match: Must match colors exactly (e.g. W+G means exactly Selesnya).
-                    # This excludes Mono-W, Mono-G, and WBG.
                     if face_c != want_colors:
                         mask[i] = False
                         continue
+                elif match_mode == "at_most":
+                    # At Most: Card colors must be a subset of query colors.
+                    # e.g. Query WBR -> Shows W, WB, WR, WBR. Hides WBG.
+                    if not face_c.issubset(want_colors):
+                        mask[i] = False
+                        continue
                 else:
-                    # Subset (default): Must contain at least these colors
+                    # At Least (default): Card must contain at least these colors.
+                    # e.g. Query WB -> Shows WB, WBG, WBR. Hides W.
                     if not want_colors.issubset(face_c):
                         mask[i] = False
                         continue
@@ -151,7 +165,8 @@ class TfidfIndex:
         cmc_min: float | None = None,
         cmc_max: float | None = None,
         rarity: str | None = None,
-        match_mode: str = "subset",
+        match_mode: str = "at_least",
+        color_feature: str = "identity",
         cache_top_k: int = 1000,
     ) -> List[Tuple[int, float]]:
         if not self.face_ids:
@@ -160,7 +175,7 @@ class TfidfIndex:
         if not q:
             return []
 
-        cache_key = (f"q:{q}", card_type, colors, format, cmc_min, cmc_max, rarity, match_mode)
+        cache_key = (f"q:{q}", card_type, colors, format, cmc_min, cmc_max, rarity, match_mode, color_feature)
         if cache_key in self.cache:
             cached = self.cache[cache_key]
         else:
@@ -168,7 +183,6 @@ class TfidfIndex:
             # - dot uses full vectors (query has only its own terms)
             # - doc norm only considers query term dimensions, so extra oracle text doesn't penalize.
             q_vec = cast(Any, self.vectorizer.transform([q]))
-            logger.debug("Query: '%s', tokens: %s", q, self.vectorizer.inverse_transform(q_vec))
             if q_vec.nnz == 0:
                 logger.warning("Query '%s' produced no tokens in vocabulary", q)
                 return []
@@ -205,6 +219,7 @@ class TfidfIndex:
                 cmc_max=cmc_max,
                 rarity=rarity,
                 match_mode=match_mode,
+                color_feature=color_feature,
             )
             ranked = self._rank(scores, mask=mask, top_k=cache_top_k)
             cached = [(self.face_ids[i], s) for i, s in ranked]
@@ -225,32 +240,23 @@ class TfidfIndex:
         cmc_min: float | None = None,
         cmc_max: float | None = None,
         rarity: str | None = None,
-        match_mode: str = "subset",
+        match_mode: str = "at_least",
+        color_feature: str = "identity",
         cache_top_k: int = 1000,
     ) -> List[Tuple[int, float]]:
         if not self.face_ids:
             return []
-        cache_key = (f"similar:{seed_face_id}", card_type, colors, format, cmc_min, cmc_max, rarity, match_mode)
+        cache_key = (f"similar:{seed_face_id}", card_type, colors, format, cmc_min, cmc_max, rarity, match_mode, color_feature)
         if cache_key in self.cache:
             cached = self.cache[cache_key]
         else:
-            try:
-                seed_idx = self.face_ids.index(seed_face_id)
-            except ValueError:
+            seed_idx = self.face_id_to_idx.get(seed_face_id)
+            if seed_idx is None:
                 return []
 
             matrix_l2 = cast(Any, self.matrix_l2)
             seed_vec = matrix_l2[seed_idx]
-            
-            # Debug: what tokens are in the seed vector?
-            seed_tokens = self.vectorizer.inverse_transform(seed_vec)
-            logger.debug("Seed face_id %d (%s) tokens: %s", seed_face_id, self.face_names[seed_idx], seed_tokens)
-            
             scores = linear_kernel(seed_vec, matrix_l2).ravel()
-            
-            # Debug: top scores before filtering
-            top_raw_idx = np.argsort(scores)[-5:][::-1]
-            logger.debug("Top raw similarities: %s", [(self.face_names[idx], scores[idx]) for idx in top_raw_idx])
 
             mask = self._filter_mask(
                 exclude_card_id=exclude_card_id,
@@ -261,6 +267,7 @@ class TfidfIndex:
                 cmc_max=cmc_max,
                 rarity=rarity,
                 match_mode=match_mode,
+                color_feature=color_feature,
             )
             # Also exclude the seed face itself.
             mask[seed_idx] = False
@@ -288,6 +295,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
             CardFace.type_line,
             CardFace.oracle_text,
             CardFace.colors,
+            Card.color_identity,
             Card.name.label("card_name"),
             Card.legalities,
             Card.cmc,
@@ -302,6 +310,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     face_names: List[str] = []
     face_type_lines_lower: List[str] = []
     face_colors: List[set[str]] = []
+    face_color_identities: List[set[str]] = []
     face_legalities: List[dict] = []
     face_cmcs: List[float] = []
     face_rarities: List[str] = []
@@ -314,6 +323,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         type_line,
         oracle_text,
         colors,
+        color_identity,
         card_name,
         legalities,
         cmc,
@@ -325,15 +335,18 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         tl_norm = normalize_type_line(type_line)
         face_type_lines_lower.append((tl_norm or "").lower())
         face_colors.append(set(colors or []))
+        face_color_identities.append(set(color_identity or []))
         face_legalities.append(legalities or {})
         face_cmcs.append(float(cmc or 0.0))
         face_rarities.append(rarity or "")
 
-        # Pass oracle_text with card_name (face_name) for tokenization
+        # Pass oracle_text with card_name (face_name) and type_line for tokenization
         # Use face_name as it's the name on the card face, which is what appears in oracle text
         oracle_doc = oracle_text or ""
         if face_name:
             oracle_doc = oracle_doc + _CARD_NAME_DELIMITER + face_name
+        if type_line:
+            oracle_doc = oracle_doc + _TYPE_LINE_DELIMITER + type_line
         docs.append(oracle_doc)
 
     def _parse_max_df(raw: str) -> int | float:
@@ -441,20 +454,26 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     elapsed_ms = (time.perf_counter() - started) * 1000
     logger.info("TF-IDF index built: %d faces, %d features, %.2f ms", len(face_ids), len(vectorizer.vocabulary_), elapsed_ms)
 
+    face_id_to_idx = {face_id: i for i, face_id in enumerate(face_ids)}
     return TfidfIndex(
         vectorizer=vectorizer,
         matrix_raw=matrix_raw,
         matrix_l2=matrix_l2,
         face_ids=face_ids,
+        face_id_to_idx=face_id_to_idx,
         face_card_ids=face_card_ids,
         face_names=face_names,
         face_type_lines_lower=face_type_lines_lower,
         face_colors=face_colors,
+        face_color_identities=face_color_identities,
         face_legalities=face_legalities,
         face_cmcs=face_cmcs,
         face_rarities=face_rarities,
         built_at=time.time(),
-        cache=TTLCache(maxsize=100, ttl=600),
+        cache=TTLCache(
+            maxsize=int(os.getenv("ORACLE_TUTOR_API_TFIDF_CACHE_MAXSIZE", "100")),
+            ttl=int(os.getenv("ORACLE_TUTOR_API_TFIDF_CACHE_TTL", "600")),
+        ),
     )
 
 

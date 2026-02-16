@@ -28,11 +28,12 @@ def _seed_db() -> None:
         db.query(Card).delete()
         db.commit()
 
-        bolt = Card(id="c1", name="Lightning Bolt", layout="normal", edhrec_rank=1, rarity="common", legalities={})
-        shock = Card(id="c2", name="Shock", layout="normal", edhrec_rank=2, rarity="common", legalities={})
-        growth = Card(id="c3", name="Giant Growth", layout="normal", edhrec_rank=3, rarity="common", legalities={})
-        verbose_shock = Card(id="c4", name="Verbose Shock", layout="normal", edhrec_rank=4, rarity="common", legalities={})
-        db.add_all([bolt, shock, growth, verbose_shock])
+        bolt = Card(id="c1", name="Lightning Bolt", layout="normal", edhrec_rank=1, rarity="common", legalities={}, color_identity=["R"])
+        shock = Card(id="c2", name="Shock", layout="normal", edhrec_rank=2, rarity="common", legalities={}, color_identity=["R"])
+        growth = Card(id="c3", name="Giant Growth", layout="normal", edhrec_rank=3, rarity="common", legalities={}, color_identity=["G"])
+        verbose_shock = Card(id="c4", name="Verbose Shock", layout="normal", edhrec_rank=4, rarity="common", legalities={}, color_identity=["R"])
+        artifact = Card(id="c5", name="Red Artifact", layout="normal", edhrec_rank=5, rarity="common", legalities={}, color_identity=["R"])
+        db.add_all([bolt, shock, growth, verbose_shock, artifact])
         db.flush()
 
         db.add_all(
@@ -68,6 +69,13 @@ def _seed_db() -> None:
                         "Then discard a card."
                     ),
                     colors=["R"],
+                ),
+                CardFace(
+                    card_id="c5",
+                    name="Red Artifact",
+                    type_line="Artifact",
+                    oracle_text="{R}: Deal 1 damage.",
+                    colors=[],
                 ),
             ]
         )

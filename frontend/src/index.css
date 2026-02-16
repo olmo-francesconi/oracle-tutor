@@ -1,4 +1,13 @@
 @import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Goudy+Bookletter+1911&display=swap');
+
+/* Prevent horizontal layout expansion on mobile (e.g. transformed card stacks). */
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
 
 @keyframes fadeIn {
   from {
@@ -52,9 +61,24 @@ body {
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
     Cantarell, sans-serif;
   min-height: 100vh;
+  /* Allow true mobile layouts (was forcing desktop-ish width). */
   margin: 0;
   /* Needed so our grain overlay can be layered beneath app content reliably */
   position: relative;
+}
+
+/* Mobile/perf: fixed backgrounds + blend/filter overlays can cause scroll jank. */
+@media (max-width: 768px), (hover: none) {
+  body {
+    background-attachment: scroll;
+  }
+
+  body::before {
+    /* Keep a subtle grain, but avoid expensive compositing on mobile. */
+    opacity: 0.08;
+    mix-blend-mode: normal;
+    filter: none;
+  }
 }
 
 /* Subtle grain effect (global, all pages) */
@@ -80,6 +104,8 @@ body::before {
 #root {
   position: relative;
   z-index: 1;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 /* Scrollbar styling */

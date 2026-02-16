@@ -31,7 +31,11 @@ def test_search_oracle(client):
     assert "c1" in ids
     assert "c2" in ids
     assert "c4" in ids
-    assert "c3" not in ids
+    # c3 matches "target" now that we have c5 (which doesn't have "target"), so "target" is no longer IDF=0.
+    # But it should be ranked lower than c1/c2/c4 which match multiple terms.
+    assert ids.index("c1") < ids.index("c3")
+    assert ids.index("c2") < ids.index("c3")
+
 
 
 def test_search_oracle_long_text_not_penalized(client):
@@ -63,4 +67,74 @@ def test_similar_cards(client):
     assert "c1" not in ids
     assert "c2" in ids
 
+
+def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", False)
+    monkeypatch.setattr("oracle_tutor_api.api.main.wait_for_migration_ready", lambda **_: False)
+
+    res = client.get("/search", params={"q": "shock"})
+    assert res.status_code == 503
+
+
+def test_internal_rebuild_rejects_missing_token(client, monkeypatch):
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_TOKEN", "secret-token")
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_ALLOWLIST", ("testclient",))
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", True)
+
+    res = client.post("/internal/rebuild-tfidf")
+    assert res.status_code == 401
+
+
+def test_internal_rebuild_rejects_non_allowlisted_source(client, monkeypatch):
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_TOKEN", "secret-token")
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_ALLOWLIST", ("127.0.0.1",))
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", True)
+
+    res = client.post("/internal/rebuild-tfidf", headers={"X-Worker-Token": "secret-token"})
+    assert res.status_code == 403
+
+
+def test_internal_rebuild_accepts_valid_worker_auth(client, monkeypatch):
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_TOKEN", "secret-token")
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_ALLOWLIST", ("testclient",))
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", True)
+    monkeypatch.setattr("oracle_tutor_api.api.main._rebuild_tfidf_index", lambda **_: "v123")
+
+    res = client.post("/internal/rebuild-tfidf", headers={"X-Worker-Token": "secret-token"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["rebuilt"] is True
+    assert data["version"] == "v123"
+
+
+def test_tfidf_endpoints_return_503_while_rebuild_in_progress(client, monkeypatch):
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", True)
+    monkeypatch.setattr("oracle_tutor_api.api.main._tfidf_rebuild_in_progress", True)
+
+    res = client.get("/search-oracle", params={"q": "damage", "limit": 5})
+    assert res.status_code == 503
+
+
+def test_internal_rebuild_returns_409_when_rebuild_already_in_progress(client, monkeypatch):
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_TOKEN", "secret-token")
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_ALLOWLIST", ("testclient",))
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", True)
+    monkeypatch.setattr("oracle_tutor_api.api.main._tfidf_rebuild_in_progress", True)
+
+    res = client.post("/internal/rebuild-tfidf", headers={"X-Worker-Token": "secret-token"})
+    assert res.status_code == 409
+
+
+def test_internal_rebuild_clears_rebuild_state_after_success(client, monkeypatch):
+    import oracle_tutor_api.api.main as api_main
+
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_TOKEN", "secret-token")
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_ALLOWLIST", ("testclient",))
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", True)
+    monkeypatch.setattr("oracle_tutor_api.api.main._tfidf_rebuild_in_progress", False)
+
+    res = client.post("/internal/rebuild-tfidf", headers={"X-Worker-Token": "secret-token"})
+    assert res.status_code == 200
+    assert api_main._tfidf_rebuild_in_progress is False
 

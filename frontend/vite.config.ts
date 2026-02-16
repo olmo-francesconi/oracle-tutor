@@ -20,7 +20,12 @@ export default defineConfig(({ mode }) => {
       APP_VERSION: JSON.stringify(pkg.version),
     },
     server: {
-      allowedHosts: ['oracletutor.org'],
+      // Allow local/dev hosts while keeping explicit production domain(s).
+      // Note: Vite uses `allowedHosts` to protect against DNS rebinding attacks.
+      allowedHosts:
+        mode === 'development'
+          ? ['localhost', '127.0.0.1', '::1', 'host.docker.internal']
+          : ['oracletutor.org', '.oracletutor.org'],
       proxy: {
         '/api': {
           target: env.API_PROXY_TARGET || 'http://localhost:8000',

@@ -1,11 +1,16 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { ArrowLeft, MagnifyingGlass } from '@phosphor-icons/react'
+import { ArrowLeft } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { OracleInput } from '../components/OracleInput'
+import { PageSEO } from '../components/PageSEO'
 import { searchOracleText } from '../api'
 import { CardGrid } from '../components/CardGrid'
 import { CardOverlay } from '../components/CardOverlay'
 import { DeveloperLinks } from '../components/DeveloperLinks'
+import { MobileDrawer } from '../components/MobileDrawer'
+import { MobileResultsHeader } from '../components/MobileResultsHeader'
+import { MobileBottomBar } from '../components/MobileBottomBar'
 import type { FilterState, SimilarCard } from '../types'
 
 export function OracleSearchPage() {
@@ -15,6 +20,7 @@ export function OracleSearchPage() {
   const [selectedCard, setSelectedCard] = useState<SimilarCard | null>(null)
   const [searchTerm, setSearchTerm] = useState(query)
   const [filters, setFilters] = useState<FilterState>({})
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   const {
     data: similarData,
@@ -42,19 +48,16 @@ export function OracleSearchPage() {
     return similarData?.pages.flatMap((page) => page) || []
   }, [similarData])
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSearch = (e?: React.FormEvent) => {
+    e?.preventDefault()
     if (searchTerm.trim()) {
       navigate(`/search?q=${encodeURIComponent(searchTerm.trim())}`)
     }
+    setIsDrawerOpen(false)
   }
 
-  // Update document title
-  useEffect(() => {
-    if (query) {
-      document.title = `"${query}" - Oracle Tutor`
-    }
-  }, [query])
+  const { pathname, search } = useLocation()
+  const canonicalPath = `${pathname}${search}`
 
   // Handle keyboard ESC to close overlay
   useEffect(() => {
@@ -72,8 +75,19 @@ export function OracleSearchPage() {
     </div>
   )
 
+  const searchTitle = query ? `"${query}" - Oracle Tutor` : 'Oracle search - Oracle Tutor'
+  const searchDescription = query
+    ? `Search results for «${query}». Find Magic: The Gathering cards by semantic meaning.`
+    : 'Search for Magic: The Gathering cards by what they do. Oracle Tutor finds cards by semantic meaning.'
+
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-transparent md:flex-row">
+    <>
+      <PageSEO
+        title={searchTitle}
+        description={searchDescription}
+        path={canonicalPath}
+      />
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
       {/* Overlay Component */}
       {selectedCard && (
         <CardOverlay
@@ -82,8 +96,38 @@ export function OracleSearchPage() {
         />
       )}
 
-      {/* Sidebar - Search Details */}
-      <div className="flex h-full w-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:w-[380px]">
+      {/* Mobile Drawer - Search Details */}
+      <MobileDrawer
+        isOpen={isDrawerOpen}
+        title="Search"
+        onClose={() => setIsDrawerOpen(false)}
+      >
+        {/* Query "Paper" Container */}
+        <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
+          <div className="mb-2 h-40">
+            <OracleInput
+              value={searchTerm}
+              onChange={setSearchTerm}
+              onSearch={() => handleSearch()}
+              placeholder="Describe card meaning..."
+              className="h-full"
+            />
+          </div>
+
+          <div className="mt-4 border-t border-[#e5e5e5] pt-4">
+            <p className="text-sm leading-relaxed text-[#404040]">
+              Searching for cards with similar meaning to your query.
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-6">
+          <DeveloperLinks variant="dark" />
+        </div>
+      </MobileDrawer>
+
+      {/* Sidebar - Search Details (desktop) */}
+      <div className="hidden h-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:flex md:w-[380px]">
         <Link
           to="/"
           className="mb-6 flex items-center gap-2 text-[#525252] transition-colors hover:text-[#1c1c1c]"
@@ -93,23 +137,16 @@ export function OracleSearchPage() {
 
         {/* Query "Paper" Container */}
         <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
-          <div className="mb-5 flex aspect-[5/3] w-full flex-col items-center justify-center rounded-lg border border-[#e5e5e5] bg-[#f0f0f0] p-4">
-            <MagnifyingGlass className="mb-2 h-12 w-12 text-[#a3a3a3]" />
-            <span className="text-sm font-medium text-[#737373]">
-              Oracle Search
-            </span>
-          </div>
 
-          <form onSubmit={handleSearch} className="group relative mb-2">
-            <input
-              type="text"
+          <div className="mb-2 h-40">
+            <OracleInput
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={setSearchTerm}
+              onSearch={() => handleSearch()}
               placeholder="Describe card meaning..."
-              className="w-full rounded-lg border-2 border-[#e5e5e5] bg-white p-3 pl-10 text-lg font-medium text-[#1c1c1c] placeholder-[#a3a3a3] transition-all outline-none focus:border-[#d4d4d4] focus:bg-[#fafafa]"
+              className="h-full"
             />
-            <MagnifyingGlass className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-[#a3a3a3] transition-colors group-focus-within:text-[#1c1c1c]" />
-          </form>
+          </div>
 
           <div className="mt-4 border-t border-[#e5e5e5] pt-4">
             <p className="text-sm leading-relaxed text-[#404040]">
@@ -118,13 +155,24 @@ export function OracleSearchPage() {
           </div>
         </div>
 
-        <div className="mt-auto pt-6">
+        <div className="mt-auto flex items-end justify-between gap-6 pt-6">
           <DeveloperLinks variant="dark" />
         </div>
       </div>
 
       {/* Main Content - Results Grid */}
       <CardGrid
+        header={
+          <MobileResultsHeader
+            backTo="/"
+            title={query || 'Oracle search'}
+            titleVariant="oracle"
+            drawerLabel="Search"
+            onOpenDrawer={() => setIsDrawerOpen(true)}
+            filters={filters}
+            onFilterChange={setFilters}
+          />
+        }
         cards={similarCards}
         isLoading={similarLoading}
         isFetchingNextPage={isFetchingNextPage}
@@ -136,6 +184,9 @@ export function OracleSearchPage() {
         filters={filters}
         onFilterChange={setFilters}
       />
+
+      <MobileBottomBar />
     </div>
+    </>
   )
 }

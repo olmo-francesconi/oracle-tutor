@@ -1,12 +1,18 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
+import { Helmet } from 'react-helmet-async'
 import { Link, useParams } from 'react-router-dom'
 import { getCard, getSimilarCards } from '../api'
 import { CardGrid } from '../components/CardGrid'
 import { CardImage } from '../components/CardImage'
 import { CardOverlay } from '../components/CardOverlay'
 import { DeveloperLinks } from '../components/DeveloperLinks'
+import { MobileDrawer } from '../components/MobileDrawer'
+import { MobileResultsHeader } from '../components/MobileResultsHeader'
+import { MobileBottomBar } from '../components/MobileBottomBar'
+import { PageSEO } from '../components/PageSEO'
+import { SymbolText } from '../components/SymbolText'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 
@@ -18,6 +24,7 @@ export function CardPage() {
   } | null>(null)
   const selectedCard = selected?.routeId === (id ?? '') ? selected.card : null
   const [filters, setFilters] = useState<FilterState>({})
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
   const {
     data: card,
@@ -55,13 +62,6 @@ export function CardPage() {
     return similarData?.pages.flatMap((page) => page) || []
   }, [similarData])
 
-  // Update document title when card is loaded
-  useEffect(() => {
-    if (card?.name) {
-      document.title = `${card.name} - Oracle tutor`
-    }
-  }, [card])
-
   // Handle keyboard ESC to close overlay
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -92,16 +92,98 @@ export function CardPage() {
 
   // Main card image usually defaults to front face
   const mainCardImageUrl = getCardImageUrl(card)
+  const cardDescription = [displayType, displayOracle].filter(Boolean).join('. ')
+  const truncatedDescription =
+    cardDescription.length > 160
+      ? `${cardDescription.slice(0, 157)}...`
+      : cardDescription
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'CreativeWork',
+    name: card.name,
+    description: truncatedDescription || `${card.name} — Magic: The Gathering card.`,
+    image: mainCardImageUrl,
+  }
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-transparent md:flex-row">
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
+      <PageSEO
+        title={`${card.name} - Oracle Tutor`}
+        description={truncatedDescription || `${card.name} — Magic: The Gathering card.`}
+        path={`/card/${id}`}
+        image={mainCardImageUrl}
+      />
+      <Helmet>
+        <script type="application/ld+json">
+          {JSON.stringify(jsonLd)}
+        </script>
+      </Helmet>
       {/* Overlay Component */}
       {selectedCard && (
         <CardOverlay card={selectedCard} onClose={() => setSelected(null)} />
       )}
 
+      {/* Mobile Drawer - Card Details */}
+      <MobileDrawer
+        isOpen={isDetailsOpen}
+        title="Details"
+        onClose={() => setIsDetailsOpen(false)}
+      >
+        {/* Card "Paper" Container */}
+        <div className="rounded-xl border border-[#e5e5e5] bg-white p-4 text-[#1c1c1c] shadow-lg">
+          {/* Compact top row: full card (no crop) + key stats */}
+          <div className="flex gap-4">
+            <button
+              type="button"
+              className="relative aspect-[5/7] w-[42%] max-w-[180px] shrink-0 overflow-hidden bg-[#f0f0f0] shadow-lg ring-1 ring-black/5"
+              style={{ borderRadius: '4.5% / 3.21%' }}
+              onClick={() => {
+                setSelected({
+                  routeId: id ?? '',
+                  card: { ...card, similarity: 1 } as SimilarCard,
+                })
+                setIsDetailsOpen(false)
+              }}
+              aria-label="Open large card view"
+            >
+              <CardImage
+                src={mainCardImageUrl}
+                alt={card.name}
+                className="h-full w-full object-contain"
+              />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xl leading-tight font-bold text-[#1c1c1c]">
+                {card.name}
+              </h2>
+
+              <p className="mt-2 text-sm leading-snug font-medium text-[#404040]">
+                <span className="text-[#1c1c1c]">{displayType || '—'}</span>{' '}
+                <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
+                  •
+                </span>
+                <span className="text-[#1c1c1c]">
+                  <SymbolText text={displayMana || 'None'} />
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-[#e5e5e5] pt-4">
+            <span className="mb-2 block text-[11px] font-semibold tracking-wider text-[#737373] uppercase">
+              Oracle Text
+            </span>
+            <p className="text-[13px] leading-snug whitespace-pre-wrap text-[#404040]">
+              <SymbolText text={displayOracle} />
+            </p>
+          </div>
+        </div>
+      </MobileDrawer>
+
       {/* Sidebar - Selected Card Details */}
-      <div className="flex h-full w-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:w-[380px]">
+      <div className="hidden h-full w-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:flex md:w-[380px]">
         <Link
           to="/"
           className="mb-6 flex items-center gap-2 text-[#525252] transition-colors hover:text-[#1c1c1c]"
@@ -133,27 +215,16 @@ export function CardPage() {
             {card.name}
           </h1>
 
-          <div className="mb-4 flex flex-col gap-3">
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                Type
+          <div className="mb-4">
+            <p className="text-sm leading-snug font-medium text-[#404040]">
+              <span className="text-[#1c1c1c]">{displayType || '—'}</span>{' '}
+              <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
+                •
               </span>
-              <span className="font-medium">{displayType}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                  Mana
-                </span>
-                <span className="font-medium">{displayMana || 'None'}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold tracking-wider text-[#737373] uppercase">
-                  Rank
-                </span>
-                <span className="font-medium">#{card.edhrec_rank}</span>
-              </div>
-            </div>
+              <span className="text-[#1c1c1c]">
+                <SymbolText text={displayMana || 'None'} />
+              </span>
+            </p>
           </div>
 
           <div className="border-t border-[#e5e5e5] pt-4">
@@ -161,18 +232,29 @@ export function CardPage() {
               Oracle Text
             </span>
             <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
-              {displayOracle}
+              <SymbolText text={displayOracle} />
             </p>
           </div>
         </div>
 
-        <div className="mt-auto pt-6">
+        <div className="mt-auto flex items-end justify-between gap-6 pt-6">
           <DeveloperLinks variant="dark" />
         </div>
       </div>
 
       {/* Main Content - Similar Cards Grid */}
       <CardGrid
+        header={
+          <MobileResultsHeader
+            backTo="/"
+            title={card.name}
+            titleVariant="card"
+            drawerLabel="Details"
+            onOpenDrawer={() => setIsDetailsOpen(true)}
+            filters={filters}
+            onFilterChange={setFilters}
+          />
+        }
         cards={similarCards}
         isLoading={similarLoading}
         isFetchingNextPage={isFetchingNextPage}
@@ -182,6 +264,8 @@ export function CardPage() {
         filters={filters}
         onFilterChange={setFilters}
       />
+
+      <MobileBottomBar />
     </div>
   )
 }
