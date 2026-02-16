@@ -183,7 +183,6 @@ class TfidfIndex:
             # - dot uses full vectors (query has only its own terms)
             # - doc norm only considers query term dimensions, so extra oracle text doesn't penalize.
             q_vec = cast(Any, self.vectorizer.transform([q]))
-            logger.debug("Query: '%s', tokens: %s", q, self.vectorizer.inverse_transform(q_vec))
             if q_vec.nnz == 0:
                 logger.warning("Query '%s' produced no tokens in vocabulary", q)
                 return []
@@ -257,16 +256,7 @@ class TfidfIndex:
 
             matrix_l2 = cast(Any, self.matrix_l2)
             seed_vec = matrix_l2[seed_idx]
-            
-            # Debug: what tokens are in the seed vector?
-            seed_tokens = self.vectorizer.inverse_transform(seed_vec)
-            logger.debug("Seed face_id %d (%s) tokens: %s", seed_face_id, self.face_names[seed_idx], seed_tokens)
-            
             scores = linear_kernel(seed_vec, matrix_l2).ravel()
-            
-            # Debug: top scores before filtering
-            top_raw_idx = np.argsort(scores)[-5:][::-1]
-            logger.debug("Top raw similarities: %s", [(self.face_names[idx], scores[idx]) for idx in top_raw_idx])
 
             mask = self._filter_mask(
                 exclude_card_id=exclude_card_id,
@@ -480,7 +470,10 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         face_cmcs=face_cmcs,
         face_rarities=face_rarities,
         built_at=time.time(),
-        cache=TTLCache(maxsize=100, ttl=600),
+        cache=TTLCache(
+            maxsize=int(os.getenv("ORACLE_TUTOR_API_TFIDF_CACHE_MAXSIZE", "100")),
+            ttl=int(os.getenv("ORACLE_TUTOR_API_TFIDF_CACHE_TTL", "600")),
+        ),
     )
 
 

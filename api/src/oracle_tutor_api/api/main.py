@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import gc
 import hmac
+import importlib.metadata
 import logging
 import os
+import resource
 import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
-import importlib.metadata
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +33,6 @@ from ..core.logging_config import log_performance, setup_loggers
 from ..core.models import Card, CardFace, SystemMetadata
 from .tfidf_index import TfidfIndex, build_tfidf_index
 
-# Logging
 setup_loggers()
 logger = logging.getLogger("oracle_tutor_api.api")
 
@@ -49,6 +50,31 @@ _tfidf_rebuild_reason: str | None = None
 
 class RebuildInProgressError(RuntimeError):
     pass
+
+
+def _rss_mb() -> float:
+    """Return current process RSS in MiB. Cross-platform (Linux: KB, macOS: bytes)."""
+    try:
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if rss > 2**20:
+            return rss / (1024 * 1024)
+        return rss / 1024
+    except Exception:
+        return 0.0
+
+
+def _gc_collect_and_log(context: str) -> None:
+    """Run gc.collect() and log memory usage and objects collected."""
+    before_mb = _rss_mb()
+    collected = gc.collect()
+    after_mb = _rss_mb()
+    logger.info(
+        "Memory: %.1f MiB (GC collected %d objects, %.1f MiB freed) [%s]",
+        after_mb,
+        collected,
+        before_mb - after_mb,
+        context,
+    )
 
 
 def _get_db_data_version(db: Session) -> str | None:
@@ -107,10 +133,14 @@ def _rebuild_tfidf_index(db: Session | None = None, *, reason: str) -> str | Non
         new_version = _get_db_data_version(db)
         # Atomic swap after successful build.
         with _tfidf_lock:
+            old_index = _tfidf_index
             _tfidf_index = new_index
             _tfidf_data_version = new_version
             _tfidf_last_version_check = time.monotonic()
         duration = _mark_rebuild_done()
+        # Prompt GC to free the replaced index and reduce memory footprint.
+        del old_index
+        _gc_collect_and_log("tfidf_rebuild_swap")
         logger.info(
             "TF-IDF rebuild completed and swapped. reason=%s version=%s duration_s=%.3f",
             reason,
@@ -238,6 +268,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("TF-IDF build failed (oracle search disabled until rebuild): %s", e, exc_info=True)
         _tfidf_index = None
+
+    # Reclaim memory after startup build.
+    _gc_collect_and_log("startup")
 
     yield
 
@@ -414,6 +447,53 @@ def _ensure_tfidf_available_for_queries() -> None:
         raise HTTPException(status_code=503, detail="TF-IDF rebuild in progress. Please retry shortly.")
 
 
+def _is_postgres(db: Session) -> bool:
+    return bool(db.bind and db.bind.dialect.name == "postgresql")
+
+
+def _results_to_similar_cards(
+    results: list[tuple[int, float]],
+    db: Session,
+) -> List[SimilarCard]:
+    """Convert TF-IDF results (face_id, score) to SimilarCard list."""
+    if not results:
+        return []
+    target_face_ids = [r[0] for r in results]
+    id_to_score = {r[0]: r[1] for r in results}
+    cards_data = (
+        db.query(CardFace, Card)
+        .join(Card, CardFace.card_id == Card.id)
+        .filter(CardFace.id.in_(target_face_ids))
+        .all()
+    )
+    cards_map = {face.id: (face, card) for face, card in cards_data}
+    out: List[SimilarCard] = []
+    for face_id in target_face_ids:
+        if face_id not in cards_map:
+            continue
+        face, card = cards_map[face_id]
+        sim = float(id_to_score.get(face_id, 0.0))
+        out.append(
+            SimilarCard(
+                id=card.id,
+                name=face.name,
+                card_name=card.name,
+                similarity=sim,
+                rank=card.edhrec_rank,
+                type_line=face.type_line,
+                mana_cost=face.mana_cost,
+                oracle_text=face.oracle_text,
+                power=face.power,
+                toughness=face.toughness,
+                layout=card.layout,
+                rarity=card.rarity,
+                colors=face.colors,
+                legalities=card.legalities,
+            )
+        )
+    return out
+
+
 @app.post(WORKER_REBUILD_PATH, include_in_schema=False)
 def internal_rebuild_tfidf(request: Request) -> dict[str, object]:
     source_candidates = _extract_host_candidates(request)
@@ -446,7 +526,7 @@ def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
         return []
     limit = max(1, min(limit, 25))
 
-    if db.bind and db.bind.dialect.name == "postgresql":
+    if _is_postgres(db):
         distance = Card.name.op("<->")(q)
         results = (
             db.query(Card, distance.label("dist"))
@@ -480,7 +560,7 @@ def search_card_names(q: str, limit: int = 5, offset: int = 0, db: Session = Dep
     limit = max(1, min(limit, 25))
     offset = max(0, offset)
 
-    if db.bind and db.bind.dialect.name == "postgresql":
+    if _is_postgres(db):
         distance = Card.name.op("<->")(q)
         cards = (
             db.query(Card.name, Card.id)
@@ -566,45 +646,7 @@ def get_similar_cards(
         match_mode=match_mode,
         color_feature=color_feature,
     )
-    if not results:
-        return []
-
-    target_face_ids = [r[0] for r in results]
-    id_to_score = {r[0]: r[1] for r in results}
-
-    cards_data = (
-        db.query(CardFace, Card)
-        .join(Card, CardFace.card_id == Card.id)
-        .filter(CardFace.id.in_(target_face_ids))
-        .all()
-    )
-    cards_map = {face.id: (face, card) for face, card in cards_data}
-
-    out: List[SimilarCard] = []
-    for face_id in target_face_ids:
-        if face_id not in cards_map:
-            continue
-        face, card = cards_map[face_id]
-        sim = float(id_to_score.get(face_id, 0.0))
-        out.append(
-            SimilarCard(
-                id=card.id,
-                name=face.name,
-                card_name=card.name,
-                similarity=sim,
-                rank=card.edhrec_rank,
-                type_line=face.type_line,
-                mana_cost=face.mana_cost,
-                oracle_text=face.oracle_text,
-                power=face.power,
-                toughness=face.toughness,
-                layout=card.layout,
-                rarity=card.rarity,
-                colors=face.colors,
-                legalities=card.legalities,
-            )
-        )
-    return out
+    return _results_to_similar_cards(results, db)
 
 
 @app.get("/search-oracle", response_model=List[SimilarCard])
@@ -629,12 +671,6 @@ def search_oracle_text(
         return []
 
     index = _require_index(db)
-
-    # Query is tokenized by the same mtg_tokenize() used for indexing,
-    # so no preprocessing needed - the tokenizer handles symbols and reminder text.
-    if not q.strip():
-        return []
-
     results = index.search(
         query=q,
         limit=max(1, min(limit, 100)),
@@ -648,44 +684,4 @@ def search_oracle_text(
         match_mode=match_mode,
         color_feature=color_feature,
     )
-    if not results:
-        return []
-
-    target_face_ids = [r[0] for r in results]
-    id_to_score = {r[0]: r[1] for r in results}
-
-    cards_data = (
-        db.query(CardFace, Card)
-        .join(Card, CardFace.card_id == Card.id)
-        .filter(CardFace.id.in_(target_face_ids))
-        .all()
-    )
-    cards_map = {face.id: (face, card) for face, card in cards_data}
-
-    out: List[SimilarCard] = []
-    for face_id in target_face_ids:
-        if face_id not in cards_map:
-            continue
-        face, card = cards_map[face_id]
-        sim = float(id_to_score.get(face_id, 0.0))
-        out.append(
-            SimilarCard(
-                id=card.id,
-                name=face.name,
-                card_name=card.name,
-                similarity=sim,
-                rank=card.edhrec_rank,
-                type_line=face.type_line,
-                mana_cost=face.mana_cost,
-                oracle_text=face.oracle_text,
-                power=face.power,
-                toughness=face.toughness,
-                layout=card.layout,
-                rarity=card.rarity,
-                colors=face.colors,
-                legalities=card.legalities,
-            )
-        )
-    return out
-
-
+    return _results_to_similar_cards(results, db)
