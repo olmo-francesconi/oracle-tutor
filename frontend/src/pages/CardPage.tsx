@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
+import { Helmet } from 'react-helmet-async'
 import { Link, useParams } from 'react-router-dom'
 import { getCard, getSimilarCards } from '../api'
 import { CardGrid } from '../components/CardGrid'
@@ -10,6 +11,7 @@ import { DeveloperLinks } from '../components/DeveloperLinks'
 import { MobileDrawer } from '../components/MobileDrawer'
 import { MobileResultsHeader } from '../components/MobileResultsHeader'
 import { MobileBottomBar } from '../components/MobileBottomBar'
+import { PageSEO } from '../components/PageSEO'
 import { SymbolText } from '../components/SymbolText'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
@@ -60,13 +62,6 @@ export function CardPage() {
     return similarData?.pages.flatMap((page) => page) || []
   }, [similarData])
 
-  // Update document title when card is loaded
-  useEffect(() => {
-    if (card?.name) {
-      document.title = `${card.name} - Oracle tutor`
-    }
-  }, [card])
-
   // Handle keyboard ESC to close overlay
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -97,9 +92,33 @@ export function CardPage() {
 
   // Main card image usually defaults to front face
   const mainCardImageUrl = getCardImageUrl(card)
+  const cardDescription = [displayType, displayOracle].filter(Boolean).join('. ')
+  const truncatedDescription =
+    cardDescription.length > 160
+      ? `${cardDescription.slice(0, 157)}...`
+      : cardDescription
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'CreativeWork',
+    name: card.name,
+    description: truncatedDescription || `${card.name} — Magic: The Gathering card.`,
+    image: mainCardImageUrl,
+  }
 
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
+      <PageSEO
+        title={`${card.name} - Oracle Tutor`}
+        description={truncatedDescription || `${card.name} — Magic: The Gathering card.`}
+        path={`/card/${id}`}
+        image={mainCardImageUrl}
+      />
+      <Helmet>
+        <script type="application/ld+json">
+          {JSON.stringify(jsonLd)}
+        </script>
+      </Helmet>
       {/* Overlay Component */}
       {selectedCard && (
         <CardOverlay card={selectedCard} onClose={() => setSelected(null)} />
@@ -136,9 +155,9 @@ export function CardPage() {
             </button>
 
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl leading-tight font-bold text-[#1c1c1c]">
+              <h2 className="text-xl leading-tight font-bold text-[#1c1c1c]">
                 {card.name}
-              </h1>
+              </h2>
 
               <p className="mt-2 text-sm leading-snug font-medium text-[#404040]">
                 <span className="text-[#1c1c1c]">{displayType || '—'}</span>{' '}

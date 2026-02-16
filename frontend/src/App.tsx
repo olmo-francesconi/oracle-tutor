@@ -1,17 +1,20 @@
-import { useEffect } from 'react'
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import { DeveloperLinks } from './components/DeveloperLinks'
+import { PageSEO } from './components/PageSEO'
 import { SearchCard } from './components/SearchCard'
 import { MobileBottomBar } from './components/MobileBottomBar'
 import { CardPage } from './pages/CardPage'
 import { OracleSearchPage } from './pages/OracleSearchPage'
+import { DEFAULT_DESCRIPTION, DEFAULT_TITLE } from './lib/seo'
 
 function Home() {
-  useEffect(() => {
-    document.title = 'OracleTutor'
-  }, [])
-
   return (
+    <>
+      <PageSEO
+        title={DEFAULT_TITLE}
+        description={DEFAULT_DESCRIPTION}
+        path="/"
+      />
     <div className="relative z-10 flex min-h-[80vh] flex-col items-center justify-center gap-12 px-4 py-12">
       <div className="animate-[fadeIn_0.5s_ease-in] text-center">
         <h1 className="mb-4 text-6xl font-bold tracking-tight text-[#f5f2eb] drop-shadow-lg font-['Goudy_Bookletter_1911']">
@@ -33,6 +36,7 @@ function Home() {
       </div>
       <MobileBottomBar />
     </div>
+    </>
   )
 }
 

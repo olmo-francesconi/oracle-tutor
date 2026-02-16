@@ -1,8 +1,9 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { ArrowLeft } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { OracleInput } from '../components/OracleInput'
+import { PageSEO } from '../components/PageSEO'
 import { searchOracleText } from '../api'
 import { CardGrid } from '../components/CardGrid'
 import { CardOverlay } from '../components/CardOverlay'
@@ -55,12 +56,8 @@ export function OracleSearchPage() {
     setIsDrawerOpen(false)
   }
 
-  // Update document title
-  useEffect(() => {
-    if (query) {
-      document.title = `"${query}" - Oracle Tutor`
-    }
-  }, [query])
+  const { pathname, search } = useLocation()
+  const canonicalPath = `${pathname}${search}`
 
   // Handle keyboard ESC to close overlay
   useEffect(() => {
@@ -78,8 +75,19 @@ export function OracleSearchPage() {
     </div>
   )
 
+  const searchTitle = query ? `"${query}" - Oracle Tutor` : 'Oracle search - Oracle Tutor'
+  const searchDescription = query
+    ? `Search results for «${query}». Find Magic: The Gathering cards by semantic meaning.`
+    : 'Search for Magic: The Gathering cards by what they do. Oracle Tutor finds cards by semantic meaning.'
+
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
+    <>
+      <PageSEO
+        title={searchTitle}
+        description={searchDescription}
+        path={canonicalPath}
+      />
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
       {/* Overlay Component */}
       {selectedCard && (
         <CardOverlay
@@ -179,5 +187,6 @@ export function OracleSearchPage() {
 
       <MobileBottomBar />
     </div>
+    </>
   )
 }

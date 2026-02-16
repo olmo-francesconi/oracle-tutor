@@ -68,7 +68,7 @@ A modern, interactive web frontend is available for easy searching:
 
 ```bash
 cd frontend
-npm ci
+npm ci --legacy-peer-deps
 npm run dev
 ```
 
