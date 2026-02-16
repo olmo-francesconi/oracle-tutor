@@ -27,6 +27,10 @@ services:
       - DB_NAME=${DB_NAME:?set DB_NAME}
       - DB_USER=${DB_USER:?set DB_USER}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
+      # Internal worker->API TF-IDF rebuild trigger auth
+      - ORACLE_TUTOR_API_WORKER_TOKEN=${ORACLE_TUTOR_API_WORKER_TOKEN:?set ORACLE_TUTOR_API_WORKER_TOKEN}
+      - ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST=${ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST:?set ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST}
+      - ORACLE_TUTOR_API_WORKER_REBUILD_PATH=${ORACLE_TUTOR_API_WORKER_REBUILD_PATH:-/internal/rebuild-tfidf}
     depends_on:
       db:
         condition: service_healthy
@@ -55,9 +59,16 @@ services:
       - DB_NAME=${DB_NAME:?set DB_NAME}
       - DB_USER=${DB_USER:?set DB_USER}
       - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
+      # Worker -> API internal TF-IDF rebuild trigger
+      - ORACLE_TUTOR_API_BASE_URL=${ORACLE_TUTOR_API_BASE_URL:-http://api:8000}
+      - ORACLE_TUTOR_API_WORKER_TOKEN=${ORACLE_TUTOR_API_WORKER_TOKEN:?set ORACLE_TUTOR_API_WORKER_TOKEN}
+      - ORACLE_TUTOR_API_WORKER_REBUILD_PATH=${ORACLE_TUTOR_API_WORKER_REBUILD_PATH:-/internal/rebuild-tfidf}
+      - ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS=${ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS:-10}
     depends_on:
       db:
         condition: service_healthy
+      api:
+        condition: service_started
     restart: "no"
     init: true
     security_opt:

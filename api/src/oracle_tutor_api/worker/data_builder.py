@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime
+import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -13,8 +14,18 @@ import requests
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from ..core.config import CARDS_JSON, DATA_DIR, DB_SCHEMA_VERSION, ensure_data_dir, parse_version
-from ..core.db_init import init_db
+from ..core.config import (
+    API_BASE_URL,
+    CARDS_JSON,
+    DATA_DIR,
+    DB_SCHEMA_VERSION,
+    WORKER_REBUILD_PATH,
+    WORKER_REBUILD_TIMEOUT_SECONDS,
+    WORKER_TRIGGER_TOKEN,
+    ensure_data_dir,
+    parse_version,
+)
+from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.database import SessionLocal, engine
 from ..core.logging_config import setup_loggers
 from ..core.models import Card, CardFace, IngestionLog, SystemMetadata
@@ -26,6 +37,61 @@ BATCH_SIZE = 500
 
 META_JSON = DATA_DIR / "scryfall_meta.json"
 TEMP_CARDS_JSON = DATA_DIR / "scryfall-cards-temp.json"
+
+
+# Internal API trigger headers/contract
+_WORKER_TRIGGER_HEADER = "X-Worker-Token"
+_WORKER_SOURCE_HEADER = "X-Worker-Source"
+
+
+def _utcnow_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _trigger_tfidf_rebuild_request() -> None:
+    if not API_BASE_URL:
+        logger.info("Skipping TF-IDF rebuild trigger: ORACLE_TUTOR_API_BASE_URL not configured.")
+        return
+    if not WORKER_TRIGGER_TOKEN:
+        logger.info("Skipping TF-IDF rebuild trigger: ORACLE_TUTOR_API_WORKER_TOKEN not configured.")
+        return
+
+    url = f"{API_BASE_URL}{WORKER_REBUILD_PATH}"
+    logger.info(
+        "Sending TF-IDF rebuild trigger to API. url=%s timeout_s=%.2f token_configured=%s",
+        url,
+        WORKER_REBUILD_TIMEOUT_SECONDS,
+        bool(WORKER_TRIGGER_TOKEN),
+    )
+    headers = {
+        _WORKER_TRIGGER_HEADER: WORKER_TRIGGER_TOKEN,
+        _WORKER_SOURCE_HEADER: "worker",
+    }
+    try:
+        resp = requests.post(url, headers=headers, timeout=WORKER_REBUILD_TIMEOUT_SECONDS)
+        if resp.status_code >= 400:
+            logger.warning(
+                "TF-IDF rebuild trigger returned HTTP %s from %s. body=%s",
+                resp.status_code,
+                url,
+                resp.text[:300],
+            )
+            return
+        logger.info("TF-IDF rebuild trigger accepted by API (status=%s).", resp.status_code)
+    except Exception as e:
+        logger.warning("TF-IDF rebuild trigger failed (best-effort): %s", e)
+
+
+def trigger_tfidf_rebuild_best_effort(*, async_call: bool = True) -> None:
+    if async_call:
+        logger.info("Scheduling async best-effort TF-IDF rebuild trigger.")
+        # Non-daemon thread: for one-shot worker runs, this allows the process to wait
+        # for the short-timeout request so trigger logs/attempt are not silently dropped.
+        thread = threading.Thread(target=_trigger_tfidf_rebuild_request, daemon=False, name="tfidf-rebuild-trigger")
+        thread.start()
+        return
+    logger.info("Running synchronous best-effort TF-IDF rebuild trigger.")
+    _trigger_tfidf_rebuild_request()
 
 
 # Removed local ensure_data_dir, now in core.config
@@ -501,7 +567,7 @@ def ingest_data_diff(
         sys_meta = SystemMetadata(
             key="scryfall_data",
             data_updated_at=scryfall_metadata.get("updated_at") or "",
-            last_ingestion=datetime.utcnow(),
+            last_ingestion=_utcnow_naive(),
             schema_version=DB_SCHEMA_VERSION,
         )
         session.merge(sys_meta)
@@ -509,7 +575,7 @@ def ingest_data_diff(
         log_entry = session.get(IngestionLog, log_id)
         if log_entry:
             log_entry.status = "success"
-            log_entry.completed_at = datetime.utcnow()
+            log_entry.completed_at = _utcnow_naive()
             log_entry.records_processed = ingest_stats["added"] + ingest_stats["unchanged"] # + modified
             log_entry.records_skipped = stats["skipped"]
             log_entry.error_message = json.dumps(ingest_stats)
@@ -524,7 +590,7 @@ def ingest_data_diff(
                 log_entry = err_session.get(IngestionLog, log_id)
                 if log_entry:
                     log_entry.status = "failed"
-                    log_entry.completed_at = datetime.utcnow()
+                    log_entry.completed_at = _utcnow_naive()
                     log_entry.error_message = str(e)
                 err_session.commit()
         except Exception:
@@ -547,7 +613,7 @@ def update_scryfall_data(
     """
     setup_loggers()
     ensure_data_dir()
-    init_db()
+    init_db(mode=INIT_MODE_WORKER)
 
     remote_meta: Dict[str, Any] | None = None
     remote_updated_at: str | None = None
@@ -671,6 +737,8 @@ def update_scryfall_data(
             if remote_meta:
                 save_local_metadata(remote_meta)
 
+        logger.info("Ingestion succeeded; requesting API TF-IDF rebuild (best-effort).")
+        trigger_tfidf_rebuild_best_effort(async_call=True)
         return True
     except Exception as e:
         logger.error("Update process failed: %s", e, exc_info=True)

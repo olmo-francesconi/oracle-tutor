@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import threading
@@ -16,9 +17,16 @@ from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError, TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session
 
-from ..core.config import ensure_data_dir
+from ..core.config import (
+    SCHEMA_WAIT_INTERVAL_SECONDS,
+    SCHEMA_WAIT_TIMEOUT_SECONDS,
+    WORKER_REBUILD_PATH,
+    WORKER_TRIGGER_ALLOWLIST,
+    WORKER_TRIGGER_TOKEN,
+    ensure_data_dir,
+)
 from ..core.database import SessionLocal, get_db
-from ..core.db_init import init_db
+from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
 from ..core.models import Card, CardFace, SystemMetadata
 from .tfidf_index import TfidfIndex, build_tfidf_index
@@ -32,43 +40,201 @@ _tfidf_index: TfidfIndex | None = None
 _tfidf_lock = threading.Lock()
 _tfidf_data_version: str | None = None
 _tfidf_last_version_check: float = 0.0  # time.monotonic()
+_schema_ready: bool = True
+_tfidf_rebuild_state_lock = threading.Lock()
+_tfidf_rebuild_in_progress: bool = False
+_tfidf_rebuild_started_at: float | None = None
+_tfidf_rebuild_reason: str | None = None
+
+
+class RebuildInProgressError(RuntimeError):
+    pass
+
+
+def _get_db_data_version(db: Session) -> str | None:
+    meta = db.get(SystemMetadata, "scryfall_data")
+    if not meta:
+        return None
+    last_ing = ""
+    try:
+        last_ing = meta.last_ingestion.isoformat() if meta.last_ingestion else ""
+    except Exception:
+        last_ing = ""
+    return f"{meta.schema_version or ''}|{meta.data_updated_at or ''}|{last_ing}"
+
+
+def _mark_rebuild_start(reason: str) -> bool:
+    global _tfidf_rebuild_in_progress, _tfidf_rebuild_reason, _tfidf_rebuild_started_at
+    with _tfidf_rebuild_state_lock:
+        if _tfidf_rebuild_in_progress:
+            return False
+        _tfidf_rebuild_in_progress = True
+        _tfidf_rebuild_reason = reason
+        _tfidf_rebuild_started_at = time.monotonic()
+        return True
+
+
+def _mark_rebuild_done() -> float | None:
+    global _tfidf_rebuild_in_progress, _tfidf_rebuild_reason, _tfidf_rebuild_started_at
+    with _tfidf_rebuild_state_lock:
+        duration: float | None = None
+        if _tfidf_rebuild_started_at is not None:
+            duration = max(0.0, time.monotonic() - _tfidf_rebuild_started_at)
+        _tfidf_rebuild_in_progress = False
+        _tfidf_rebuild_reason = None
+        _tfidf_rebuild_started_at = None
+        return duration
+
+
+def _is_rebuild_in_progress() -> bool:
+    with _tfidf_rebuild_state_lock:
+        return _tfidf_rebuild_in_progress
+
+
+def _rebuild_tfidf_index(db: Session | None = None, *, reason: str) -> str | None:
+    global _tfidf_data_version, _tfidf_index, _tfidf_last_version_check
+    if not _mark_rebuild_start(reason):
+        raise RebuildInProgressError("TF-IDF rebuild already in progress.")
+
+    close_after = False
+    if db is None:
+        db = SessionLocal()
+        close_after = True
+
+    logger.info("Starting TF-IDF rebuild. reason=%s", reason)
+    try:
+        new_index = build_tfidf_index(db)
+        new_version = _get_db_data_version(db)
+        # Atomic swap after successful build.
+        with _tfidf_lock:
+            _tfidf_index = new_index
+            _tfidf_data_version = new_version
+            _tfidf_last_version_check = time.monotonic()
+        duration = _mark_rebuild_done()
+        logger.info(
+            "TF-IDF rebuild completed and swapped. reason=%s version=%s duration_s=%.3f",
+            reason,
+            new_version,
+            duration or 0.0,
+        )
+        return new_version
+    except Exception:
+        duration = _mark_rebuild_done()
+        logger.warning(
+            "TF-IDF rebuild aborted. reason=%s duration_s=%.3f",
+            reason,
+            duration or 0.0,
+        )
+        raise
+    finally:
+        if close_after:
+            db.close()
+
+
+def _extract_host_candidates(request: Request) -> list[str]:
+    candidates: list[str] = []
+    if request.client and request.client.host:
+        candidates.append(request.client.host.strip().lower())
+
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        first = forwarded_for.split(",")[0].strip().lower()
+        if first:
+            candidates.append(first)
+
+    real_ip = request.headers.get("x-real-ip", "").strip().lower()
+    if real_ip:
+        candidates.append(real_ip)
+
+    host = request.headers.get("host", "").split(":")[0].strip().lower()
+    if host:
+        candidates.append(host)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def _host_matches_allowlist(host: str, allowlist: tuple[str, ...]) -> bool:
+    host_norm = host.strip().lower()
+    if not host_norm:
+        return False
+    for allowed in allowlist:
+        allow = allowed.strip().lower()
+        if not allow:
+            continue
+        if host_norm == allow:
+            return True
+        if host_norm.endswith(f".{allow}"):
+            return True
+    return False
+
+
+def _require_internal_worker_auth(request: Request) -> None:
+    candidates = _extract_host_candidates(request)
+    if not WORKER_TRIGGER_TOKEN:
+        logger.warning(
+            "Rejected internal TF-IDF rebuild request: worker token not configured. source_candidates=%s",
+            candidates,
+        )
+        raise HTTPException(status_code=503, detail="Worker trigger token is not configured.")
+    if not WORKER_TRIGGER_ALLOWLIST:
+        logger.warning(
+            "Rejected internal TF-IDF rebuild request: allowlist not configured. source_candidates=%s",
+            candidates,
+        )
+        raise HTTPException(status_code=503, detail="Worker trigger allowlist is not configured.")
+
+    token = request.headers.get("x-worker-token", "")
+    if not hmac.compare_digest(token, WORKER_TRIGGER_TOKEN):
+        logger.warning(
+            "Rejected internal TF-IDF rebuild request: invalid worker token. source_candidates=%s",
+            candidates,
+        )
+        raise HTTPException(status_code=401, detail="Unauthorized worker token.")
+
+    if not any(_host_matches_allowlist(host, WORKER_TRIGGER_ALLOWLIST) for host in candidates):
+        logger.warning(
+            "Rejected internal TF-IDF rebuild request: source not allowlisted. source_candidates=%s allowlist=%s",
+            candidates,
+            WORKER_TRIGGER_ALLOWLIST,
+        )
+        raise HTTPException(status_code=403, detail="Worker source is not allowlisted.")
+    logger.info("Authorized internal TF-IDF rebuild request. source_candidates=%s", candidates)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _tfidf_index
+    global _schema_ready, _tfidf_index
     logger.info("API starting...")
 
     ensure_data_dir()
     try:
-        init_db()
+        init_db(mode=INIT_MODE_API)
+        if not wait_for_migration_ready(
+            timeout_s=SCHEMA_WAIT_TIMEOUT_SECONDS,
+            interval_s=SCHEMA_WAIT_INTERVAL_SECONDS,
+        ):
+            logger.warning(
+                "Schema migration is not ready after %.1fs; API data endpoints will return 503 until ready.",
+                SCHEMA_WAIT_TIMEOUT_SECONDS,
+            )
+            _schema_ready = False
+        else:
+            _schema_ready = True
     except Exception as e:
         logger.error("DB init failed: %s", e, exc_info=True)
-
-    def _get_db_data_version(db: Session) -> str | None:
-        meta = db.get(SystemMetadata, "scryfall_data")
-        if not meta:
-            return None
-        last_ing = ""
-        try:
-            last_ing = meta.last_ingestion.isoformat() if meta.last_ingestion else ""
-        except Exception:
-            last_ing = ""
-        return f"{meta.schema_version or ''}|{meta.data_updated_at or ''}|{last_ing}"
-
-    def rebuild_index() -> None:
-        global _tfidf_index, _tfidf_data_version
-        with _tfidf_lock:
-            db = SessionLocal()
-            try:
-                _tfidf_index = build_tfidf_index(db)
-                _tfidf_data_version = _get_db_data_version(db)
-            finally:
-                db.close()
+        _schema_ready = False
 
     # Initial TF-IDF build (best-effort; API can still start and lazily build later).
     try:
-        rebuild_index()
+        logger.info("Building TF-IDF index at startup...")
+        startup_version = _rebuild_tfidf_index(reason="startup")
+        logger.info("TF-IDF startup build completed. version=%s", startup_version)
     except Exception as e:
         logger.error("TF-IDF build failed (oracle search disabled until rebuild): %s", e, exc_info=True)
         _tfidf_index = None
@@ -171,7 +337,7 @@ def health() -> dict[str, str]:
 try:
     API_VERSION = importlib.metadata.version("oracle-tutor-api")
 except importlib.metadata.PackageNotFoundError:
-    API_VERSION = "1.1.1"  # Fallback if package not installed
+    API_VERSION = "1.2.0"  # Fallback if package not installed
 
 
 @app.get("/version", tags=["meta"])
@@ -204,38 +370,26 @@ def _require_index(db: Session | None = None) -> TfidfIndex:
         # Lazy-build so the API can still function if DB wasn't ready at startup,
         # and so tests can seed data before first oracle query.
         try:
-            with _tfidf_lock:
-                # Recompute under lock to avoid stampede.
-                now2 = time.monotonic()
-                should_check2 = (_tfidf_index is None) or ((now2 - _tfidf_last_version_check) >= check_every_s)
-                if should_check2:
-                    _tfidf_last_version_check = now2
-                    close_after = False
-                    if db is None:
-                        db = SessionLocal()
-                        close_after = True
-                    try:
-                        meta = db.get(SystemMetadata, "scryfall_data")
-                        db_version: str | None = None
-                        if meta:
-                            last_ing = ""
-                            try:
-                                last_ing = meta.last_ingestion.isoformat() if meta.last_ingestion else ""
-                            except Exception:
-                                last_ing = ""
-                            db_version = f"{meta.schema_version or ''}|{meta.data_updated_at or ''}|{last_ing}"
+            if _is_rebuild_in_progress():
+                raise HTTPException(status_code=503, detail="TF-IDF rebuild in progress. Please retry shortly.")
 
-                        if _tfidf_index is None:
-                            _tfidf_index = build_tfidf_index(db)
-                            _tfidf_data_version = db_version
-                        else:
-                            if db_version and (_tfidf_data_version is None or db_version != _tfidf_data_version):
-                                logger.info("DB data version changed; rebuilding TF-IDF index...")
-                                _tfidf_index = build_tfidf_index(db)
-                                _tfidf_data_version = db_version
-                    finally:
-                        if close_after:
-                            db.close()
+            _tfidf_last_version_check = now
+            close_after = False
+            if db is None:
+                db = SessionLocal()
+                close_after = True
+            try:
+                db_version = _get_db_data_version(db)
+                if _tfidf_index is None:
+                    _rebuild_tfidf_index(db, reason="lazy_initial")
+                elif db_version and (_tfidf_data_version is None or db_version != _tfidf_data_version):
+                    logger.info("DB data version changed; rebuilding TF-IDF index...")
+                    _rebuild_tfidf_index(db, reason="lazy_version_change")
+            finally:
+                if close_after:
+                    db.close()
+        except RebuildInProgressError:
+            raise HTTPException(status_code=503, detail="TF-IDF rebuild in progress. Please retry shortly.") from None
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"TF-IDF index not loaded yet: {e}") from e
 
@@ -245,11 +399,49 @@ def _require_index(db: Session | None = None) -> TfidfIndex:
     return _tfidf_index
 
 
+def _ensure_schema_ready() -> None:
+    global _schema_ready
+    if _schema_ready:
+        return
+    if wait_for_migration_ready(timeout_s=0.0, interval_s=SCHEMA_WAIT_INTERVAL_SECONDS):
+        _schema_ready = True
+        return
+    raise HTTPException(status_code=503, detail="Schema migration in progress. Please retry shortly.")
+
+
+def _ensure_tfidf_available_for_queries() -> None:
+    if _is_rebuild_in_progress():
+        raise HTTPException(status_code=503, detail="TF-IDF rebuild in progress. Please retry shortly.")
+
+
+@app.post(WORKER_REBUILD_PATH, include_in_schema=False)
+def internal_rebuild_tfidf(request: Request) -> dict[str, object]:
+    source_candidates = _extract_host_candidates(request)
+    logger.info(
+        "Received internal TF-IDF rebuild request. path=%s source_candidates=%s",
+        request.url.path,
+        source_candidates,
+    )
+    _require_internal_worker_auth(request)
+    _ensure_schema_ready()
+    try:
+        version = _rebuild_tfidf_index(reason="internal_worker_trigger")
+        logger.info("Internal TF-IDF rebuild completed. version=%s", version)
+    except RebuildInProgressError:
+        logger.warning("Rejected overlapping internal TF-IDF rebuild request with 409.")
+        raise HTTPException(status_code=409, detail="TF-IDF rebuild already in progress.") from None
+    except Exception as e:
+        logger.error("Internal TF-IDF rebuild failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=503, detail="TF-IDF rebuild failed.") from e
+    return {"status": "ok", "rebuilt": True, "version": version}
+
+
 # ---- Endpoints ----
 
 @app.get("/search", response_model=List[CardMatch])
 @log_performance(logger=logger)
 def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
+    _ensure_schema_ready()
     if not q.strip():
         return []
     limit = max(1, min(limit, 25))
@@ -282,6 +474,7 @@ def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
 @app.get("/suggest-names", response_model=List[CardNameMatch])
 @log_performance(logger=logger)
 def search_card_names(q: str, limit: int = 5, offset: int = 0, db: Session = Depends(get_db)):
+    _ensure_schema_ready()
     if not q.strip():
         return []
     limit = max(1, min(limit, 25))
@@ -313,6 +506,7 @@ def search_card_names(q: str, limit: int = 5, offset: int = 0, db: Session = Dep
 @app.get("/card/{card_id}")
 @log_performance(logger=logger)
 def get_card_by_id(card_id: str, db: Session = Depends(get_db)):
+    _ensure_schema_ready()
     card = db.get(Card, card_id)
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -338,6 +532,8 @@ def get_similar_cards(
     color_feature: str = Query("identity"),
     db: Session = Depends(get_db),
 ):
+    _ensure_schema_ready()
+    _ensure_tfidf_available_for_queries()
     index = _require_index(db)
 
     target_card = db.get(Card, card_id)
@@ -427,6 +623,8 @@ def search_oracle_text(
     color_feature: str = Query("identity"),
     db: Session = Depends(get_db),
 ):
+    _ensure_schema_ready()
+    _ensure_tfidf_available_for_queries()
     if not q.strip():
         return []
 
