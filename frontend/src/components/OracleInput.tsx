@@ -14,7 +14,7 @@ export function OracleInput({
   value,
   onChange,
   onSearch,
-  placeholder = "Search for cards with similar meaning (oracle text)...",
+  placeholder = "Search cards with similar Oracle text...",
   className,
   disabled
 }: OracleInputProps) {
@@ -38,15 +38,6 @@ export function OracleInput({
         placeholder={placeholder}
         className="w-full h-full resize-none bg-transparent text-[16px] md:text-[14px] text-[#1c1c1c] placeholder-[#737373] outline-none font-serif leading-relaxed font-['Crimson_Text']"
       />
-      <div className="mt-auto flex justify-end pt-2">
-        <button 
-          onClick={onSearch}
-          disabled={!value.trim()}
-          className="text-[10px] italic text-[#525252] hover:text-[#1c1c1c] disabled:opacity-50 cursor-pointer transition-colors"
-        >
-          (Press Enter to search)
-        </button>
-      </div>
     </div>
   )
 }

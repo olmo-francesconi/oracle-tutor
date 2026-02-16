@@ -1,4 +1,3 @@
-import { MagnifyingGlass } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -80,7 +79,7 @@ export function SearchCard() {
     if (activityTimeoutRef.current) clearTimeout(activityTimeoutRef.current)
     activityTimeoutRef.current = setTimeout(() => {
       setIsUIActive(false)
-    }, 2000)
+    }, 1400)
   }
 
   // Clear timeout on unmount
@@ -227,13 +226,7 @@ export function SearchCard() {
   ])
 
   // When the UI fades out but the input is still focused, blur it so arrow-key navigation works.
-  useEffect(() => {
-    if (!hasSuggestions) return
-    if (showSearch) return
-    const el = document.activeElement as HTMLElement | null
-    if (!el) return
-    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.blur()
-  }, [hasSuggestions, showSearch])
+  // Keep the input active even when the UI fades.
 
   const isInteractiveTarget = (target: EventTarget | null) => {
     const el = target as HTMLElement | null
@@ -323,9 +316,12 @@ export function SearchCard() {
   }
 
   const handleNameKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    // Keep the "active UI" while typing or using completion/nav keys.
-    // Important: the suggestion card stack should only be navigated with left/right.
-    if (!['ArrowUp', 'ArrowDown'].includes(e.key)) handleActivity()
+    // Only wake the UI for text input edits (typed characters, backspace, delete).
+    const isTextEditKey =
+      ((!e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1) ||
+        e.key === 'Backspace' ||
+        e.key === 'Delete')
+    if (isTextEditKey) handleActivity()
 
     if (e.key === 'Tab' && !e.shiftKey && completion) {
       e.preventDefault()
@@ -422,7 +418,7 @@ export function SearchCard() {
 
       {/* Content Container */}
       <div className={cn(
-          "absolute inset-[16px] flex flex-col gap-[9px] p-[9px] rounded-[12px] transition-colors duration-500",
+          "absolute inset-[16px] flex flex-col gap-[9px] px-[12px] py-[9px] rounded-[12px] transition-colors duration-500",
           !hasSuggestions ? "bg-[#d1c8b8]" : "bg-transparent",
           showSearch ? "z-30" : "z-10"
       )}>
@@ -430,26 +426,19 @@ export function SearchCard() {
           {/* Name Line (Search by Name) - Always visible on top */}
           <div 
             className={cn(
-              "relative h-[34px] z-20 shrink-0 flex items-center -mt-[1px] mx-[1px] transition-opacity duration-500",
-              showSearch ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+              "relative h-[34px] z-20 shrink-0 flex items-center -mt-[1px] mx-[1px] transition-opacity duration-500 ease-in-out",
+              showSearch ? "opacity-100" : "opacity-0"
             )} 
             ref={nameWrapperRef}
           >
             <div 
               className={cn(
-                "relative h-full flex items-center rounded-[4px] px-[8px] shadow-sm transition-all duration-300",
-                hasSuggestions 
-                  ? "w-full bg-gradient-to-r from-[#e8e4d9] from-50% to-transparent" 
-                  : "w-full bg-white/90 border border-[#a89f91]"
+                "relative h-full w-full flex items-center rounded-[4px] px-[8px] transition-all duration-300",
+                hasSuggestions
+                  ? "bg-gradient-to-r from-[#f1ece2]/85 from-55% to-transparent backdrop-blur-[1px]"
+                  : "bg-transparent"
               )}
             >
-              
-              {/* Ghost Text Overlay */}
-              <div className="pointer-events-none absolute inset-0 flex items-center px-[8px] font-bold text-[16px] md:text-[14px] font-['Goudy_Bookletter_1911']">
-                <span className="opacity-0 whitespace-pre">{nameQuery}</span>
-                <span className="text-[#a3a3a3] whitespace-pre">{completion}</span>
-              </div>
-
               <input
                 type="text"
                 value={nameQuery}
@@ -457,9 +446,8 @@ export function SearchCard() {
                 onKeyDown={handleNameKeyDown}
                 onFocus={handleActivity}
                 placeholder="Search by card name..."
-                className="relative z-10 w-full bg-transparent p-0 text-[16px] md:text-[14px] font-bold text-[#1c1c1c] placeholder-[#737373] outline-none font-['Goudy_Bookletter_1911']"
+                className="relative z-10 w-full bg-transparent p-0 text-[16pt] font-bold text-[#1c1c1c] placeholder-[#737373] outline-none font-['Goudy_Bookletter_1911']"
               />
-              {!nameQuery && <MagnifyingGlass className="relative z-10 h-[16px] w-[16px] text-[#737373] shrink-0" />}
             </div>
           </div>
 
@@ -471,9 +459,6 @@ export function SearchCard() {
                   hasSuggestions ? "opacity-0" : "opacity-100"
               )}>
                   <div className="absolute inset-0 bg-gradient-to-br from-[#e6e2d6] to-[#adaba5] opacity-50"></div>
-                  <div className="z-10 text-[#525252] font-serif italic text-center px-[16px]">
-                      "Knowledge is power, and power is what we seek."
-                  </div>
               </div>
 
               {/* Text Box (Oracle Search) */}
