@@ -198,6 +198,8 @@ export function CardGrid({
     }
   }, [cards.length, hasNextPage, layout.columns])
 
+  // TanStack Virtual returns non-memoizable functions; React Compiler skips this by design.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: rows.totalRows,
     getScrollElement: () => scrollContainerRef.current,
