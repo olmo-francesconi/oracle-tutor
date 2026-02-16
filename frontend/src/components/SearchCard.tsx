@@ -107,12 +107,12 @@ export function SearchCard() {
       }
     }
 
-    const idle = (globalThis as any).requestIdleCallback as
-      | ((cb: () => void, opts?: { timeout?: number }) => number)
-      | undefined
-    const cancelIdle = (globalThis as any).cancelIdleCallback as
-      | ((id: number) => void)
-      | undefined
+    const g = globalThis as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number
+      cancelIdleCallback?: (id: number) => void
+    }
+    const idle = g.requestIdleCallback
+    const cancelIdle = g.cancelIdleCallback
 
     if (idle && cancelIdle) {
       const id = idle(run, { timeout: 1000 })
