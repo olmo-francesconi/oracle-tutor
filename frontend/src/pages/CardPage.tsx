@@ -62,6 +62,21 @@ export function CardPage() {
     return similarData?.pages.flatMap((page) => page) || []
   }, [similarData])
 
+  const navigableCards = useMemo(() => {
+    if (!card) return similarCards
+    const mainAsSimilar = { ...card, similarity: 1 } as SimilarCard
+    return [mainAsSimilar, ...similarCards]
+  }, [card, similarCards])
+
+  const currentIndex =
+    selectedCard != null
+      ? navigableCards.findIndex((c) => c.id === selectedCard.id)
+      : -1
+
+  const hasPrev = currentIndex > 0
+  const hasNext =
+    currentIndex >= 0 && currentIndex < navigableCards.length - 1
+
   // Handle keyboard ESC to close overlay
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -70,6 +85,26 @@ export function CardPage() {
     window.addEventListener('keydown', handleEsc)
     return () => window.removeEventListener('keydown', handleEsc)
   }, [])
+
+  // Prefetch next page when viewing a card near the end of loaded results
+  useEffect(() => {
+    if (
+      selectedCard &&
+      currentIndex >= 0 &&
+      currentIndex >= navigableCards.length - 10 &&
+      hasNextPage &&
+      !isFetchingNextPage
+    ) {
+      fetchNextPage()
+    }
+  }, [
+    selectedCard,
+    currentIndex,
+    navigableCards.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ])
 
   if (cardLoading)
     return (
@@ -124,7 +159,24 @@ export function CardPage() {
       </Helmet>
       {/* Overlay Component */}
       {selectedCard && (
-        <CardOverlay card={selectedCard} onClose={() => setSelected(null)} />
+        <CardOverlay
+          card={selectedCard}
+          onClose={() => setSelected(null)}
+          hasPrev={hasPrev}
+          hasNext={hasNext}
+          onPrev={() =>
+            setSelected({
+              routeId: id ?? '',
+              card: navigableCards[currentIndex - 1],
+            })
+          }
+          onNext={() =>
+            setSelected({
+              routeId: id ?? '',
+              card: navigableCards[currentIndex + 1],
+            })
+          }
+        />
       )}
 
       {/* Mobile Drawer - Card Details */}

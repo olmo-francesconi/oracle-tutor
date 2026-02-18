@@ -1,4 +1,10 @@
-import { ArrowsClockwise, MagnifyingGlass, X } from '@phosphor-icons/react'
+import {
+  ArrowsClockwise,
+  CaretLeft,
+  CaretRight,
+  MagnifyingGlass,
+  X,
+} from '@phosphor-icons/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -12,11 +18,28 @@ import { SymbolText } from './SymbolText'
 interface CardOverlayProps {
   card: SimilarCard
   onClose: () => void
+  onPrev?: () => void
+  onNext?: () => void
+  hasPrev?: boolean
+  hasNext?: boolean
 }
 
-export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
+export function CardOverlay({
+  card: initialCard,
+  onClose,
+  onPrev,
+  onNext,
+  hasPrev = false,
+  hasNext = false,
+}: CardOverlayProps) {
   const [userFaceIndex, setUserFaceIndex] = useState<number | null>(null)
   const [isFlipping, setIsFlipping] = useState(false)
+  const [isImageLoaded, setIsImageLoaded] = useState(false)
+
+  // Hide image when card changes; show when new image loads
+  useEffect(() => {
+    setIsImageLoaded(false)
+  }, [initialCard.id])
 
   // Fetch the full card details to get faces and correct full name
   const { data: fullCard, isSuccess } = useQuery({
@@ -44,6 +67,21 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
       document.body.style.overflow = 'unset'
     }
   }, [])
+
+  // Handle keyboard ArrowLeft/ArrowRight for navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' && hasPrev && onPrev) {
+        e.preventDefault()
+        onPrev()
+      } else if (e.key === 'ArrowRight' && hasNext && onNext) {
+        e.preventDefault()
+        onNext()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hasPrev, hasNext, onPrev, onNext])
 
   const doubleSidedLayouts = [
     'transform',
@@ -139,6 +177,32 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
         onClick={onClose}
       />
 
+      {/* Prev/Next navigation - fixed on sides, above backdrop */}
+      {hasPrev && onPrev && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onPrev()
+          }}
+          className="absolute left-2 top-1/2 z-[110] -translate-y-1/2 rounded-full bg-black/40 p-3 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 hover:scale-110 focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:outline-none sm:left-4"
+          aria-label="Previous card"
+        >
+          <CaretLeft className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
+        </button>
+      )}
+      {hasNext && onNext && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onNext()
+          }}
+          className="absolute right-2 top-1/2 z-[110] -translate-y-1/2 rounded-full bg-black/40 p-3 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 hover:scale-110 focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:outline-none sm:right-4"
+          aria-label="Next card"
+        >
+          <CaretRight className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
+        </button>
+      )}
+
       {/* Modal Content - Fixed height to prevent resizing on flip */}
       <div className="relative flex max-h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-y-auto rounded-2xl bg-[#f5f2eb] shadow-2xl md:h-[750px] md:max-h-none md:flex-row md:overflow-hidden">
         {/* Close Button */}
@@ -154,6 +218,14 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
         <div className="relative flex w-full items-center justify-center bg-[#e5e5e5] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
           {/* Wrapper: size to viewport on mobile; fixed aspect box on desktop */}
           <div className="group relative inline-block overflow-hidden rounded-[4.5%/3.21%] shadow-2xl ring-1 ring-black/10 md:aspect-[5/7] md:w-full md:max-w-[360px]">
+            {/* Dark placeholder shown while image loads */}
+            <div
+              className={cn(
+                'absolute inset-0 rounded-[4.5%/3.21%] bg-[#1c1c1c] transition-opacity duration-200',
+                isImageLoaded ? 'opacity-0' : 'opacity-100'
+              )}
+              aria-hidden
+            />
             {/* Rotating Card Container */}
             <div
               onClick={hasMultipleFaces ? handleFlip : undefined}
@@ -163,13 +235,16 @@ export function CardOverlay({ card: initialCard, onClose }: CardOverlayProps) {
               )}
               style={{
                 transform: isFlipping ? 'rotateY(90deg)' : 'rotateY(0deg)',
-                opacity: isFlipping ? 0.5 : 1,
+                opacity: isFlipping ? 0.5 : isImageLoaded ? 1 : 0,
               }}
             >
-              {/* Card Image */}
+              {/* Card Image - hidden until loaded to avoid old image showing with new text */}
               <CardImage
                 src={imageUrl}
                 alt={displayData.name}
+                loading="eager"
+                fetchPriority="high"
+                onLoad={() => setIsImageLoaded(true)}
                 className="block max-h-[55vh] w-auto max-w-full object-contain md:h-full md:max-h-none md:w-full"
               />
 

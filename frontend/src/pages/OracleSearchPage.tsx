@@ -53,6 +53,14 @@ export function OracleSearchPage() {
     return similarData?.pages.flatMap((page) => page) || []
   }, [similarData])
 
+  const currentIndex =
+    selectedCard != null
+      ? similarCards.findIndex((c) => c.id === selectedCard.id)
+      : -1
+  const hasPrev = currentIndex > 0
+  const hasNext =
+    currentIndex >= 0 && currentIndex < similarCards.length - 1
+
   const handleSearch = (e?: React.FormEvent) => {
     e?.preventDefault()
     if (searchTerm.trim()) {
@@ -72,6 +80,26 @@ export function OracleSearchPage() {
     window.addEventListener('keydown', handleEsc)
     return () => window.removeEventListener('keydown', handleEsc)
   }, [])
+
+  // Prefetch next page when viewing a card near the end of loaded results
+  useEffect(() => {
+    if (
+      selectedCard &&
+      currentIndex >= 0 &&
+      currentIndex >= similarCards.length - 10 &&
+      hasNextPage &&
+      !isFetchingNextPage
+    ) {
+      fetchNextPage()
+    }
+  }, [
+    selectedCard,
+    currentIndex,
+    similarCards.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ])
 
   const noResultsMessage = (
     <div className="text-center text-[#737373]">
@@ -100,6 +128,14 @@ export function OracleSearchPage() {
           <CardOverlay
             card={selectedCard}
             onClose={() => setSelectedCard(null)}
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+            onPrev={() =>
+              setSelectedCard(similarCards[currentIndex - 1])
+            }
+            onNext={() =>
+              setSelectedCard(similarCards[currentIndex + 1])
+            }
           />
         )}
 
