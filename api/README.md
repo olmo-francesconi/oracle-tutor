@@ -26,7 +26,7 @@ This folder contains a minimal FastAPI service managed by **uv**.
 - **ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS**: API startup wait budget for schema migration state (default: `30`).
 - **ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS**: polling interval while waiting for migration readiness (default: `1`).
 - **ORACLE_TUTOR_API_WORKER_TOKEN**: shared secret required for worker-only internal TF-IDF rebuild endpoint.
-- **ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST**: comma-separated internal hosts/IPs/domains allowed to call worker internal endpoint.
+- **ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST**: comma-separated internal hosts/IPs/domains allowed to call worker internal endpoint. Hostnames (e.g. `worker.railway.internal`) are DNS-resolved at request time to compare against the client IP, so you can allowlist by hostname even when requests arrive as IPs.
 - **ORACLE_TUTOR_API_WORKER_REBUILD_PATH**: internal rebuild endpoint path (default: `/internal/rebuild-tfidf`).
 - **ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS**: worker HTTP timeout for rebuild trigger call (default: `10`).
 - **ORACLE_TUTOR_API_BASE_URL**: API base URL used by worker to call internal rebuild endpoint (e.g. `http://api:8000`).
