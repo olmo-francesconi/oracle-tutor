@@ -316,6 +316,7 @@ export function CardPage() {
         hasNextPage={!!hasNextPage}
         fetchNextPage={fetchNextPage}
         onCardClick={(c) => setSelected({ routeId: id ?? '', card: c })}
+        queryKey={id}
         filters={filters}
         onFilterChange={setFilters}
       />

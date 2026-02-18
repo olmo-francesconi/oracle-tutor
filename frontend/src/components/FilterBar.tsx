@@ -1,5 +1,5 @@
 import { Funnel, ArrowCounterClockwise, X } from '@phosphor-icons/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '../lib/cn'
 import type { FilterState } from '../types'
@@ -7,6 +7,8 @@ import type { FilterState } from '../types'
 interface FilterBarProps {
   filters: FilterState
   onFilterChange: (filters: FilterState) => void
+  /** 'button' = compact button that opens modal (mobile), 'inline' = full bar with all controls */
+  variant?: 'button' | 'inline'
 }
 
 const COLORS = [
@@ -291,10 +293,170 @@ function FilterInputs({
 
 // --- Main Component ---
 
-export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
+// Inline filter controls for desktop bar layout
+function FilterInlineRow({
+  localFilters,
+  updateFilter,
+  handleColorClick,
+}: {
+  localFilters: FilterState
+  updateFilter: <K extends keyof FilterState>(
+    key: K,
+    value: FilterState[K]
+  ) => void
+  handleColorClick: (color: string) => void
+}) {
+  const sep = (
+    <div className="mx-2 h-3.5 w-px shrink-0 bg-white/10" aria-hidden />
+  )
+  return (
+    <div className="flex w-max min-w-full items-center gap-3">
+      {/* Spacer so first elements can scroll out of the left fade zone */}
+      <div className="min-w-[0.5rem] shrink-0" aria-hidden />
+      {/* Colors */}
+      <div className="flex shrink-0 items-center gap-1.5">
+        {COLORS.map((c) => {
+          const isSelected = localFilters.colors?.includes(c.value)
+          return (
+            <button
+              key={c.value}
+              onClick={() => handleColorClick(c.value)}
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold transition-all',
+                isSelected ? `${c.color} ${c.text} ring-1 ring-white/20` : 'bg-[#333] text-[#737373] hover:bg-[#404040]'
+              )}
+              title={c.label}
+            >
+              {c.value}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Match mode + Identity */}
+      <button
+        onClick={() => {
+          const modes: ('at_least' | 'at_most' | 'exact')[] = ['at_least', 'at_most', 'exact']
+          const current = localFilters.matchMode || 'at_least'
+          const next = modes[(modes.indexOf(current) + 1) % modes.length]
+          updateFilter('matchMode', next)
+        }}
+        className={cn(
+          'flex h-7 shrink-0 items-center rounded-md border border-white/5 bg-[#333] px-2 text-xs font-bold leading-none whitespace-nowrap transition-all hover:bg-[#404040]',
+          localFilters.matchMode && localFilters.matchMode !== 'at_least'
+            ? 'border-[#e3dccb]/30 text-[#e3dccb]'
+            : 'text-[#737373]'
+        )}
+      >
+        {localFilters.matchMode === 'exact' ? 'Exact' : localFilters.matchMode === 'at_most' ? 'At Most' : 'At Least'}
+      </button>
+      <button
+        onClick={() => {
+          const features: ('identity' | 'colors')[] = ['identity', 'colors']
+          const current = localFilters.colorFeature || 'identity'
+          const next = features[(features.indexOf(current) + 1) % features.length]
+          updateFilter('colorFeature', next)
+        }}
+        className={cn(
+          'flex h-7 shrink-0 items-center rounded-md border border-white/5 bg-[#333] px-2 text-xs font-bold leading-none whitespace-nowrap transition-all hover:bg-[#404040]',
+          localFilters.colorFeature === 'colors' ? 'border-[#e3dccb]/30 text-[#e3dccb]' : 'text-[#737373]'
+        )}
+      >
+        {localFilters.colorFeature === 'colors' ? 'Cost' : 'Identity'}
+      </button>
+
+      {sep}
+
+      {/* CMC */}
+      <div className="flex shrink-0 items-center gap-1">
+        <span className="text-[10px] font-bold uppercase leading-none text-[#737373]">CMC</span>
+        <div className="flex items-center rounded-md border border-white/10 bg-[#333]">
+          <input
+            type="number"
+            placeholder="0"
+            min={0}
+            max={20}
+            value={localFilters.cmcMin ?? ''}
+            onChange={(e) =>
+              updateFilter('cmcMin', e.target.value ? Number(e.target.value) : undefined)
+            }
+            className="h-7 w-8 bg-transparent px-0.5 text-center text-xs text-[#f5f2eb] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <div className="h-2.5 w-px bg-white/10" />
+          <input
+            type="number"
+            placeholder="∞"
+            min={0}
+            max={20}
+            value={localFilters.cmcMax ?? ''}
+            onChange={(e) =>
+              updateFilter('cmcMax', e.target.value ? Number(e.target.value) : undefined)
+            }
+            className="h-7 w-8 bg-transparent px-0.5 text-center text-xs text-[#f5f2eb] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+        </div>
+      </div>
+
+      {/* Rarity */}
+      <button
+        onClick={() => {
+          const rarities = ['common', 'uncommon', 'rare', 'mythic']
+          const current = localFilters.rarity
+          const idx = current ? rarities.indexOf(current) : -1
+          const next = idx < rarities.length - 1 ? rarities[idx + 1] || undefined : undefined
+          updateFilter('rarity', next)
+        }}
+        className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 text-xs font-bold transition-all',
+          !localFilters.rarity && 'bg-[#333] text-[#737373] hover:bg-[#404040]',
+          localFilters.rarity === 'common' && 'border-zinc-500/30 bg-zinc-500/20 text-zinc-400',
+          localFilters.rarity === 'uncommon' && 'border-blue-500/30 bg-blue-500/20 text-blue-300',
+          localFilters.rarity === 'rare' && 'border-amber-500/30 bg-amber-500/20 text-amber-300',
+          localFilters.rarity === 'mythic' && 'border-orange-600/30 bg-orange-600/20 text-orange-400'
+        )}
+      >
+        {localFilters.rarity ? localFilters.rarity[0].toUpperCase() : 'R'}
+      </button>
+
+      {sep}
+
+      {/* Type */}
+      <select
+        value={localFilters.cardType || ''}
+        onChange={(e) => updateFilter('cardType', e.target.value || undefined)}
+        className="h-7 min-w-[4rem] shrink-0 rounded-md border border-white/10 bg-[#333] px-1.5 text-xs text-[#f5f2eb] outline-none hover:bg-[#404040]"
+      >
+        <option value="">Type</option>
+        {CARD_TYPES.map((t) => (
+          <option key={t} value={t.toLowerCase()}>{t}</option>
+        ))}
+      </select>
+
+      {/* Format */}
+      <select
+        value={localFilters.format || ''}
+        onChange={(e) => updateFilter('format', e.target.value || undefined)}
+        className="h-7 min-w-[4.5rem] shrink-0 rounded-md border border-white/10 bg-[#333] px-1.5 text-xs text-[#f5f2eb] outline-none hover:bg-[#404040]"
+      >
+        <option value="">Format</option>
+        {FORMATS.map((f) => (
+          <option key={f} value={f.toLowerCase()}>{f}</option>
+        ))}
+      </select>
+      {/* Spacer so last elements can scroll out of the fade zone*/}
+      <div className="min-w-[0.5rem] shrink-0" aria-hidden />
+    </div>
+  )
+}
+
+export function FilterBar({ filters, onFilterChange, variant = 'button' }: FilterBarProps) {
   const [localFilters, setLocalFilters] = useState<FilterState>(filters)
   const [hasChanges, setHasChanges] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
+
+  useEffect(() => {
+    if (!hasChanges) setLocalFilters(filters)
+  }, [filters, hasChanges])
 
   // If the user hasn't modified the draft, always reflect the latest committed filters.
   const draftFilters: FilterState = hasChanges ? localFilters : filters
@@ -360,6 +522,37 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
     localFilters: draftFilters,
     updateFilter,
     handleColorClick,
+  }
+
+  if (variant === 'inline') {
+    return (
+      <div className="flex w-full items-center gap-0">
+        <div className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:[display:none] [mask-image:linear-gradient(to_right,transparent_0%,black_2rem,black_calc(100%_-_2rem),transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,black_2rem,black_calc(100%_-_2rem),transparent_100%)]">
+          <FilterInlineRow {...inputProps} />
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 pl-2">
+          <button
+            onClick={handleReset}
+            className="flex h-7 items-center gap-1 rounded-md border border-white/5 bg-[#333] px-2.5 text-xs font-medium text-[#737373] transition-all hover:bg-[#404040] hover:text-[#f5f2eb]"
+          >
+            <ArrowCounterClockwise className="h-3 w-3" />
+            Reset
+          </button>
+          <button
+            onClick={handleApply}
+            disabled={!hasChanges}
+            className={cn(
+              'flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-bold transition-all',
+              hasChanges
+                ? 'bg-[#e3dccb] text-[#1c1c1c] hover:bg-white active:scale-95'
+                : 'cursor-not-allowed bg-[#333] text-[#737373] opacity-50'
+            )}
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

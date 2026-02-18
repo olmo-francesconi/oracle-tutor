@@ -223,6 +223,7 @@ export function OracleSearchPage() {
           onCardClick={setSelectedCard}
           noResultsMessage={noResultsMessage}
           searchQuery={query}
+          queryKey={canonicalPath}
           filters={filters}
           onFilterChange={setFilters}
         />
