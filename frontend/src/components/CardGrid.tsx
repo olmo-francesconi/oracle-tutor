@@ -189,7 +189,8 @@ export function CardGrid({
   }, [viewportWidth])
 
   const rows = useMemo(() => {
-    const count = layout.columns > 0 ? Math.ceil(cards.length / layout.columns) : 0
+    const count =
+      layout.columns > 0 ? Math.ceil(cards.length / layout.columns) : 0
     const hasLoader = hasNextPage
     return {
       itemRows: count,
@@ -204,7 +205,8 @@ export function CardGrid({
     count: rows.totalRows,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: (index) => {
-      if (rows.hasLoader && index === rows.totalRows - 1) return LOADER_ROW_HEIGHT_PX
+      if (rows.hasLoader && index === rows.totalRows - 1)
+        return LOADER_ROW_HEIGHT_PX
       return layout.rowPitch
     },
     overscan: 6,
@@ -332,7 +334,10 @@ export function CardGrid({
                         return (
                           <div
                             key={card.id}
-                            style={{ width: layout.cardWidth, flex: '0 0 auto' }}
+                            style={{
+                              width: layout.cardWidth,
+                              flex: '0 0 auto',
+                            }}
                           >
                             <CardGridItem
                               card={card}

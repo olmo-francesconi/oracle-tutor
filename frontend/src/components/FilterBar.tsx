@@ -10,12 +10,48 @@ interface FilterBarProps {
 }
 
 const COLORS = [
-  { value: 'W', label: 'White', color: 'bg-[#f0f0e0]', text: 'text-[#4a4a4a]', glow: 'shadow-[0_0_10px_rgba(240,240,224,0.4)]' },
-  { value: 'U', label: 'Blue', color: 'bg-[#c1d7e8]', text: 'text-[#1e3a8a]', glow: 'shadow-[0_0_10px_rgba(193,215,232,0.4)]' },
-  { value: 'B', label: 'Black', color: 'bg-[#bab1ab]', text: 'text-[#1c1c1c]', glow: 'shadow-[0_0_10px_rgba(186,177,171,0.4)]' },
-  { value: 'R', label: 'Red', color: 'bg-[#e8c1c1]', text: 'text-[#7f1d1d]', glow: 'shadow-[0_0_10px_rgba(232,193,193,0.4)]' },
-  { value: 'G', label: 'Green', color: 'bg-[#c6e0c8]', text: 'text-[#14532d]', glow: 'shadow-[0_0_10px_rgba(198,224,200,0.4)]' },
-  { value: 'C', label: 'Colorless', color: 'bg-[#dcdcdc]', text: 'text-[#475569]', glow: 'shadow-[0_0_10px_rgba(220,220,220,0.4)]' },
+  {
+    value: 'W',
+    label: 'White',
+    color: 'bg-[#f0f0e0]',
+    text: 'text-[#4a4a4a]',
+    glow: 'shadow-[0_0_10px_rgba(240,240,224,0.4)]',
+  },
+  {
+    value: 'U',
+    label: 'Blue',
+    color: 'bg-[#c1d7e8]',
+    text: 'text-[#1e3a8a]',
+    glow: 'shadow-[0_0_10px_rgba(193,215,232,0.4)]',
+  },
+  {
+    value: 'B',
+    label: 'Black',
+    color: 'bg-[#bab1ab]',
+    text: 'text-[#1c1c1c]',
+    glow: 'shadow-[0_0_10px_rgba(186,177,171,0.4)]',
+  },
+  {
+    value: 'R',
+    label: 'Red',
+    color: 'bg-[#e8c1c1]',
+    text: 'text-[#7f1d1d]',
+    glow: 'shadow-[0_0_10px_rgba(232,193,193,0.4)]',
+  },
+  {
+    value: 'G',
+    label: 'Green',
+    color: 'bg-[#c6e0c8]',
+    text: 'text-[#14532d]',
+    glow: 'shadow-[0_0_10px_rgba(198,224,200,0.4)]',
+  },
+  {
+    value: 'C',
+    label: 'Colorless',
+    color: 'bg-[#dcdcdc]',
+    text: 'text-[#475569]',
+    glow: 'shadow-[0_0_10px_rgba(220,220,220,0.4)]',
+  },
 ]
 
 const FORMATS = [
@@ -42,7 +78,10 @@ const CARD_TYPES = [
 
 interface FilterInputsProps {
   localFilters: FilterState
-  updateFilter: <K extends keyof FilterState>(key: K, value: FilterState[K]) => void
+  updateFilter: <K extends keyof FilterState>(
+    key: K,
+    value: FilterState[K]
+  ) => void
   handleColorClick: (color: string) => void
   isMobile?: boolean
 }
@@ -54,7 +93,12 @@ function FilterInputs({
   isMobile = false,
 }: FilterInputsProps) {
   return (
-    <div className={cn("flex flex-col items-center gap-4", isMobile && "w-full gap-6")}>
+    <div
+      className={cn(
+        'flex flex-col items-center gap-4',
+        isMobile && 'w-full gap-6'
+      )}
+    >
       {/* Row 1: Colors */}
       <div className="flex items-center gap-2">
         {COLORS.map((c) => {
@@ -76,24 +120,34 @@ function FilterInputs({
           )
         })}
       </div>
-      
+
       {/* Row 2: Mode Buttons */}
       <div className="flex items-center gap-2">
         {/* Match Mode Selector */}
         <button
           onClick={() => {
-            const modes: ('at_least' | 'at_most' | 'exact')[] = ['at_least', 'at_most', 'exact']
+            const modes: ('at_least' | 'at_most' | 'exact')[] = [
+              'at_least',
+              'at_most',
+              'exact',
+            ]
             const current = localFilters.matchMode || 'at_least'
             const next = modes[(modes.indexOf(current) + 1) % modes.length]
             updateFilter('matchMode', next)
           }}
           className={cn(
             'flex h-8 w-32 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-[#333] px-3 text-xs font-bold whitespace-nowrap transition-all hover:bg-[#404040] hover:text-[#f5f2eb]',
-            localFilters.matchMode && localFilters.matchMode !== 'at_least' ? 'text-[#e3dccb] border-[#e3dccb]/30' : 'text-[#737373]'
+            localFilters.matchMode && localFilters.matchMode !== 'at_least'
+              ? 'border-[#e3dccb]/30 text-[#e3dccb]'
+              : 'text-[#737373]'
           )}
           title="Color Match Mode"
         >
-          {localFilters.matchMode === 'exact' ? 'Exact' : localFilters.matchMode === 'at_most' ? 'At Most' : 'At Least'}
+          {localFilters.matchMode === 'exact'
+            ? 'Exact'
+            : localFilters.matchMode === 'at_most'
+              ? 'At Most'
+              : 'At Least'}
         </button>
 
         {/* Color Feature Selector */}
@@ -101,12 +155,15 @@ function FilterInputs({
           onClick={() => {
             const features: ('identity' | 'colors')[] = ['identity', 'colors']
             const current = localFilters.colorFeature || 'identity'
-            const next = features[(features.indexOf(current) + 1) % features.length]
+            const next =
+              features[(features.indexOf(current) + 1) % features.length]
             updateFilter('colorFeature', next)
           }}
           className={cn(
             'flex h-8 w-32 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-[#333] px-3 text-xs font-bold whitespace-nowrap transition-all hover:bg-[#404040] hover:text-[#f5f2eb]',
-            localFilters.colorFeature === 'colors' ? 'text-[#e3dccb] border-[#e3dccb]/30' : 'text-[#737373]'
+            localFilters.colorFeature === 'colors'
+              ? 'border-[#e3dccb]/30 text-[#e3dccb]'
+              : 'text-[#737373]'
           )}
           title="Filter by Color Identity or Mana Cost"
         >
@@ -121,7 +178,7 @@ function FilterInputs({
       <div className="flex items-center gap-4">
         {/* CMC */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-[#737373]">
+          <span className="text-xs font-bold tracking-wider text-[#737373] uppercase">
             CMC
           </span>
           <div className="flex items-center rounded-lg border border-white/10 bg-[#333]">
@@ -137,7 +194,7 @@ function FilterInputs({
                   e.target.value ? Number(e.target.value) : undefined
                 )
               }
-              className="h-10 w-12 flex-1 rounded-l-lg bg-transparent px-2 text-center text-base md:text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="h-10 w-12 flex-1 [appearance:textfield] rounded-l-lg bg-transparent px-2 text-center text-base font-medium text-[#f5f2eb] transition-colors outline-none hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent md:text-sm [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
             <div className="h-4 w-px bg-white/10" />
             <input
@@ -152,7 +209,7 @@ function FilterInputs({
                   e.target.value ? Number(e.target.value) : undefined
                 )
               }
-              className="h-10 w-12 flex-1 rounded-r-lg bg-transparent px-2 text-center text-base md:text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="h-10 w-12 flex-1 [appearance:textfield] rounded-r-lg bg-transparent px-2 text-center text-base font-medium text-[#f5f2eb] transition-colors outline-none hover:bg-[#404040] focus:bg-[#404040] focus:placeholder-transparent md:text-sm [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
           </div>
         </div>
@@ -163,7 +220,7 @@ function FilterInputs({
             const rarities = ['common', 'uncommon', 'rare', 'mythic']
             const current = localFilters.rarity
             let next: string | undefined
-            
+
             if (!current) {
               next = 'common'
             } else {
@@ -178,11 +235,16 @@ function FilterInputs({
           }}
           className={cn(
             'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 text-xs font-bold transition-all',
-            !localFilters.rarity && 'bg-[#333] text-[#737373] hover:bg-[#404040]',
-            localFilters.rarity === 'common' && 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
-            localFilters.rarity === 'uncommon' && 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-            localFilters.rarity === 'rare' && 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-            localFilters.rarity === 'mythic' && 'bg-orange-600/20 text-orange-400 border-orange-600/30'
+            !localFilters.rarity &&
+              'bg-[#333] text-[#737373] hover:bg-[#404040]',
+            localFilters.rarity === 'common' &&
+              'border-zinc-500/30 bg-zinc-500/20 text-zinc-400',
+            localFilters.rarity === 'uncommon' &&
+              'border-blue-500/30 bg-blue-500/20 text-blue-300',
+            localFilters.rarity === 'rare' &&
+              'border-amber-500/30 bg-amber-500/20 text-amber-300',
+            localFilters.rarity === 'mythic' &&
+              'border-orange-600/30 bg-orange-600/20 text-orange-400'
           )}
           title="Rarity"
         >
@@ -200,7 +262,7 @@ function FilterInputs({
           onChange={(e) =>
             updateFilter('cardType', e.target.value || undefined)
           }
-          className="h-10 w-32 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:border-[#e3dccb]/50"
+          className="h-10 w-32 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] transition-colors outline-none hover:bg-[#404040] focus:border-[#e3dccb]/50"
         >
           <option value="">Type</option>
           {CARD_TYPES.map((t) => (
@@ -213,7 +275,7 @@ function FilterInputs({
         <select
           value={localFilters.format || ''}
           onChange={(e) => updateFilter('format', e.target.value || undefined)}
-          className="h-10 w-32 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] outline-none transition-colors hover:bg-[#404040] focus:border-[#e3dccb]/50"
+          className="h-10 w-32 rounded-lg border border-white/10 bg-[#333] px-3 text-sm font-medium text-[#f5f2eb] transition-colors outline-none hover:bg-[#404040] focus:border-[#e3dccb]/50"
         >
           <option value="">Format</option>
           {FORMATS.map((f) => (
@@ -261,7 +323,9 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
   }
 
   const handleColorClick = (color: string) => {
-    const currentColors = draftFilters.colors ? draftFilters.colors.split('') : []
+    const currentColors = draftFilters.colors
+      ? draftFilters.colors.split('')
+      : []
     const isSelected = currentColors.includes(color)
 
     let newColors = [...currentColors]
@@ -328,9 +392,11 @@ export function FilterBar({ filters, onFilterChange }: FilterBarProps) {
         ? createPortal(
             <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60 backdrop-blur-sm">
               <div className="flex min-h-full items-start justify-center p-4 sm:items-center">
-                <div className="w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-white/10 bg-[#1c1c1c] p-6 shadow-2xl">
+                <div className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#1c1c1c] p-6 shadow-2xl">
                   <div className="mb-6 flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-[#f5f2eb]">Filters</h3>
+                    <h3 className="text-lg font-bold text-[#f5f2eb]">
+                      Filters
+                    </h3>
                     <button
                       onClick={() => {
                         setLocalFilters(filters)

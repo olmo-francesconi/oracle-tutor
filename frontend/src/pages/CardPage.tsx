@@ -92,7 +92,9 @@ export function CardPage() {
 
   // Main card image usually defaults to front face
   const mainCardImageUrl = getCardImageUrl(card)
-  const cardDescription = [displayType, displayOracle].filter(Boolean).join('. ')
+  const cardDescription = [displayType, displayOracle]
+    .filter(Boolean)
+    .join('. ')
   const truncatedDescription =
     cardDescription.length > 160
       ? `${cardDescription.slice(0, 157)}...`
@@ -102,7 +104,8 @@ export function CardPage() {
     '@context': 'https://schema.org',
     '@type': 'CreativeWork',
     name: card.name,
-    description: truncatedDescription || `${card.name} — Magic: The Gathering card.`,
+    description:
+      truncatedDescription || `${card.name} — Magic: The Gathering card.`,
     image: mainCardImageUrl,
   }
 
@@ -110,14 +113,14 @@ export function CardPage() {
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
       <PageSEO
         title={`${card.name} - Oracle Tutor`}
-        description={truncatedDescription || `${card.name} — Magic: The Gathering card.`}
+        description={
+          truncatedDescription || `${card.name} — Magic: The Gathering card.`
+        }
         path={`/card/${id}`}
         image={mainCardImageUrl}
       />
       <Helmet>
-        <script type="application/ld+json">
-          {JSON.stringify(jsonLd)}
-        </script>
+        <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
       </Helmet>
       {/* Overlay Component */}
       {selectedCard && (
