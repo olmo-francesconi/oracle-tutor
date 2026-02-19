@@ -455,7 +455,7 @@ export function FilterBar({ filters, onFilterChange, variant = 'button' }: Filte
   const [isModalOpen, setIsModalOpen] = useState(false)
 
   useEffect(() => {
-    if (!hasChanges) setLocalFilters(filters)
+    if (!hasChanges) queueMicrotask(() => setLocalFilters(filters))
   }, [filters, hasChanges])
 
   // If the user hasn't modified the draft, always reflect the latest committed filters.

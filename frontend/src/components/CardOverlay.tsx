@@ -38,7 +38,7 @@ export function CardOverlay({
 
   // Hide image when card changes; show when new image loads
   useEffect(() => {
-    setIsImageLoaded(false)
+    queueMicrotask(() => setIsImageLoaded(false))
   }, [initialCard.id])
 
   // Fetch the full card details to get faces and correct full name

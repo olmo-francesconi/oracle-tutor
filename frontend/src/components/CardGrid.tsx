@@ -57,7 +57,7 @@ function AnimatedCount({ value }: { value: number }) {
 
     if (target <= start) {
       prevRef.current = target
-      setDisplay(target)
+      queueMicrotask(() => setDisplay(target))
       return
     }
 
@@ -221,12 +221,14 @@ export function CardGrid({
   useEffect(() => {
     if (!bestSectionKey || initialCollapsedRef.current) return
     initialCollapsedRef.current = true
-    setCollapsedSections((prev) => {
-      const next = { ...prev }
-      for (const { key } of groupedCards) {
-        next[key] = key !== bestSectionKey
-      }
-      return next
+    queueMicrotask(() => {
+      setCollapsedSections((prev) => {
+        const next = { ...prev }
+        for (const { key } of groupedCards) {
+          next[key] = key !== bestSectionKey
+        }
+        return next
+      })
     })
   }, [bestSectionKey, groupedCards])
 
@@ -262,9 +264,10 @@ export function CardGrid({
     fetchNextPage,
   ])
 
+  const searchOrQueryKey = queryKey ?? searchQuery
   useEffect(() => {
-    setUserRequestedDefaultLoad(false)
-  }, [queryKey ?? searchQuery])
+    queueMicrotask(() => setUserRequestedDefaultLoad(false))
+  }, [searchOrQueryKey])
 
   // Scroll to top when search query changes
   useEffect(() => {
