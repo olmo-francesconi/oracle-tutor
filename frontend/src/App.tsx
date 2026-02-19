@@ -1,11 +1,13 @@
+import { lazy, Suspense } from 'react'
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import { DeveloperLinks } from './components/DeveloperLinks'
 import { PageSEO } from './components/PageSEO'
 import { SearchCard } from './components/SearchCard'
 import { MobileBottomBar } from './components/MobileBottomBar'
-import { CardPage } from './pages/CardPage'
-import { OracleSearchPage } from './pages/OracleSearchPage'
 import { DEFAULT_DESCRIPTION, DEFAULT_TITLE } from './lib/seo'
+
+const CardPage = lazy(() => import('./pages/CardPage'))
+const OracleSearchPage = lazy(() => import('./pages/OracleSearchPage'))
 
 function Home() {
   return (
@@ -47,12 +49,13 @@ function App() {
   return (
     <Router>
       <div className="relative min-h-screen bg-transparent text-[#f5f1e8]">
-        {/* Header/Nav can be added here if needed, but legacy Home was centered without a top nav */}
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/card/:id" element={<CardPage />} />
-          <Route path="/search" element={<OracleSearchPage />} />
-        </Routes>
+        <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-[#d4d4d4]">Loading…</div>}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/card/:id" element={<CardPage />} />
+            <Route path="/search" element={<OracleSearchPage />} />
+          </Routes>
+        </Suspense>
       </div>
     </Router>
   )

@@ -16,7 +16,7 @@ import { SymbolText } from '../components/SymbolText'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl } from '../utils'
 
-export function CardPage() {
+export default function CardPage() {
   const { id } = useParams<{ id: string }>()
   const [selected, setSelected] = useState<{
     routeId: string

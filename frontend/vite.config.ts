@@ -19,6 +19,25 @@ export default defineConfig(({ mode }) => {
     define: {
       APP_VERSION: JSON.stringify(pkg.version),
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react-dom') || id.includes('react/')) return 'react-vendor'
+              if (id.includes('react-router')) return 'router'
+              if (id.includes('@tanstack/react-query')) return 'query'
+              if (id.includes('framer-motion')) return 'framer-motion'
+              if (id.includes('@phosphor-icons')) return 'phosphor-icons'
+              if (id.includes('react-helmet-async')) return 'helmet'
+              if (id.includes('axios')) return 'axios'
+              // other node_modules → shared vendor chunk
+              return 'vendor'
+            }
+          },
+        },
+      },
+    },
     server: {
       // Allow local/dev hosts while keeping explicit production domain(s).
       // Note: Vite uses `allowedHosts` to protect against DNS rebinding attacks.

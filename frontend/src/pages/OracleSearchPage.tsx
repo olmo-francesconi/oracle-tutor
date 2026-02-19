@@ -18,7 +18,7 @@ import { MobileResultsHeader } from '../components/MobileResultsHeader'
 import { MobileBottomBar } from '../components/MobileBottomBar'
 import type { FilterState, SimilarCard } from '../types'
 
-export function OracleSearchPage() {
+export default function OracleSearchPage() {
   const [searchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
   const navigate = useNavigate()
