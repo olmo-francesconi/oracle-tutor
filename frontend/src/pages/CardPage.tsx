@@ -14,9 +14,10 @@ import { MobileBottomBar } from '../components/MobileBottomBar'
 import { PageSEO } from '../components/PageSEO'
 import { SymbolText } from '../components/SymbolText'
 import type { FilterState, SimilarCard } from '../types'
+import { getBaseUrl } from '../lib/seo'
 import { getCardImageUrl } from '../utils'
 
-export function CardPage() {
+export default function CardPage() {
   const { id } = useParams<{ id: string }>()
   const [selected, setSelected] = useState<{
     routeId: string
@@ -62,6 +63,21 @@ export function CardPage() {
     return similarData?.pages.flatMap((page) => page) || []
   }, [similarData])
 
+  const navigableCards = useMemo(() => {
+    if (!card) return similarCards
+    const mainAsSimilar = { ...card, similarity: 1 } as SimilarCard
+    return [mainAsSimilar, ...similarCards]
+  }, [card, similarCards])
+
+  const currentIndex =
+    selectedCard != null
+      ? navigableCards.findIndex((c) => c.id === selectedCard.id)
+      : -1
+
+  const hasPrev = currentIndex > 0
+  const hasNext =
+    currentIndex >= 0 && currentIndex < navigableCards.length - 1
+
   // Handle keyboard ESC to close overlay
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -70,6 +86,26 @@ export function CardPage() {
     window.addEventListener('keydown', handleEsc)
     return () => window.removeEventListener('keydown', handleEsc)
   }, [])
+
+  // Prefetch next page when viewing a card near the end of loaded results
+  useEffect(() => {
+    if (
+      selectedCard &&
+      currentIndex >= 0 &&
+      currentIndex >= navigableCards.length - 10 &&
+      hasNextPage &&
+      !isFetchingNextPage
+    ) {
+      fetchNextPage()
+    }
+  }, [
+    selectedCard,
+    currentIndex,
+    navigableCards.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ])
 
   if (cardLoading)
     return (
@@ -92,36 +128,58 @@ export function CardPage() {
 
   // Main card image usually defaults to front face
   const mainCardImageUrl = getCardImageUrl(card)
-  const cardDescription = [displayType, displayOracle].filter(Boolean).join('. ')
+  const cardDescription = [displayType, displayOracle]
+    .filter(Boolean)
+    .join('. ')
   const truncatedDescription =
     cardDescription.length > 160
       ? `${cardDescription.slice(0, 157)}...`
       : cardDescription
 
+  const cardPageUrl = `${getBaseUrl()}/card/${id}`
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'CreativeWork',
     name: card.name,
-    description: truncatedDescription || `${card.name} — Magic: The Gathering card.`,
+    description:
+      truncatedDescription || `${card.name} — Magic: The Gathering card.`,
     image: mainCardImageUrl,
+    url: cardPageUrl,
   }
 
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
       <PageSEO
         title={`${card.name} - Oracle Tutor`}
-        description={truncatedDescription || `${card.name} — Magic: The Gathering card.`}
+        description={
+          truncatedDescription || `${card.name} — Magic: The Gathering card.`
+        }
         path={`/card/${id}`}
         image={mainCardImageUrl}
       />
       <Helmet>
-        <script type="application/ld+json">
-          {JSON.stringify(jsonLd)}
-        </script>
+        <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
       </Helmet>
       {/* Overlay Component */}
       {selectedCard && (
-        <CardOverlay card={selectedCard} onClose={() => setSelected(null)} />
+        <CardOverlay
+          card={selectedCard}
+          onClose={() => setSelected(null)}
+          hasPrev={hasPrev}
+          hasNext={hasNext}
+          onPrev={() =>
+            setSelected({
+              routeId: id ?? '',
+              card: navigableCards[currentIndex - 1],
+            })
+          }
+          onNext={() =>
+            setSelected({
+              routeId: id ?? '',
+              card: navigableCards[currentIndex + 1],
+            })
+          }
+        />
       )}
 
       {/* Mobile Drawer - Card Details */}
@@ -261,6 +319,7 @@ export function CardPage() {
         hasNextPage={!!hasNextPage}
         fetchNextPage={fetchNextPage}
         onCardClick={(c) => setSelected({ routeId: id ?? '', card: c })}
+        queryKey={id}
         filters={filters}
         onFilterChange={setFilters}
       />

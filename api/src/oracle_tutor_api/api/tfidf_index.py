@@ -24,6 +24,9 @@ from .oracle_tokenizer import (
 
 logger = logging.getLogger("oracle_tutor_api.api")
 
+# Max results kept when ranking for pagination
+DEFAULT_CACHE_TOP_K = 1000
+
 
 def _parse_colors(colors: str | None) -> set[str]:
     if not colors:
@@ -167,7 +170,7 @@ class TfidfIndex:
         rarity: str | None = None,
         match_mode: str = "at_least",
         color_feature: str = "identity",
-        cache_top_k: int = 1000,
+        cache_top_k: int = DEFAULT_CACHE_TOP_K,
     ) -> List[Tuple[int, float]]:
         if not self.face_ids:
             return []
@@ -242,7 +245,7 @@ class TfidfIndex:
         rarity: str | None = None,
         match_mode: str = "at_least",
         color_feature: str = "identity",
-        cache_top_k: int = 1000,
+        cache_top_k: int = DEFAULT_CACHE_TOP_K,
     ) -> List[Tuple[int, float]]:
         if not self.face_ids:
             return []

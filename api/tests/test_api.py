@@ -138,3 +138,40 @@ def test_internal_rebuild_clears_rebuild_state_after_success(client, monkeypatch
     assert res.status_code == 200
     assert api_main._tfidf_rebuild_in_progress is False
 
+
+def test_internal_rebuild_accepts_worker_via_dns_resolved_hostname(client, monkeypatch):
+    """
+    When allowlist has hostname (e.g. worker.railway.internal) but request comes as IP,
+    API resolves hostname via DNS and accepts if IP matches.
+    """
+    import oracle_tutor_api.api.main as api_main
+
+    # Simulate Railway: request appears from worker container IP
+    # Allowlist has hostname worker.railway.internal
+    monkeypatch.setattr("oracle_tutor_api.api.main.WORKER_TRIGGER_TOKEN", "secret-token")
+    monkeypatch.setattr(
+        "oracle_tutor_api.api.main.WORKER_TRIGGER_ALLOWLIST",
+        ("worker.railway.internal",),
+    )
+    monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", True)
+    monkeypatch.setattr("oracle_tutor_api.api.main._rebuild_tfidf_index", lambda **_: "v123")
+
+    # Mock DNS: worker.railway.internal resolves to 10.64.1.42 (typical Railway internal IP)
+    monkeypatch.setattr(
+        "oracle_tutor_api.api.main._resolve_hostname_to_ips",
+        lambda h: ["10.64.1.42"] if h == "worker.railway.internal" else [],
+    )
+
+    # X-Forwarded-For simulates Railway/proxy forwarding the worker's real IP
+    res = client.post(
+        "/internal/rebuild-tfidf",
+        headers={
+            "X-Worker-Token": "secret-token",
+            "X-Forwarded-For": "10.64.1.42",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["rebuilt"] is True
+

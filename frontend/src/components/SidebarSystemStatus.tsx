@@ -49,9 +49,7 @@ export function SidebarSystemStatus() {
             <div className="mt-1 flex items-center justify-between">
               <span className="text-[#a3a3a3]">Status</span>
               <span
-                className={cn(
-                  isHealthy ? 'text-emerald-600' : 'text-red-600'
-                )}
+                className={cn(isHealthy ? 'text-emerald-600' : 'text-red-600')}
               >
                 {apiStatus}
               </span>
@@ -60,7 +58,7 @@ export function SidebarSystemStatus() {
         ) : null}
       </AnimatePresence>
 
-      <div className="flex items-center gap-2 text-[10px] font-medium tracking-[0.2em] uppercase text-[#1c1c1c]/40 transition-colors hover:text-[#1c1c1c]/60">
+      <div className="flex items-center gap-2 text-[10px] font-medium tracking-[0.2em] text-[#1c1c1c]/40 uppercase transition-colors hover:text-[#1c1c1c]/60">
         <span>System</span>
         <div
           className={cn(
@@ -72,4 +70,3 @@ export function SidebarSystemStatus() {
     </div>
   )
 }
-

@@ -61,18 +61,15 @@ export function MobileBottomBar() {
     <div
       className="fixed inset-x-0 bottom-0 z-40 md:hidden"
       style={{
-        transform: keyboardOffset ? `translateY(-${keyboardOffset}px)` : undefined,
+        transform: keyboardOffset
+          ? `translateY(-${keyboardOffset}px)`
+          : undefined,
         transition: 'transform 150ms ease-out',
       }}
     >
-      <div className="border-t border-white/10 bg-[#1c1c1c]/75 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-        <DeveloperLinks
-          variant="light"
-          split
-          className="px-3 py-2"
-        />
+      <div className="border-t border-white/10 bg-[#1c1c1c]/75 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
+        <DeveloperLinks variant="light" split className="px-3 py-2" />
       </div>
     </div>
   )
 }
-

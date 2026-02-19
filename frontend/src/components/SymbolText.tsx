@@ -45,15 +45,13 @@ function loadSymbology(): Promise<Map<string, SymbologySymbol>> {
     const res = await fetch('https://api.scryfall.com/symbology', {
       headers: { accept: 'application/json' },
     })
-    if (!res.ok) throw new Error(`Scryfall symbology fetch failed: ${res.status}`)
+    if (!res.ok)
+      throw new Error(`Scryfall symbology fetch failed: ${res.status}`)
     const json = (await res.json()) as SymbologyResponse
     const symbols = Array.isArray(json.data) ? json.data : []
 
     try {
-      localStorage.setItem(
-        LS_KEY,
-        JSON.stringify({ ts: Date.now(), symbols })
-      )
+      localStorage.setItem(LS_KEY, JSON.stringify({ ts: Date.now(), symbols }))
     } catch {
       // ignore quota errors
     }
@@ -107,7 +105,7 @@ export function SymbolText({
       out.push(
         <span
           key={`symrun-${runId++}`}
-          className="inline-flex whitespace-nowrap align-text-bottom"
+          className="inline-flex align-text-bottom whitespace-nowrap"
         >
           {symbolRun}
         </span>
@@ -164,4 +162,3 @@ export function SymbolText({
 
   return <>{nodes}</>
 }
-

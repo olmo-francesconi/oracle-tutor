@@ -3,9 +3,11 @@ from __future__ import annotations
 import gc
 import hmac
 import importlib.metadata
+import ipaddress
 import logging
 import os
 import resource
+import socket
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -189,6 +191,53 @@ def _extract_host_candidates(request: Request) -> list[str]:
     return out
 
 
+_DNS_RESOLVE_CACHE: dict[str, tuple[float, list[str]]] = {}
+_DNS_CACHE_TTL_SECONDS = 60.0
+
+
+def _is_ip_address(s: str) -> bool:
+    """Return True if s is a valid IPv4 or IPv6 address."""
+    s = (s or "").strip()
+    if not s:
+        return False
+    try:
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_hostname_to_ips(hostname: str) -> list[str]:
+    """
+    Resolve hostname to list of IP addresses (IPv4 and IPv6).
+    Uses in-memory cache to avoid hammering internal DNS on every request.
+    """
+    hostname = hostname.strip().lower()
+    if not hostname or _is_ip_address(hostname):
+        return []
+    now = time.monotonic()
+    if hostname in _DNS_RESOLVE_CACHE:
+        cached_at, ips = _DNS_RESOLVE_CACHE[hostname]
+        if now - cached_at < _DNS_CACHE_TTL_SECONDS:
+            return ips
+    try:
+        # Get both IPv4 and IPv6 addresses
+        results = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        ips: list[str] = []
+        seen: set[str] = set()
+        for family, _, _, _, sockaddr in results:
+            raw = sockaddr[0] if sockaddr else ""
+            addr = str(raw) if isinstance(raw, str) else ""
+            if addr and addr not in seen:
+                seen.add(addr)
+                ips.append(addr.lower() if ":" in addr else addr)
+        _DNS_RESOLVE_CACHE[hostname] = (now, ips)
+        return ips
+    except (socket.gaierror, OSError) as e:
+        logger.debug("DNS resolution failed for %s: %s", hostname, e)
+        return []
+
+
 def _host_matches_allowlist(host: str, allowlist: tuple[str, ...]) -> bool:
     host_norm = host.strip().lower()
     if not host_norm:
@@ -197,10 +246,23 @@ def _host_matches_allowlist(host: str, allowlist: tuple[str, ...]) -> bool:
         allow = allowed.strip().lower()
         if not allow:
             continue
+        # Direct string match (hostname or IP)
         if host_norm == allow:
             return True
         if host_norm.endswith(f".{allow}"):
             return True
+        # Allowlist has hostname but request has IP: resolve hostname and check IP
+        if not _is_ip_address(allow) and _is_ip_address(host_norm):
+            resolved_ips = _resolve_hostname_to_ips(allow)
+            for ip in resolved_ips:
+                if host_norm == ip:
+                    return True
+                # Handle IPv6 variations (e.g. ::1 vs 0:0:0:0:0:0:0:1)
+                try:
+                    if ipaddress.ip_address(host_norm) == ipaddress.ip_address(ip):
+                        return True
+                except ValueError:
+                    pass
     return False
 
 

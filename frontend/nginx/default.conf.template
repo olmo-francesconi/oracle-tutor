@@ -33,12 +33,19 @@ server {
   location ^~ /phpmyadmin { return 444; }
 
   # Serve the SPA (React router) with an index.html fallback.
+  # Crawler allowlist: return 403 for bots on disallowed paths.
   location / {
+    set $block_bot 0;
+    if ($is_bot) { set $block_bot "${block_bot}1"; }
+    if ($bot_allowed_path = 0) { set $block_bot "${block_bot}1"; }
+    if ($block_bot = 011) { return 403; }
     try_files $uri $uri/ /index.html;
   }
 
   # Same-origin API proxy: frontend calls /api/*, backend expects /*.
+  # Crawler allowlist: block bots from API entirely.
   location ^~ /api/ {
+    if ($is_bot) { return 403; }
     # Assign to variable to force dynamic resolution
     # Must be set BEFORE it is used or rewritten to avoid "uninitialized variable" warnings.
     set $upstream_target ${API_PROXY_TARGET};

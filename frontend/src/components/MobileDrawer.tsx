@@ -10,7 +10,12 @@ interface MobileDrawerProps {
   children: ReactNode
 }
 
-export function MobileDrawer({ isOpen, title, onClose, children }: MobileDrawerProps) {
+export function MobileDrawer({
+  isOpen,
+  title,
+  onClose,
+  children,
+}: MobileDrawerProps) {
   // Lock body scroll while open (matches CardOverlay pattern).
   useEffect(() => {
     if (!isOpen) return
@@ -40,11 +45,9 @@ export function MobileDrawer({ isOpen, title, onClose, children }: MobileDrawerP
           />
 
           {/* Panel (near full-screen sheet; leaves a tappable backdrop margin) */}
-          <motion.div
-            className="absolute inset-0 flex p-3 pointer-events-none"
-          >
+          <motion.div className="pointer-events-none absolute inset-0 flex p-3">
             <motion.div
-              className="flex h-full w-full flex-col overflow-hidden rounded-2xl bg-[#f5f2eb] text-[#1c1c1c] shadow-2xl ring-1 ring-black/10 pointer-events-auto"
+              className="pointer-events-auto flex h-full w-full flex-col overflow-hidden rounded-2xl bg-[#f5f2eb] text-[#1c1c1c] shadow-2xl ring-1 ring-black/10"
               initial={{ x: 24, opacity: 0.9 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 24, opacity: 0.9 }}
@@ -75,4 +78,3 @@ export function MobileDrawer({ isOpen, title, onClose, children }: MobileDrawerP
     document.body
   )
 }
-

@@ -1,7 +1,12 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { ArrowLeft } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom'
 import { OracleInput } from '../components/OracleInput'
 import { PageSEO } from '../components/PageSEO'
 import { searchOracleText } from '../api'
@@ -13,7 +18,7 @@ import { MobileResultsHeader } from '../components/MobileResultsHeader'
 import { MobileBottomBar } from '../components/MobileBottomBar'
 import type { FilterState, SimilarCard } from '../types'
 
-export function OracleSearchPage() {
+export default function OracleSearchPage() {
   const [searchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
   const navigate = useNavigate()
@@ -48,6 +53,14 @@ export function OracleSearchPage() {
     return similarData?.pages.flatMap((page) => page) || []
   }, [similarData])
 
+  const currentIndex =
+    selectedCard != null
+      ? similarCards.findIndex((c) => c.id === selectedCard.id)
+      : -1
+  const hasPrev = currentIndex > 0
+  const hasNext =
+    currentIndex >= 0 && currentIndex < similarCards.length - 1
+
   const handleSearch = (e?: React.FormEvent) => {
     e?.preventDefault()
     if (searchTerm.trim()) {
@@ -68,6 +81,26 @@ export function OracleSearchPage() {
     return () => window.removeEventListener('keydown', handleEsc)
   }, [])
 
+  // Prefetch next page when viewing a card near the end of loaded results
+  useEffect(() => {
+    if (
+      selectedCard &&
+      currentIndex >= 0 &&
+      currentIndex >= similarCards.length - 10 &&
+      hasNextPage &&
+      !isFetchingNextPage
+    ) {
+      fetchNextPage()
+    }
+  }, [
+    selectedCard,
+    currentIndex,
+    similarCards.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ])
+
   const noResultsMessage = (
     <div className="text-center text-[#737373]">
       <p className="mb-2 text-lg font-medium">No results found</p>
@@ -75,7 +108,9 @@ export function OracleSearchPage() {
     </div>
   )
 
-  const searchTitle = query ? `"${query}" - Oracle Tutor` : 'Oracle search - Oracle Tutor'
+  const searchTitle = query
+    ? `"${query}" - Oracle Tutor`
+    : 'Oracle search - Oracle Tutor'
   const searchDescription = query
     ? `Search results for «${query}». Find Magic: The Gathering cards by semantic meaning.`
     : 'Search for Magic: The Gathering cards by what they do. Oracle Tutor finds cards by semantic meaning.'
@@ -88,105 +123,113 @@ export function OracleSearchPage() {
         path={canonicalPath}
       />
       <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:flex-row">
-      {/* Overlay Component */}
-      {selectedCard && (
-        <CardOverlay
-          card={selectedCard}
-          onClose={() => setSelectedCard(null)}
-        />
-      )}
-
-      {/* Mobile Drawer - Search Details */}
-      <MobileDrawer
-        isOpen={isDrawerOpen}
-        title="Search"
-        onClose={() => setIsDrawerOpen(false)}
-      >
-        {/* Query "Paper" Container */}
-        <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
-          <div className="mb-2 h-40">
-            <OracleInput
-              value={searchTerm}
-              onChange={setSearchTerm}
-              onSearch={() => handleSearch()}
-              placeholder="Describe card meaning..."
-              className="h-full"
-            />
-          </div>
-
-          <div className="mt-4 border-t border-[#e5e5e5] pt-4">
-            <p className="text-sm leading-relaxed text-[#404040]">
-              Searching for cards with similar meaning to your query.
-            </p>
-          </div>
-        </div>
-
-        <div className="pt-6">
-          <DeveloperLinks variant="dark" />
-        </div>
-      </MobileDrawer>
-
-      {/* Sidebar - Search Details (desktop) */}
-      <div className="hidden h-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:flex md:w-[380px]">
-        <Link
-          to="/"
-          className="mb-6 flex items-center gap-2 text-[#525252] transition-colors hover:text-[#1c1c1c]"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to Search
-        </Link>
-
-        {/* Query "Paper" Container */}
-        <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
-
-          <div className="mb-2 h-40">
-            <OracleInput
-              value={searchTerm}
-              onChange={setSearchTerm}
-              onSearch={() => handleSearch()}
-              placeholder="Describe card meaning..."
-              className="h-full"
-            />
-          </div>
-
-          <div className="mt-4 border-t border-[#e5e5e5] pt-4">
-            <p className="text-sm leading-relaxed text-[#404040]">
-              Searching for cards with similar meaning to your query.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-auto flex items-end justify-between gap-6 pt-6">
-          <DeveloperLinks variant="dark" />
-        </div>
-      </div>
-
-      {/* Main Content - Results Grid */}
-      <CardGrid
-        header={
-          <MobileResultsHeader
-            backTo="/"
-            title={query || 'Oracle search'}
-            titleVariant="oracle"
-            drawerLabel="Search"
-            onOpenDrawer={() => setIsDrawerOpen(true)}
-            filters={filters}
-            onFilterChange={setFilters}
+        {/* Overlay Component */}
+        {selectedCard && (
+          <CardOverlay
+            card={selectedCard}
+            onClose={() => setSelectedCard(null)}
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+            onPrev={() =>
+              setSelectedCard(similarCards[currentIndex - 1])
+            }
+            onNext={() =>
+              setSelectedCard(similarCards[currentIndex + 1])
+            }
           />
-        }
-        cards={similarCards}
-        isLoading={similarLoading}
-        isFetchingNextPage={isFetchingNextPage}
-        hasNextPage={!!hasNextPage}
-        fetchNextPage={fetchNextPage}
-        onCardClick={setSelectedCard}
-        noResultsMessage={noResultsMessage}
-        searchQuery={query}
-        filters={filters}
-        onFilterChange={setFilters}
-      />
+        )}
 
-      <MobileBottomBar />
-    </div>
+        {/* Mobile Drawer - Search Details */}
+        <MobileDrawer
+          isOpen={isDrawerOpen}
+          title="Search"
+          onClose={() => setIsDrawerOpen(false)}
+        >
+          {/* Query "Paper" Container */}
+          <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
+            <div className="mb-2 h-40">
+              <OracleInput
+                value={searchTerm}
+                onChange={setSearchTerm}
+                onSearch={() => handleSearch()}
+                placeholder="Describe card meaning..."
+                className="h-full"
+              />
+            </div>
+
+            <div className="mt-4 border-t border-[#e5e5e5] pt-4">
+              <p className="text-sm leading-relaxed text-[#404040]">
+                Searching for cards with similar meaning to your query.
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-6">
+            <DeveloperLinks variant="dark" />
+          </div>
+        </MobileDrawer>
+
+        {/* Sidebar - Search Details (desktop) */}
+        <div className="hidden h-full flex-shrink-0 flex-col overflow-y-auto border-r border-[#e5e5e5] bg-[#f5f2eb] p-5 md:flex md:w-[380px]">
+          <Link
+            to="/"
+            className="mb-6 flex items-center gap-2 text-[#525252] transition-colors hover:text-[#1c1c1c]"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Search
+          </Link>
+
+          {/* Query "Paper" Container */}
+          <div className="rounded-xl border border-[#e5e5e5] bg-white p-5 text-[#1c1c1c] shadow-lg">
+            <div className="mb-2 h-40">
+              <OracleInput
+                value={searchTerm}
+                onChange={setSearchTerm}
+                onSearch={() => handleSearch()}
+                placeholder="Describe card meaning..."
+                className="h-full"
+              />
+            </div>
+
+            <div className="mt-4 border-t border-[#e5e5e5] pt-4">
+              <p className="text-sm leading-relaxed text-[#404040]">
+                Searching for cards with similar meaning to your query.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-auto flex items-end justify-between gap-6 pt-6">
+            <DeveloperLinks variant="dark" />
+          </div>
+        </div>
+
+        {/* Main Content - Results Grid */}
+        <CardGrid
+          header={
+            <MobileResultsHeader
+              backTo="/"
+              title={query || 'Oracle search'}
+              titleVariant="oracle"
+              drawerLabel="Search"
+              onOpenDrawer={() => setIsDrawerOpen(true)}
+              filters={filters}
+              onFilterChange={setFilters}
+            />
+          }
+          cards={similarCards}
+          isLoading={similarLoading}
+          isFetchingNextPage={isFetchingNextPage}
+          hasNextPage={!!hasNextPage}
+          fetchNextPage={fetchNextPage}
+          onCardClick={setSelectedCard}
+          noResultsMessage={noResultsMessage}
+          searchQuery={query}
+          queryKey={canonicalPath}
+          filters={filters}
+          onFilterChange={setFilters}
+        />
+
+        <MobileBottomBar />
+      </div>
     </>
   )
 }
