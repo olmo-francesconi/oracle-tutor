@@ -14,6 +14,7 @@ import { MobileBottomBar } from '../components/MobileBottomBar'
 import { PageSEO } from '../components/PageSEO'
 import { SymbolText } from '../components/SymbolText'
 import type { FilterState, SimilarCard } from '../types'
+import { getBaseUrl } from '../lib/seo'
 import { getCardImageUrl } from '../utils'
 
 export default function CardPage() {
@@ -135,6 +136,7 @@ export default function CardPage() {
       ? `${cardDescription.slice(0, 157)}...`
       : cardDescription
 
+  const cardPageUrl = `${getBaseUrl()}/card/${id}`
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'CreativeWork',
@@ -142,6 +144,7 @@ export default function CardPage() {
     description:
       truncatedDescription || `${card.name} — Magic: The Gathering card.`,
     image: mainCardImageUrl,
+    url: cardPageUrl,
   }
 
   return (

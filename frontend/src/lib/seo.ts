@@ -15,5 +15,5 @@ export function getBaseUrl(): string {
 export const DEFAULT_TITLE = 'Oracle Tutor'
 export const DEFAULT_DESCRIPTION =
   'Find Magic: The Gathering cards by semantic meaning. Search by what cards do, not just keywords.'
-/** Default social share image (use /og-default.png when you add a dedicated asset). */
-export const DEFAULT_OG_IMAGE_PATH = '/vite.svg'
+/** Default social share image. Prefer a 1200×630 asset at /og-default.png for better previews. */
+export const DEFAULT_OG_IMAGE_PATH = '/favicon.svg'

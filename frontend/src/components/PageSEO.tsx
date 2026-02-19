@@ -25,6 +25,8 @@ export function PageSEO({ title, description, path, image }: PageSEOProps) {
       <meta property="og:title" content={title} />
       <meta property="og:description" content={description} />
       <meta property="og:image" content={imageUrl} />
+      <meta property="og:site_name" content="Oracle Tutor" />
+      <meta property="og:locale" content="en" />
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={title} />
       <meta name="twitter:description" content={description} />
