@@ -55,12 +55,38 @@ class RebuildInProgressError(RuntimeError):
 
 
 def _rss_mb() -> float:
-    """Return current process RSS in MiB. Cross-platform (Linux: KB, macOS: bytes)."""
+    """
+    Return current process RSS in MiB.
+
+    Prefer psutil for an accurate "current RSS" measurement. Fall back to Linux /proc,
+    and lastly to ru_maxrss (peak RSS; monotonic, not suitable for "freed" deltas).
+    """
+    # 1) Best: psutil (cross-platform, current RSS).
+    try:
+        import psutil  # type: ignore
+
+        return float(psutil.Process().memory_info().rss) / (1024 * 1024)
+    except Exception:
+        pass
+
+    # 2) Linux fallback: /proc/self/statm (current RSS in pages).
+    try:
+        with open("/proc/self/statm", "r") as f:
+            parts = f.read().strip().split()
+        if len(parts) >= 2:
+            rss_pages = int(parts[1])
+            page_size = os.sysconf("SC_PAGE_SIZE")  # bytes
+            return float(rss_pages * page_size) / (1024 * 1024)
+    except Exception:
+        pass
+
+    # 3) Last resort: ru_maxrss (peak RSS; will not decrease).
     try:
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # Linux: KB, macOS: bytes
         if rss > 2**20:
-            return rss / (1024 * 1024)
-        return rss / 1024
+            return float(rss) / (1024 * 1024)
+        return float(rss) / 1024
     except Exception:
         return 0.0
 
@@ -70,13 +96,42 @@ def _gc_collect_and_log(context: str) -> None:
     before_mb = _rss_mb()
     collected = gc.collect()
     after_mb = _rss_mb()
+    freed_mb = max(0.0, before_mb - after_mb)
     logger.info(
         "Memory: %.1f MiB (GC collected %d objects, %.1f MiB freed) [%s]",
         after_mb,
         collected,
-        before_mb - after_mb,
+        freed_mb,
         context,
     )
+
+
+def _malloc_trim_best_effort(context: str) -> None:
+    """
+    Best-effort attempt to return freed heap pages back to the OS (Linux/glibc).
+
+    This can help RSS drop after large temporary allocations, but is allocator- and
+    platform-dependent. Guarded by env var to avoid surprising behavior.
+    """
+    if os.getenv("ORACLE_TUTOR_API_MALLOC_TRIM", "").strip() not in ("1", "true", "TRUE", "yes", "YES"):
+        return
+    try:
+        import ctypes
+
+        before_mb = _rss_mb()
+        libc = ctypes.CDLL("libc.so.6")
+        res = int(libc.malloc_trim(0))
+        after_mb = _rss_mb()
+        logger.info(
+            "Memory: %.1f MiB (malloc_trim=%s, %.1f MiB freed) [%s]",
+            after_mb,
+            "ok" if res == 1 else "noop",
+            max(0.0, before_mb - after_mb),
+            context,
+        )
+    except Exception:
+        # Best-effort only.
+        return
 
 
 def _get_db_data_version(db: Session) -> str | None:
@@ -131,7 +186,9 @@ def _rebuild_tfidf_index(db: Session | None = None, *, reason: str) -> str | Non
 
     logger.info("Starting TF-IDF rebuild. reason=%s", reason)
     try:
+        logger.info("TF-IDF rebuild memory before build: %.1f MiB", _rss_mb())
         new_index = build_tfidf_index(db)
+        logger.info("TF-IDF rebuild memory after build (pre-swap): %.1f MiB", _rss_mb())
         new_version = _get_db_data_version(db)
         # Atomic swap after successful build.
         with _tfidf_lock:
@@ -140,15 +197,16 @@ def _rebuild_tfidf_index(db: Session | None = None, *, reason: str) -> str | Non
             _tfidf_data_version = new_version
             _tfidf_last_version_check = time.monotonic()
         duration = _mark_rebuild_done()
-        # Prompt GC to free the replaced index and reduce memory footprint.
-        del old_index
-        _gc_collect_and_log("tfidf_rebuild_swap")
         logger.info(
             "TF-IDF rebuild completed and swapped. reason=%s version=%s duration_s=%.3f",
             reason,
             new_version,
             duration or 0.0,
         )
+        # Prompt GC to free the replaced index and reduce memory footprint.
+        del old_index
+        _gc_collect_and_log("tfidf_rebuild_post_swap")
+        _malloc_trim_best_effort("tfidf_rebuild_post_swap")
         return new_version
     except Exception:
         duration = _mark_rebuild_done()

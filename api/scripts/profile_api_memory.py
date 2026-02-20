@@ -28,13 +28,35 @@ if _api_dir not in sys.path:
 
 
 def _rss_mb() -> float:
-    """Return current process RSS in MiB. Cross-platform (Linux: KB, macOS: bytes)."""
+    """
+    Return current process RSS in MiB.
+
+    Prefer psutil for accurate current RSS; fall back to Linux /proc; lastly to ru_maxrss
+    (peak RSS; monotonic, not suitable for "freed" deltas).
+    """
+    try:
+        import psutil  # type: ignore
+
+        return float(psutil.Process().memory_info().rss) / (1024 * 1024)
+    except Exception:
+        pass
+
+    try:
+        with open("/proc/self/statm", "r") as f:
+            parts = f.read().strip().split()
+        if len(parts) >= 2:
+            rss_pages = int(parts[1])
+            page_size = os.sysconf("SC_PAGE_SIZE")  # bytes
+            return float(rss_pages * page_size) / (1024 * 1024)
+    except Exception:
+        pass
+
     try:
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         # Linux: KB, macOS: bytes
         if rss > 2**20:  # > 1M, likely bytes
-            return rss / (1024 * 1024)
-        return rss / 1024
+            return float(rss) / (1024 * 1024)
+        return float(rss) / 1024
     except Exception:
         return 0.0
 
