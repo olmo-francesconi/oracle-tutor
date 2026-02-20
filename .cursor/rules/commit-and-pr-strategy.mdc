@@ -30,6 +30,12 @@ alwaysApply: true
   - frontend: lint/build and manual verification steps
 - Note deployment or env-var implications when relevant.
 
+## Release and versioning workflow
+- **Production release:** merge `develop` into `production` with `--squash`.
+- **Tagging:** tag the resulting squashed commit on `production` with the version (e.g. `v1.4.0`). Push the tag: `git push origin v1.4.0`.
+- **Sync back:** merge `production` back into `develop` so develop stays in sync with what was released.
+- Version numbers for API (`api/pyproject.toml`) and frontend (`frontend/package.json`) are bumped on `develop` before the release; the tag reflects that version.
+
 ## Guardrails
 - Avoid mixing formatting-only churn with behavior changes in same commit when possible.
 - Do not rewrite shared history unless explicitly requested.
