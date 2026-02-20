@@ -1,0 +1,30 @@
+---
+description: Repository structure and ownership boundaries
+alwaysApply: true
+---
+
+# MTG Search Repo Architecture
+
+## Monorepo layout
+- `api/`: FastAPI backend + worker + tests (Python 3.12, uv-managed)
+- `frontend/`: React + TypeScript + Vite app
+- `.github/workflows/`: CI workflows
+- Root `README.md`: operational runbook and deployment overview
+
+## Backend structure (`api/src/oracle_tutor_api/`)
+- `api/`: HTTP endpoints and search API composition
+- `worker/`: one-shot ingestion/update jobs and data pipelines
+- `core/`: shared config, DB, models, logging, initialization
+- Keep transport concerns in `api/`, ingestion concerns in `worker/`, shared infra/domain helpers in `core/`.
+
+## Frontend structure (`frontend/src/`)
+- `components/`: reusable UI components
+- `pages/`: route-level page views
+- `lib/`: UI/shared helpers
+- `api.ts`: backend API integration point
+- Prefer page orchestration in `pages/`, reusable view logic in `components/`, pure helpers in `lib/`.
+
+## Architectural guardrails
+- Avoid backend-worker circular coupling except through explicit shared `core` utilities.
+- Avoid frontend components calling arbitrary fetch logic directly when a shared API module already exists.
+- Keep deployment/runtime concerns in Docker/nginx/workflow files, not business logic modules.
