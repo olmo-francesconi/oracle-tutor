@@ -21,6 +21,7 @@ export interface Card {
   rarity?: string
   colors?: string[]
   legalities?: Record<string, string>
+  uniqueness?: number
   faces?: CardFace[]
 }
 

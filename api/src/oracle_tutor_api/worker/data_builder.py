@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 import ijson
 import requests
-from sqlalchemy import delete, func, select
+from sqlalchemy import Table, bindparam, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from ..core.config import (
@@ -600,6 +600,105 @@ def ingest_data_diff(
         session.close()
 
 
+UNIQUENESS_THRESHOLD = 0.40
+UNIQUENESS_POWER = 2.0
+UNIQUENESS_BATCH_SIZE = 500
+
+
+def compute_and_store_uniqueness_scores(session) -> None:
+    """
+    Compute a uniqueness score (0-100) for every card and write it to the DB.
+
+    Algorithm:
+      1. Build TF-IDF index from all card faces (reuses the API's index builder).
+      2. For each face, sum sim^power for all above-threshold similarities
+         (excluding same-card faces). This "redundancy" captures both depth
+         and breadth of similar cards.
+      3. Aggregate to card level (max across faces).
+      4. Convert to uniqueness via log-scaled normalization:
+           uniqueness = 100 * (1 - log(1+raw) / log(1+max_raw))
+    """
+    import time
+
+    import numpy as np
+    from ..api.tfidf_index import build_tfidf_index
+
+    logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
+    t0 = time.perf_counter()
+
+    index = build_tfidf_index(session)
+    n = len(index.face_ids)
+    if n == 0:
+        logger.warning("No faces found; skipping uniqueness computation.")
+        return
+
+    matrix = index.matrix_l2
+    face_card_ids = index.face_card_ids
+
+    card_face_map: Dict[str, List[int]] = {}
+    for i, cid in enumerate(face_card_ids):
+        card_face_map.setdefault(cid, []).append(i)
+
+    face_redundancy = np.zeros(n, dtype=np.float64)
+
+    for batch_start in range(0, n, UNIQUENESS_BATCH_SIZE):
+        batch_end = min(batch_start + UNIQUENESS_BATCH_SIZE, n)
+        batch = matrix[batch_start:batch_end]
+
+        sims = batch @ matrix.T
+        try:
+            sims = np.asarray(sims.toarray())
+        except AttributeError:
+            sims = np.asarray(sims)
+
+        for i in range(batch_end - batch_start):
+            gi = batch_start + i
+            for j in card_face_map[face_card_ids[gi]]:
+                sims[i, j] = 0.0
+            row = sims[i]
+            above = row[row > UNIQUENESS_THRESHOLD]
+            face_redundancy[gi] = float(np.power(above, UNIQUENESS_POWER).sum())
+
+    # Aggregate face -> card (max redundancy across faces)
+    card_redundancy: Dict[str, float] = {}
+    for i, cid in enumerate(face_card_ids):
+        val = float(face_redundancy[i])
+        if cid not in card_redundancy or val > card_redundancy[cid]:
+            card_redundancy[cid] = val
+
+    # Log-scaled normalization -> uniqueness 0-100
+    raw_vals = np.array(list(card_redundancy.values()))
+    max_raw = float(raw_vals.max())
+    if max_raw <= 0:
+        card_uniqueness = {cid: 100.0 for cid in card_redundancy}
+    else:
+        log_max = float(np.log1p(max_raw))
+        card_uniqueness = {
+            cid: round(100.0 * (1.0 - float(np.log1p(raw)) / log_max), 2)
+            for cid, raw in card_redundancy.items()
+        }
+
+    from ..core.models import Card as CardTable
+    cards_table: Table = CardTable.__table__  # type: ignore[assignment]
+    stmt = (
+        update(cards_table)
+        .where(cards_table.c.id == bindparam("_id"))
+        .values(uniqueness=bindparam("_score"))
+    )
+    conn = session.connection()
+    mappings = [{"_id": cid, "_score": score} for cid, score in card_uniqueness.items()]
+    chunk_size = 1000
+    for i in range(0, len(mappings), chunk_size):
+        conn.execute(stmt, mappings[i : i + chunk_size])
+    session.commit()
+
+    elapsed = time.perf_counter() - t0
+    logger.info(
+        "Uniqueness scores computed and stored in %.1fs. cards=%d, max_redundancy=%.2f",
+        elapsed, len(card_uniqueness), max_raw,
+    )
+
+
 def update_scryfall_data(
     *,
     force: bool = False,
@@ -736,6 +835,13 @@ def update_scryfall_data(
             shutil.move(str(TEMP_CARDS_JSON), str(CARDS_JSON))
             if remote_meta:
                 save_local_metadata(remote_meta)
+
+        # Compute uniqueness scores now that all cards are in the DB.
+        try:
+            with SessionLocal() as uniqueness_session:
+                compute_and_store_uniqueness_scores(uniqueness_session)
+        except Exception as e:
+            logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
 
         logger.info("Ingestion succeeded; requesting API TF-IDF rebuild (best-effort).")
         trigger_tfidf_rebuild_best_effort(async_call=True)

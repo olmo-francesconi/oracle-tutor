@@ -20,6 +20,7 @@ RUN if [ -f uv.lock ]; then \
 COPY src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
 COPY src/oracle_tutor_api/core ./src/oracle_tutor_api/core
 COPY src/oracle_tutor_api/worker ./src/oracle_tutor_api/worker
+COPY src/oracle_tutor_api/api ./src/oracle_tutor_api/api
 
 FROM python:3.12-slim AS runtime
 
@@ -40,6 +41,7 @@ COPY --from=builder --chown=app:app /opt/venv /opt/venv
 COPY --chown=app:app src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
 COPY --chown=app:app src/oracle_tutor_api/core ./src/oracle_tutor_api/core
 COPY --chown=app:app src/oracle_tutor_api/worker ./src/oracle_tutor_api/worker
+COPY --chown=app:app src/oracle_tutor_api/api ./src/oracle_tutor_api/api
 
 USER app
 

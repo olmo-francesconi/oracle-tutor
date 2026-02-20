@@ -473,6 +473,7 @@ class SimilarCard(BaseModel):
     layout: Optional[str] = None
     rarity: Optional[str] = None
     legalities: Optional[Dict[str, str]] = None
+    uniqueness: Optional[float] = None
 
 
 # ---- Meta ----
@@ -609,6 +610,7 @@ def _results_to_similar_cards(
                 rarity=card.rarity,
                 colors=face.colors,
                 legalities=card.legalities,
+                uniqueness=card.uniqueness,
             )
         )
     return out

@@ -337,6 +337,25 @@ export function CardOverlay({
                   </p>
                 )}
               </div>
+
+              {(fullCard?.uniqueness ?? initialCard.uniqueness) != null && (
+                <div className="border-t border-[#f5f5f5] pt-5 sm:pt-6">
+                  <span className="mb-2 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
+                    Uniqueness
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 flex-1 rounded-full bg-[#e5e5e5]">
+                      <div
+                        className="h-full rounded-full bg-violet-500 transition-all"
+                        style={{ width: `${Math.max(2, fullCard?.uniqueness ?? initialCard.uniqueness ?? 0)}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-semibold text-[#1c1c1c]">
+                      {(fullCard?.uniqueness ?? initialCard.uniqueness ?? 0).toFixed(0)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

@@ -47,6 +47,7 @@ class Card(Base):
     rarity: Mapped[str | None] = mapped_column(String, nullable=True)
     color_identity: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     legalities: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    uniqueness: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     faces: Mapped[list["CardFace"]] = relationship(back_populates="card", cascade="all, delete-orphan")
 
@@ -59,6 +60,7 @@ class Card(Base):
             "edhrec_rank": self.edhrec_rank,
             "rarity": self.rarity,
             "legalities": self.legalities,
+            "uniqueness": self.uniqueness,
             "faces": [f.to_dict() for f in self.faces],
         }
 
