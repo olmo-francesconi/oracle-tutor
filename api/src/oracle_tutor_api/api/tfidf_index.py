@@ -343,8 +343,6 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         face_cmcs.append(float(cmc or 0.0))
         face_rarities.append(rarity or "")
 
-        # Pass oracle_text with card_name (face_name) and type_line for tokenization
-        # Use face_name as it's the name on the card face, which is what appears in oracle text
         oracle_doc = oracle_text or ""
         if face_name:
             oracle_doc = oracle_doc + _CARD_NAME_DELIMITER + face_name
@@ -413,7 +411,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
 
         return min_df_out, max_df_out
 
-    min_df_env = int(os.getenv("TFIDF_MIN_DF", "2"))
+    min_df_env = int(os.getenv("TFIDF_MIN_DF", "1"))
     max_df_env = _parse_max_df(os.getenv("TFIDF_MAX_DF", "0.98"))
 
     vectorizer = TfidfVectorizer(

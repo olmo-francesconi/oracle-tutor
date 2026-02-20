@@ -1,0 +1,29 @@
+---
+description: Frontend React/TypeScript implementation standards
+globs: frontend/src/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Frontend TypeScript Guidelines
+
+## Stack conventions
+- Use React + TypeScript patterns consistent with existing `frontend/src`.
+- Keep formatting Prettier-compatible (`singleQuote: true`, no semicolons, width 80).
+- Respect ESLint setup from `frontend/eslint.config.js`.
+
+## Component patterns
+- Keep components focused; move non-UI logic into helpers/hooks when complexity grows.
+- Prefer explicit prop types/interfaces over implicit `any`.
+- Avoid deeply nested conditional rendering; extract small subcomponents when needed.
+
+## Data and API usage
+- Reuse shared API integration points (e.g. `frontend/src/api.ts`) instead of ad-hoc fetch logic.
+- Keep network error handling and loading states explicit in UI flows.
+
+## UX and performance
+- Preserve current UX behaviors (search responsiveness, keyboard interactions, mobile handling).
+- Avoid introducing unnecessary rerenders; memoize only when profiling/clear benefit justifies it.
+
+## Tests and validation
+- For meaningful UI behavior changes, include a verification plan (manual steps or automated tests).
+- Run lint/build checks before finalizing changes.

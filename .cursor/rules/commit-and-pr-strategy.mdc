@@ -1,0 +1,41 @@
+---
+description: Commit message and pull request strategy for this repo
+alwaysApply: true
+---
+
+# Commit and PR Strategy
+
+## Commit granularity
+- One concern per commit (feature, fix, refactor, chore, docs, test).
+- Separate unrelated backend/frontend changes unless they are tightly coupled.
+
+## Commit message format
+- Follow Conventional-style prefixes already used in repo history:
+  - `feat: ...`
+  - `fix(api): ...`
+  - `fix(frontend): ...`
+  - `chore: ...`
+  - `release: ...`
+- Use imperative mood and explain intent/outcome, not just file edits.
+
+## Good commit examples
+- `feat: add uniqueness score for cards`
+- `fix(api): textless cards now match as similar`
+- `chore(frontend): code-split routes to reduce bundle warnings`
+
+## Pull request expectations
+- Include concise summary, scope, and risk notes.
+- Include test evidence:
+  - backend: `uv run pytest` (or targeted test commands)
+  - frontend: lint/build and manual verification steps
+- Note deployment or env-var implications when relevant.
+
+## Release and versioning workflow
+- **Production release:** merge `develop` into `production` with `--squash`.
+- **Tagging:** tag the resulting squashed commit on `production` with the version (e.g. `v1.4.0`). Push the tag: `git push origin v1.4.0`.
+- **Sync back:** merge `production` back into `develop` so develop stays in sync with what was released.
+- Version numbers for API (`api/pyproject.toml`) and frontend (`frontend/package.json`) are bumped on `develop` before the release; the tag reflects that version.
+
+## Guardrails
+- Avoid mixing formatting-only churn with behavior changes in same commit when possible.
+- Do not rewrite shared history unless explicitly requested.

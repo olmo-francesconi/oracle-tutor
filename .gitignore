@@ -205,6 +205,9 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/*.mdc
 
 # Marimo
 marimo/_static/

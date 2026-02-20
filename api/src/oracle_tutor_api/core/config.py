@@ -11,7 +11,7 @@ CARDS_JSON = DATA_DIR / "cards.json"
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
-DB_SCHEMA_VERSION = "2.1.0"
+DB_SCHEMA_VERSION = "2.2.0"
 
 # Dangerous operation guard:
 # Full table resets are disabled by default and must be explicitly enabled.

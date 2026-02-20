@@ -237,6 +237,25 @@ export default function CardPage() {
               <SymbolText text={displayOracle} />
             </p>
           </div>
+
+          {card.uniqueness != null && (
+            <div className="mt-4 border-t border-[#e5e5e5] pt-4">
+              <span className="mb-1 block text-[11px] font-semibold tracking-wider text-[#737373] uppercase">
+                Uniqueness
+              </span>
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 flex-1 rounded-full bg-[#e5e5e5]">
+                  <div
+                    className="h-full rounded-full bg-violet-500 transition-all"
+                    style={{ width: `${Math.max(2, card.uniqueness)}%` }}
+                  />
+                </div>
+                <span className="text-[13px] font-semibold text-[#1c1c1c]">
+                  {card.uniqueness.toFixed(0)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </MobileDrawer>
 
@@ -293,6 +312,25 @@ export default function CardPage() {
               <SymbolText text={displayOracle} />
             </p>
           </div>
+
+          {card.uniqueness != null && (
+            <div className="border-t border-[#e5e5e5] pt-4 mt-4">
+              <span className="mb-1 block text-xs font-semibold tracking-wider text-[#737373] uppercase">
+                Uniqueness
+              </span>
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 flex-1 rounded-full bg-[#e5e5e5]">
+                  <div
+                    className="h-full rounded-full bg-violet-500 transition-all"
+                    style={{ width: `${Math.max(2, card.uniqueness)}%` }}
+                  />
+                </div>
+                <span className="text-sm font-semibold text-[#1c1c1c]">
+                  {card.uniqueness.toFixed(0)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-auto flex items-end justify-between gap-6 pt-6">
