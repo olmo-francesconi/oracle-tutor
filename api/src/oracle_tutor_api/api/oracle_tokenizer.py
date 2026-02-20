@@ -284,6 +284,9 @@ def _generate_mana_ability(type_line: str) -> str | None:
         return f"{{T}}: Add {joined}, or {mana_symbols[-1]}."
 
 
+_NO_ORACLE_TEXT_TOKEN = "__no_oracle_text__"
+
+
 def _tokenize_internal(text: str, card_name: str | None = None, type_line: str | None = None) -> List[List[str]]:
     """Internal core tokenization workflow without n-gram generation. Returns tokens grouped by phrase."""
     
@@ -294,15 +297,15 @@ def _tokenize_internal(text: str, card_name: str | None = None, type_line: str |
     if type_line:
         mana_ability = _generate_mana_ability(type_line)
         if mana_ability:
-            # Check if ability is already present in the stripped text
-            # We do a simple check. Since we stripped reminder text, if it's not here, it wasn't explicit.
-            # Normalizing both to be safe for check
-            # Actually, let's just append it. If it's duplicated in token stream, TF-IDF handles term frequency.
-            # But for cleaner tokens, we can check.
-            # Let's just append it as a new "phrase" essentially.
             t = f"{t}\n{mana_ability}"
 
-    # 3. Standard processing
+    # 3. Sentinel for textless cards: if still empty after stripping reminder
+    #    text and injecting implicit abilities, emit a shared token so all
+    #    vanilla / textless faces are seen as similar to each other.
+    if not t.strip():
+        t = _NO_ORACLE_TEXT_TOKEN
+
+    # 4. Standard processing
     t = substitute_card_name(t, card_name)
     t = normalize_text(t)
     
