@@ -327,53 +327,58 @@ def mtg_tokenize(text: str, card_name: str | None = None, type_line: str | None 
     return [tok for phrase_tokens in phrase_tokens_list for tok in phrase_tokens]
 
 
-def make_mtg_analyzer(ngram_range: Tuple[int, int] = (1, 1)) -> Callable[[str], List[str]]:
+class _MtgAnalyzer:
     """
-    Return a scikit-learn-compatible analyzer(text)->tokens callable, with configurable n-grams.
-    
-    The analyzer expects input in the format: "oracle_text{CARD_NAME_DELIMITER}card_name{TYPE_LINE_DELIMITER}type_line"
+    Picklable analyzer for scikit-learn TfidfVectorizer.
+    Expects input format: "oracle_text{CARD_NAME_DELIMITER}card_name{TYPE_LINE_DELIMITER}type_line"
     """
-    lo, hi = ngram_range
-    if lo < 1 or hi < lo:
-        raise ValueError("ngram_range must satisfy 1 <= lo <= hi")
 
-    def analyzer(text: str) -> List[str]:
+    __slots__ = ("_lo", "_hi")
+
+    def __init__(self, ngram_range: Tuple[int, int] = (1, 1)) -> None:
+        lo, hi = ngram_range
+        if lo < 1 or hi < lo:
+            raise ValueError("ngram_range must satisfy 1 <= lo <= hi")
+        self._lo = lo
+        self._hi = hi
+
+    def __call__(self, text: str) -> List[str]:
         card_name: str | None = None
         type_line: str | None = None
 
-        # Parse type_line first (it's appended last)
         if _TYPE_LINE_DELIMITER in text:
             parts = text.split(_TYPE_LINE_DELIMITER, 1)
             text = parts[0]
             if len(parts) > 1:
                 type_line = parts[1] or None
 
-        # Parse card_name
         if _CARD_NAME_DELIMITER in text:
             parts = text.split(_CARD_NAME_DELIMITER, 1)
             text = parts[0]
             if len(parts) > 1:
                 card_name = parts[1] or None
-        
+
         phrase_tokens_list = _tokenize_internal(text, card_name, type_line)
         all_tokens: List[str] = []
-        
+
         for phrase_tokens in phrase_tokens_list:
-            # Unigrams
-            if lo <= 1 <= hi:
+            if self._lo <= 1 <= self._hi:
                 all_tokens.extend(phrase_tokens)
-            
-            # Higher n-grams
-            if hi >= 2:
-                for n in range(max(2, lo), hi + 1):
+            if self._hi >= 2:
+                for n in range(max(2, self._lo), self._hi + 1):
                     if len(phrase_tokens) >= n:
                         all_tokens.extend(
                             ["__".join(phrase_tokens[i : i + n]) for i in range(len(phrase_tokens) - n + 1)]
                         )
-        
         return all_tokens
 
-    return analyzer
+
+def make_mtg_analyzer(ngram_range: Tuple[int, int] = (1, 1)) -> Callable[[str], List[str]]:
+    """
+    Return a scikit-learn-compatible analyzer(text)->tokens callable, with configurable n-grams.
+    Uses a picklable class so the TF-IDF index can be serialized (e.g. for subprocess rebuild).
+    """
+    return _MtgAnalyzer(ngram_range)
 
 
 def join_fields(*fields: str | None) -> str:

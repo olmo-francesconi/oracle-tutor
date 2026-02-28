@@ -23,6 +23,8 @@ services:
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
       # Best-effort: return freed heap pages to OS (Linux/glibc only)
       - ORACLE_TUTOR_API_MALLOC_TRIM=${ORACLE_TUTOR_API_MALLOC_TRIM:-1}
+      # Build TF-IDF index in a subprocess so build memory is reclaimed when child exits
+      - ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS=${ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS:-1}
       # Database connection details
       - DB_HOST=db
       - DB_PORT=5432

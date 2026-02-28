@@ -6,8 +6,12 @@ import importlib.metadata
 import ipaddress
 import logging
 import os
+import pickle
 import resource
 import socket
+import subprocess
+import sys
+import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -187,7 +191,38 @@ def _rebuild_tfidf_index(db: Session | None = None, *, reason: str) -> str | Non
     logger.info("Starting TF-IDF rebuild. reason=%s", reason)
     try:
         logger.info("TF-IDF rebuild memory before build: %.1f MiB", _rss_mb())
-        new_index = build_tfidf_index(db)
+        use_subprocess = os.getenv("ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS", "").strip() in ("1", "true", "TRUE", "yes", "YES")
+        if use_subprocess:
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as tmp:
+                    pkl_path = tmp.name
+                proc = subprocess.run(
+                    [sys.executable, "-m", "oracle_tutor_api.api.tfidf_build_standalone", pkl_path],
+                    env=os.environ,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if proc.returncode == 0:
+                    with open(pkl_path, "rb") as f:
+                        new_index = pickle.load(f)
+                    logger.info("TF-IDF index loaded from subprocess pickle")
+                else:
+                    logger.warning(
+                        "Subprocess TF-IDF build failed (rc=%s), falling back to in-process build. stderr=%s",
+                        proc.returncode,
+                        proc.stderr[-500:] if proc.stderr else "",
+                    )
+                    new_index = build_tfidf_index(db)
+                try:
+                    os.unlink(pkl_path)
+                except OSError:
+                    pass
+            except (subprocess.TimeoutExpired, OSError, pickle.PickleError) as e:
+                logger.warning("Subprocess TF-IDF build failed (%s), falling back to in-process build", e)
+                new_index = build_tfidf_index(db)
+        else:
+            new_index = build_tfidf_index(db)
         logger.info("TF-IDF rebuild memory after build (pre-swap): %.1f MiB", _rss_mb())
         new_version = _get_db_data_version(db)
         # Atomic swap after successful build.
@@ -204,6 +239,10 @@ def _rebuild_tfidf_index(db: Session | None = None, *, reason: str) -> str | Non
             duration or 0.0,
         )
         # Prompt GC to free the replaced index and reduce memory footprint.
+        # On Linux/glibc, freeing the old index often does not return all memory to the OS
+        # (fragmentation, thread arenas), so RSS can stay ~100 MiB above pre-rebuild baseline.
+        # Set ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS=1 to build in a child process and
+        # load from pickle so the build’s allocations are fully reclaimed when the child exits.
         del old_index
         _gc_collect_and_log("tfidf_rebuild_post_swap")
         _malloc_trim_best_effort("tfidf_rebuild_post_swap")
