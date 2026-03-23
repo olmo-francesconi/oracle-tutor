@@ -8,8 +8,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Protocol, TypeAlias, cast
 
-from cachetools import TTLCache
 import numpy as np
+from cachetools import TTLCache
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
 from sklearn.preprocessing import normalize
@@ -74,10 +74,6 @@ def _build_vectorizer(*, analyzer: AnalyzerFn, min_df: int, max_df: int | float)
     return cast(VectorizerLike, vectorizer)
 
 
-def _set_vectorizer_params(vectorizer: VectorizerLike, *, min_df: int, max_df: int | float) -> None:
-    _ = vectorizer.set_params(min_df=min_df, max_df=max_df)
-
-
 def _fit_transform(vectorizer: VectorizerLike, docs: list[str]) -> SparseLike:
     return cast(SparseLike, vectorizer.fit_transform(docs))
 
@@ -90,10 +86,6 @@ def _normalize_matrix(matrix: SparseLike) -> SparseLike:
     return cast(SparseLike, normalize(matrix, norm="l2", axis=1, copy=True))
 
 
-def _vocabulary_size(vectorizer: VectorizerLike) -> int:
-    return len(vectorizer.vocabulary_)
-
-
 def _dense_1d(value: object) -> FloatArray:
     return cast(FloatArray, np.asarray(value).ravel())
 
@@ -103,10 +95,6 @@ def _dot_scores(value: object) -> FloatArray:
         return cast(FloatArray, getattr(value, "A1"))
     except Exception:
         return _dense_1d(cast(SparseLike, value).toarray())
-
-
-def _squared_l2_norm(values: FloatArray) -> float:
-    return float(values @ values)
 
 
 def _linear_kernel_scores(seed_vec: object, matrix: SparseLike) -> FloatArray:
@@ -293,7 +281,7 @@ class TfidfIndex:
             dot = (q_vec @ matrix_raw.T)
             dot_scores = _dot_scores(dot)
 
-            q_norm = math.sqrt(_squared_l2_norm(q_vec.data))
+            q_norm = math.sqrt(float(q_vec.data @ q_vec.data))
             if q_norm <= 0:
                 return []
 
@@ -378,6 +366,9 @@ class TfidfIndex:
         return cached[offset : offset + limit]
 
 
+_FaceRow: TypeAlias = tuple[int, str, str | None, str | None, str | None, list[str] | None, list[str] | None, str, dict[str, str] | None, float | None, str | None]
+
+
 def build_tfidf_index(db: Session) -> TfidfIndex:
     """
     Build a TF-IDF index from all CardFaces in the DB.
@@ -386,38 +377,19 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     """
     started = time.perf_counter()
 
-    rows = cast(
-        list[
-            tuple[
-                int,
-                str,
-                str | None,
-                str | None,
-                str | None,
-                list[str] | None,
-                list[str] | None,
-                str,
-                dict[str, str] | None,
-                float | None,
-                str | None,
-            ]
-        ],
-        db.query(
-            CardFace.id,
-            CardFace.card_id,
-            CardFace.name,
-            CardFace.type_line,
-            CardFace.oracle_text,
-            CardFace.colors,
-            Card.color_identity,
-            Card.name.label("card_name"),
-            Card.legalities,
-            Card.cmc,
-            Card.rarity,
-        )
-        .join(Card, CardFace.card_id == Card.id)
-        .all(),
-    )
+    rows = cast(list[_FaceRow], db.query(
+        CardFace.id,
+        CardFace.card_id,
+        CardFace.name,
+        CardFace.type_line,
+        CardFace.oracle_text,
+        CardFace.colors,
+        Card.color_identity,
+        Card.name.label("card_name"),
+        Card.legalities,
+        Card.cmc,
+        Card.rarity,
+    ).join(Card, CardFace.card_id == Card.id).all())
 
     face_ids: list[int] = []
     face_card_ids: list[str] = []
@@ -532,7 +504,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         docs = ["__empty__"]
     docs_aligned = [d if (d and d.strip()) else "__empty__" for d in docs]
     min_df, max_df = _sanitize_df(min_df_env, max_df_env, n_docs=len(docs_aligned))
-    _set_vectorizer_params(vectorizer, min_df=min_df, max_df=max_df)
+    _ = vectorizer.set_params(min_df=min_df, max_df=max_df)
 
     try:
         matrix_raw = _fit_transform(vectorizer, docs_aligned)
@@ -552,7 +524,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     logger.info(
         "TF-IDF index built: %d faces, %d features, %.2f ms",
         len(face_ids),
-        _vocabulary_size(vectorizer),
+        len(vectorizer.vocabulary_),
         elapsed_ms,
     )
 

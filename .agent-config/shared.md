@@ -37,6 +37,29 @@ docker-compose.prod.yml Production overrides
 - `ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS` — set `1` to reclaim memory after TF-IDF build
 - `VITE_API_URL` — frontend API base (default `/api`)
 
+## Python dev workflow (run in `api/` directory)
+
+Before committing or running tests, always run in this order:
+
+```bash
+# 1. Lint + auto-fix imports/style
+uv run ruff check src/ --fix
+
+# 2. Type check (0 errors expected)
+uv run basedpyright
+
+# 3. Tests
+uv run pytest tests/ -x -q
+```
+
+Notes:
+- `uv sync --all-extras --group test` is required once to populate the venv
+- basedpyright must be run from `api/` (where `pyrightconfig.json` lives) to pick up the venv
+- Ruff config is in `pyproject.toml` under `[tool.ruff]` — line length 120, E/F/I rules
+- 720 basedpyright warnings are expected noise (`reportAny` from argparse/dynamic imports); only errors matter
+
+---
+
 ## Project-specific rules
 - Version is kept in sync between `api/pyproject.toml` and `frontend/package.json`
 - Worker is a one-shot container; it runs daily on Railway Cron and exits after ingestion

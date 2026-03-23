@@ -39,8 +39,17 @@ test = [
   "cachetools>=5.5.0",
   "requests>=2.32.0",
   "ijson>=3.3.0",
+  "ruff>=0.15.7",
+  "basedpyright>=1.38.3",
 ]
 
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # pycodestyle errors, pyflakes, isort
+ignore = ["E501"]          # line length handled by formatter

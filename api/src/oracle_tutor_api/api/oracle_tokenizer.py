@@ -5,7 +5,6 @@ import unicodedata
 from collections.abc import Callable, Iterable
 from typing import Final, cast
 
-
 _WORD_RE: Final[re.Pattern[str]] = re.compile(r"[a-z0-9_]+")
 
 # Symbol mapping constants

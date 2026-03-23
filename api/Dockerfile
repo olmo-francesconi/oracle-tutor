@@ -20,9 +20,9 @@ ENV UV_CACHE_DIR=/root/.cache/uv
 
 # If uv.lock is present, use a frozen install; otherwise resolve from pyproject.toml.
 RUN if [ -f uv.lock ]; then \
-      uv sync --active --frozen --no-install-project --extra api; \
+      uv sync --active --frozen --no-install-project --extra api --extra semantic; \
     else \
-      uv sync --active --no-install-project --extra api; \
+      uv sync --active --no-install-project --extra api --extra semantic; \
     fi
 
 # App source: copy only the packages needed at runtime.
