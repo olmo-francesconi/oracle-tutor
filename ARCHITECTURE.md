@@ -70,7 +70,7 @@ docker-compose*.yml     local, prod, and worker-only compose definitions
 - Frontend server state is handled with TanStack Query; route state lives in React Router query params/path params; local UI state stays in component state.
 - Frontend requests are centralized in `frontend/src/api.ts`; component code should not hand-roll fetch calls.
 - Filters are modeled in the frontend as `FilterState`, but the current backend semantic endpoints ignore the filter arguments they accept in the route signature and do not accept `match_mode` at all. The UI sends more filter state than the backend currently applies.
-- Versioning is intentionally mirrored: `backend/pyproject.toml` and `frontend/package.json` are both `1.4.0`.
+- Backend and frontend are versioned independently: `backend/pyproject.toml` is `2.0.0` (semantic API milestone), `frontend/package.json` is `1.4.0`.
 
 ## How to run
 - Dev: `docker compose up --build`

@@ -83,7 +83,7 @@ npm run build      # production build
 ---
 
 ## Project-specific rules
-- Version is kept in sync between `backend/pyproject.toml` and `frontend/package.json`
+- Backend and frontend are versioned independently: `backend/pyproject.toml` is `2.0.0` (semantic API), `frontend/package.json` is `1.4.0`
 - Worker is a one-shot container; it runs daily on Railway Cron and exits after ingestion
 - Never set `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` in production without explicit intent
 
