@@ -28,7 +28,8 @@ from ..core.config import (
 from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.database import SessionLocal, engine
 from ..core.logging_config import setup_loggers
-from ..core.models import Card, CardFace, IngestionLog, SystemMetadata
+from ..core.models import Card, CardFace, CardFaceSemanticEmbedding, CardRelationship, CardTagging, IngestionLog, SystemMetadata
+from .fetch_tags import run_fetch_tags
 
 logger = logging.getLogger("oracle_tutor_api.data")
 
@@ -92,6 +93,21 @@ def trigger_tfidf_rebuild_best_effort(*, async_call: bool = True) -> None:
         return
     logger.info("Running synchronous best-effort TF-IDF rebuild trigger.")
     _trigger_tfidf_rebuild_request()
+
+
+def _delete_card_related_rows(session, card_ids: List[str]) -> None:
+    if not card_ids:
+        return
+
+    chunk_size = 1000
+    for i in range(0, len(card_ids), chunk_size):
+        chunk = card_ids[i : i + chunk_size]
+        face_ids = session.scalars(select(CardFace.id).where(CardFace.card_id.in_(chunk))).all()
+        if face_ids:
+            session.execute(delete(CardFaceSemanticEmbedding).where(CardFaceSemanticEmbedding.face_id.in_(face_ids)))
+        session.execute(delete(CardRelationship).where(CardRelationship.card_id.in_(chunk)))
+        session.execute(delete(CardTagging).where(CardTagging.card_id.in_(chunk)))
+        session.execute(delete(CardFace).where(CardFace.card_id.in_(chunk)))
 
 
 # Removed local ensure_data_dir, now in core.config
@@ -253,19 +269,19 @@ def cleanup_unplayable_cards(session) -> dict:
 
     stats = {"deleted_cards_by_layout": 0, "deleted_cards_by_type_line_card": 0}
 
-    # Delete by skipped layouts (delete faces explicitly for sqlite / non-cascading FKs).
-    ids_by_layout = select(Card.id).where(Card.layout.in_(skip_layouts)).subquery()
-    session.execute(delete(CardFace).where(CardFace.card_id.in_(select(ids_by_layout.c.id))))
-    res = session.execute(delete(Card).where(Card.id.in_(select(ids_by_layout.c.id))))
-    stats["deleted_cards_by_layout"] = int(getattr(res, "rowcount", 0) or 0)
+    # Delete by skipped layouts (delete dependents explicitly for sqlite / non-cascading FKs).
+    ids_by_layout = session.scalars(select(Card.id).where(Card.layout.in_(skip_layouts))).all()
+    _delete_card_related_rows(session, ids_by_layout)
+    res = session.execute(delete(Card).where(Card.id.in_(ids_by_layout)))
+    stats["deleted_cards_by_layout"] = int(getattr(res, "rowcount", 0) or len(ids_by_layout))
 
     # Delete Theme Cards (type_line == "Card") (again: delete faces first for safety).
-    ids_by_face_card = (
-        select(CardFace.card_id).where(CardFace.type_line == "Card").distinct().subquery()
-    )
-    session.execute(delete(CardFace).where(CardFace.card_id.in_(select(ids_by_face_card.c.card_id))))
-    res = session.execute(delete(Card).where(Card.id.in_(select(ids_by_face_card.c.card_id))))
-    stats["deleted_cards_by_type_line_card"] = int(getattr(res, "rowcount", 0) or 0)
+    ids_by_face_card = session.scalars(
+        select(CardFace.card_id).where(CardFace.type_line == "Card").distinct()
+    ).all()
+    _delete_card_related_rows(session, ids_by_face_card)
+    res = session.execute(delete(Card).where(Card.id.in_(ids_by_face_card)))
+    stats["deleted_cards_by_type_line_card"] = int(getattr(res, "rowcount", 0) or len(ids_by_face_card))
 
     return stats
 
@@ -274,6 +290,8 @@ def prepare_parent_card(card_data: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": card_data.get("id"),
         "name": card_data.get("name"),
+        "scryfall_set": card_data.get("set"),
+        "collector_number": card_data.get("collector_number"),
         "layout": card_data.get("layout"),
         "cmc": card_data.get("cmc"),
         "edhrec_rank": card_data.get("edhrec_rank"),
@@ -300,6 +318,8 @@ def normalize_card_data(card: Dict[str, Any]) -> Dict[str, Any]:
     normalized: Dict[str, Any] = {
         "id": card.get("id"),
         "name": card.get("name"),
+        "scryfall_set": card.get("set"),
+        "collector_number": card.get("collector_number"),
         "layout": card.get("layout"),
         "cmc": card.get("cmc"),
         "edhrec_rank": card.get("edhrec_rank"),
@@ -370,6 +390,8 @@ def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
             index_elements=["id"],
             set_={
                 "name": stmt.excluded.name,
+                "scryfall_set": stmt.excluded.scryfall_set,
+                "collector_number": stmt.excluded.collector_number,
                 "layout": stmt.excluded.layout,
                 "cmc": stmt.excluded.cmc,
                 "edhrec_rank": stmt.excluded.edhrec_rank,
@@ -384,7 +406,7 @@ def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
             session.merge(Card(**p))
 
     parent_ids = [p["id"] for p in parents]
-    session.execute(delete(CardFace).where(CardFace.card_id.in_(parent_ids)))
+    _delete_card_related_rows(session, parent_ids)
 
     if faces_to_insert:
         if engine.dialect.name == "postgresql":
@@ -561,7 +583,9 @@ def ingest_data_diff(
             chunk_size = 1000
             existing_ids_list = list(existing_ids)
             for i in range(0, len(existing_ids_list), chunk_size):
-                session.execute(delete(Card).where(Card.id.in_(existing_ids_list[i : i + chunk_size])))
+                chunk = existing_ids_list[i : i + chunk_size]
+                _delete_card_related_rows(session, chunk)
+                session.execute(delete(Card).where(Card.id.in_(chunk)))
                 session.commit()
 
         sys_meta = SystemMetadata(
@@ -702,6 +726,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
 def update_scryfall_data(
     *,
     force: bool = False,
+    refresh_tags: bool = False,
     trigger_type: str | None = None,
     strict: bool = False,
 ) -> bool:
@@ -843,6 +868,12 @@ def update_scryfall_data(
         except Exception as e:
             logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
 
+        try:
+            with SessionLocal() as tags_session:
+                run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+        except Exception as e:
+            logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+
         logger.info("Ingestion succeeded; requesting API TF-IDF rebuild (best-effort).")
         trigger_tfidf_rebuild_best_effort(async_call=True)
         return True
@@ -856,5 +887,3 @@ def update_scryfall_data(
             except Exception:
                 logger.warning("Failed to cleanup temp cards file.")
         return False
-
-

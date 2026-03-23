@@ -34,18 +34,29 @@ def main() -> int:
         action="store_true",
         help="Fail fast (exit 1) on fetch/download errors instead of treating as a noop.",
     )
+    parser.add_argument(
+        "--refresh-tags",
+        action="store_true",
+        help="Force a full Tagger refresh for all cards after ingestion.",
+    )
 
     args = parser.parse_args()
 
     logger.info(
-        "Oracle Tutor Worker starting (one-shot). force=%s strict=%s trigger_type=%s",
+        "Oracle Tutor Worker starting (one-shot). force=%s refresh_tags=%s strict=%s trigger_type=%s",
         args.force,
+        args.refresh_tags,
         args.strict,
         args.trigger_type,
     )
 
     try:
-        updated = update_scryfall_data(force=args.force, trigger_type=str(args.trigger_type), strict=args.strict)
+        updated = update_scryfall_data(
+            force=args.force,
+            refresh_tags=args.refresh_tags,
+            trigger_type=str(args.trigger_type),
+            strict=args.strict,
+        )
         logger.info("Worker finished (updated=%s).", updated)
         # Per requirement: exit 0 even when up-to-date.
         return 0
@@ -56,5 +67,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 

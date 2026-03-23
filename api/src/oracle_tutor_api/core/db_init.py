@@ -114,6 +114,7 @@ def _ensure_postgres_features(conn, dialect: str) -> None:
     if dialect == "postgresql":
         # Ensure trigram extension for fuzzy search (name suggestions).
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
 
 def _ensure_indexes(conn, dialect: str) -> None:
@@ -125,6 +126,13 @@ def _ensure_indexes(conn, dialect: str) -> None:
 def _should_reset_cards(conn) -> bool:
     should_reset_cards = False
     inspector = inspect(conn)
+
+    if inspector.has_table("cards"):
+        cols = {c["name"] for c in inspector.get_columns("cards")}
+        required_cols = {"scryfall_set", "collector_number"}
+        if not required_cols.issubset(cols):
+            logger.warning("Legacy schema detected (missing printing metadata columns).")
+            should_reset_cards = True
 
     if inspector.has_table("card_faces"):
         # Legacy check: if 'embedding' exists, it's definitely an old schema that needs reset
@@ -161,10 +169,24 @@ def _should_reset_cards(conn) -> bool:
 def _drop_card_tables(conn, dialect: str) -> None:
     logger.info("Dropping card tables for rebuild...")
     if dialect == "postgresql":
+        conn.execute(text("DROP TABLE IF EXISTS card_face_semantic_embeddings CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS card_relationships CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS tag_ancestor_map CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS card_taggings CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS card_tag_map CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS tags CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS card_tags CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS card_faces CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS cards CASCADE"))
     else:
         # SQLite doesn't support CASCADE in DROP TABLE, but we'll try to drop in order
+        conn.execute(text("DROP TABLE IF EXISTS card_face_semantic_embeddings"))
+        conn.execute(text("DROP TABLE IF EXISTS card_relationships"))
+        conn.execute(text("DROP TABLE IF EXISTS tag_ancestor_map"))
+        conn.execute(text("DROP TABLE IF EXISTS card_taggings"))
+        conn.execute(text("DROP TABLE IF EXISTS card_tag_map"))
+        conn.execute(text("DROP TABLE IF EXISTS tags"))
+        conn.execute(text("DROP TABLE IF EXISTS card_tags"))
         conn.execute(text("DROP TABLE IF EXISTS card_faces"))
         conn.execute(text("DROP TABLE IF EXISTS cards"))
 
@@ -222,5 +244,3 @@ def init_db(mode: str = INIT_MODE_API) -> None:
         raise
 
     logger.info("Database initialized (mode=%s).", mode)
-
-

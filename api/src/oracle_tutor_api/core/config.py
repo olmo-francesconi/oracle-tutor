@@ -11,7 +11,7 @@ CARDS_JSON = DATA_DIR / "cards.json"
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
-DB_SCHEMA_VERSION = "2.2.0"
+DB_SCHEMA_VERSION = "2.5.0"
 
 # Dangerous operation guard:
 # Full table resets are disabled by default and must be explicitly enabled.
@@ -55,5 +55,3 @@ def parse_version(version_str: str | None) -> tuple[int, int, int]:
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-
