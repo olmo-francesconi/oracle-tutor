@@ -1,10 +1,4 @@
-from typing import Any
-
-import pytest
-import requests
-
-from oracle_tutor_api.worker import data_builder
-from oracle_tutor_api.worker.data_builder import should_skip_card, trigger_tfidf_rebuild_best_effort
+from oracle_tutor_api.worker.data_builder import should_skip_card
 
 
 def test_should_skip_card_skips_a_prefix_name() -> None:
@@ -98,42 +92,3 @@ def test_should_not_skip_digital_representative_if_paper_legal() -> None:
         },
     }
     assert should_skip_card(card) is False
-
-
-def test_trigger_tfidf_rebuild_posts_to_api(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[dict[str, Any]] = []
-
-    class DummyResponse:
-        status_code = 200
-        text = "ok"
-
-    def fake_post(url: str, headers: dict[str, str] | None = None, timeout: float | None = None) -> DummyResponse:
-        calls.append({"url": url, "headers": headers, "timeout": timeout})
-        return DummyResponse()
-
-    monkeypatch.setattr(data_builder, "API_BASE_URL", "http://api-internal:8000")
-    monkeypatch.setattr(data_builder, "WORKER_REBUILD_PATH", "/internal/rebuild-tfidf")
-    monkeypatch.setattr(data_builder, "WORKER_TRIGGER_TOKEN", "secret-token")
-    monkeypatch.setattr(data_builder, "WORKER_REBUILD_TIMEOUT_SECONDS", 1.5)
-    monkeypatch.setattr(requests, "post", fake_post)
-
-    trigger_tfidf_rebuild_best_effort(async_call=False)
-
-    assert len(calls) == 1
-    assert calls[0]["url"] == "http://api-internal:8000/internal/rebuild-tfidf"
-    assert calls[0]["headers"]["X-Worker-Token"] == "secret-token"
-    assert calls[0]["headers"]["X-Worker-Source"] == "worker"
-    assert calls[0]["timeout"] == 1.5
-
-
-def test_trigger_tfidf_rebuild_failure_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_post(url: str, headers: dict[str, str] | None = None, timeout: float | None = None) -> None:
-        raise requests.RequestException("network error")
-
-    monkeypatch.setattr(data_builder, "API_BASE_URL", "http://api-internal:8000")
-    monkeypatch.setattr(data_builder, "WORKER_REBUILD_PATH", "/internal/rebuild-tfidf")
-    monkeypatch.setattr(data_builder, "WORKER_TRIGGER_TOKEN", "secret-token")
-    monkeypatch.setattr(requests, "post", fake_post)
-
-    # Should not raise.
-    trigger_tfidf_rebuild_best_effort(async_call=False)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -15,13 +14,9 @@ from sqlalchemy import Table, bindparam, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from ..core.config import (
-    API_BASE_URL,
     CARDS_JSON,
     DATA_DIR,
     DB_SCHEMA_VERSION,
-    WORKER_REBUILD_PATH,
-    WORKER_REBUILD_TIMEOUT_SECONDS,
-    WORKER_TRIGGER_TOKEN,
     ensure_data_dir,
     parse_version,
 )
@@ -48,59 +43,8 @@ META_JSON = DATA_DIR / "scryfall_meta.json"
 TEMP_CARDS_JSON = DATA_DIR / "scryfall-cards-temp.json"
 
 
-# Internal API trigger headers/contract
-_WORKER_TRIGGER_HEADER = "X-Worker-Token"
-_WORKER_SOURCE_HEADER = "X-Worker-Source"
-
-
 def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _trigger_tfidf_rebuild_request() -> None:
-    if not API_BASE_URL:
-        logger.info("Skipping TF-IDF rebuild trigger: ORACLE_TUTOR_API_BASE_URL not configured.")
-        return
-    if not WORKER_TRIGGER_TOKEN:
-        logger.info("Skipping TF-IDF rebuild trigger: ORACLE_TUTOR_API_WORKER_TOKEN not configured.")
-        return
-
-    url = f"{API_BASE_URL}{WORKER_REBUILD_PATH}"
-    logger.info(
-        "Sending TF-IDF rebuild trigger to API. url=%s timeout_s=%.2f token_configured=%s",
-        url,
-        WORKER_REBUILD_TIMEOUT_SECONDS,
-        bool(WORKER_TRIGGER_TOKEN),
-    )
-    headers = {
-        _WORKER_TRIGGER_HEADER: WORKER_TRIGGER_TOKEN,
-        _WORKER_SOURCE_HEADER: "worker",
-    }
-    try:
-        resp = requests.post(url, headers=headers, timeout=WORKER_REBUILD_TIMEOUT_SECONDS)
-        if resp.status_code >= 400:
-            logger.warning(
-                "TF-IDF rebuild trigger returned HTTP %s from %s. body=%s",
-                resp.status_code,
-                url,
-                resp.text[:300],
-            )
-            return
-        logger.info("TF-IDF rebuild trigger accepted by API (status=%s).", resp.status_code)
-    except Exception as e:
-        logger.warning("TF-IDF rebuild trigger failed (best-effort): %s", e)
-
-
-def trigger_tfidf_rebuild_best_effort(*, async_call: bool = True) -> None:
-    if async_call:
-        logger.info("Scheduling async best-effort TF-IDF rebuild trigger.")
-        # Non-daemon thread: for one-shot worker runs, this allows the process to wait
-        # for the short-timeout request so trigger logs/attempt are not silently dropped.
-        thread = threading.Thread(target=_trigger_tfidf_rebuild_request, daemon=False, name="tfidf-rebuild-trigger")
-        thread.start()
-        return
-    logger.info("Running synchronous best-effort TF-IDF rebuild trigger.")
-    _trigger_tfidf_rebuild_request()
 
 
 def _delete_card_related_rows(session, card_ids: list[str]) -> None:
@@ -642,7 +586,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
     Compute a uniqueness score (0-100) for every card and write it to the DB.
 
     Algorithm:
-      1. Build TF-IDF index from all card faces (reuses the API's index builder).
+      1. Load semantic embeddings for all card faces from the DB.
       2. For each face, sum sim^power for all above-threshold similarities
          (excluding same-card faces). This "redundancy" captures both depth
          and breadth of similar cards.
@@ -654,19 +598,21 @@ def compute_and_store_uniqueness_scores(session) -> None:
 
     import numpy as np
 
-    from ..api.tfidf_index import build_tfidf_index
-
     logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
     t0 = time.perf_counter()
 
-    index = build_tfidf_index(session)
-    n = len(index.face_ids)
+    embedding_rows = session.execute(
+        select(CardFaceSemanticEmbedding.face_id, CardFace.card_id, CardFaceSemanticEmbedding.embedding)
+        .join(CardFace, CardFace.id == CardFaceSemanticEmbedding.face_id)
+        .order_by(CardFaceSemanticEmbedding.face_id)
+    ).all()
+    n = len(embedding_rows)
     if n == 0:
-        logger.warning("No faces found; skipping uniqueness computation.")
+        logger.warning("No semantic embeddings found; skipping uniqueness computation because semantic-worker has not run.")
         return
 
-    matrix = index.matrix_l2
-    face_card_ids = index.face_card_ids
+    face_card_ids = [row[1] for row in embedding_rows]
+    matrix = np.asarray([row[2] for row in embedding_rows], dtype=np.float32)
 
     card_face_map: dict[str, list[int]] = {}
     for i, cid in enumerate(face_card_ids):
@@ -676,13 +622,9 @@ def compute_and_store_uniqueness_scores(session) -> None:
 
     for batch_start in range(0, n, UNIQUENESS_BATCH_SIZE):
         batch_end = min(batch_start + UNIQUENESS_BATCH_SIZE, n)
-        batch = cast(Any, matrix[batch_start:batch_end])
+        batch = matrix[batch_start:batch_end]
 
-        sims = batch @ cast(Any, matrix.T)
-        try:
-            sims = np.asarray(sims.toarray())
-        except AttributeError:
-            sims = np.asarray(sims)
+        sims = np.asarray(batch @ matrix.T)
 
         for i in range(batch_end - batch_start):
             gi = batch_start + i
@@ -881,8 +823,6 @@ def update_scryfall_data(
             except Exception as e:
                 logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
 
-            logger.info("Ingestion succeeded; requesting API TF-IDF rebuild (best-effort).")
-            trigger_tfidf_rebuild_best_effort(async_call=True)
         except Exception as e:
             logger.error("Update process failed: %s", e, exc_info=True)
             if strict:
