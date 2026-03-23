@@ -7,7 +7,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("TFIDF_MIN_DF", "1")
 os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
 
 # Ensure the `src/` layout package is importable when running pytest without an editable install.
@@ -87,5 +86,4 @@ def client() -> Generator[TestClient, None, None]:
     _seed_db()
     with TestClient(app) as c:
         yield c
-
 

@@ -119,6 +119,12 @@ TODO.md: update current focus to reflect semantic-only migration completed
 - Scope: `api/src/oracle_tutor_api/semantic/index.py`
 - Summary: Added optional filter kwargs to `search_oracle()`, `similar_to_face()`, and `_pgvector_query()`; implemented conditional `CardFace`/`Card` joins and SQL WHERE filters for `card_type`, `colors` (`identity` or `colors` feature), `cmc_min`, `cmc_max`, `format` legalities, and `rarity` while preserving lightweight no-filter query path.
 
+### TASK-E
+- Status: complete
+- Worker: Codex
+- Scope: `api/tests/`
+- Summary: Deleted the standalone TF-IDF vs semantic comparison test file, removed TF-IDF ranking and rebuild endpoint tests from `test_api.py`, and stripped the TF-IDF environment setup from `conftest.py`.
+
 ---
 
 ## Completed Work
