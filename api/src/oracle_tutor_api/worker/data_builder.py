@@ -678,6 +678,7 @@ def update_scryfall_data(
     *,
     force: bool = False,
     refresh_tags: bool = False,
+    skip_tags: bool = False,
     trigger_type: str | None = None,
     strict: bool = False,
 ) -> bool:
@@ -742,11 +743,12 @@ def update_scryfall_data(
             "DB already matches remote metadata (%s); skipping download/ingestion.",
             remote_updated_at,
         )
-        try:
-            with SessionLocal() as tags_session:
-                run_fetch_tags(tags_session, refresh_tags=refresh_tags)
-        except Exception as e:
-            logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+        if not skip_tags:
+            try:
+                with SessionLocal() as tags_session:
+                    run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+            except Exception as e:
+                logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
         return False
 
     # Download decision
@@ -834,10 +836,11 @@ def update_scryfall_data(
                     logger.warning("Failed to cleanup temp cards file.")
             return False
 
-    try:
-        with SessionLocal() as tags_session:
-            run_fetch_tags(tags_session, refresh_tags=refresh_tags)
-    except Exception as e:
-        logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+    if not skip_tags:
+        try:
+            with SessionLocal() as tags_session:
+                run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+        except Exception as e:
+            logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
 
     return ingestion_needed
