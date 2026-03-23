@@ -263,7 +263,7 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
         db.add(TagAncestorMap(tag_id=edge["tag_id"], ancestor_tag_id=edge["ancestor_tag_id"]))
 
     for tagging_data in taggings:
-        db.add(
+        db.merge(
             CardTagging(
                 id=tagging_data["id"],
                 card_id=card_id,
@@ -277,22 +277,22 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
             )
         )
 
-    for relationship_data in relationships:
-        db.add(
+    for r in relationships:
+        db.merge(
             CardRelationship(
-                id=relationship_data["id"],
+                id=r["id"],
                 card_id=card_id,
-                foreign_key=relationship_data.get("foreign_key"),
-                classifier=relationship_data.get("classifier"),
-                classifier_inverse=relationship_data.get("classifier_inverse"),
-                status=relationship_data.get("status"),
-                relationship_type=relationship_data.get("relationship_type"),
-                weight=relationship_data.get("weight"),
-                annotation=relationship_data.get("annotation"),
-                subject_remote_id=relationship_data.get("subject_remote_id"),
-                subject_name=relationship_data.get("subject_name"),
-                related_remote_id=relationship_data.get("related_remote_id"),
-                related_name=relationship_data.get("related_name"),
+                foreign_key=r.get("foreign_key"),
+                classifier=r.get("classifier"),
+                classifier_inverse=r.get("classifier_inverse"),
+                status=r.get("status"),
+                relationship_type=r.get("relationship_type"),
+                weight=r.get("weight"),
+                annotation=r.get("annotation"),
+                subject_remote_id=r.get("subject_remote_id"),
+                subject_name=r.get("subject_name"),
+                related_remote_id=r.get("related_remote_id"),
+                related_name=r.get("related_name"),
             )
         )
     db.commit()
@@ -384,14 +384,19 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
         logger.warning("Tagger session bootstrap failed; skipping community tag ingestion: %s", e)
         return
 
+    total = len(cards)
     logger.info(
         "Starting tag ingestion. mode=tagger_graphql cards=%d refresh_tags=%s",
-        len(cards),
+        total,
         refresh_tags,
     )
 
-    for card in cards:
+    counts = {FetchOutcome.SUCCESS: 0, FetchOutcome.FAILED: 0, FetchOutcome.RESET_SESSION: 0}
+    LOG_INTERVAL = 100
+
+    for i, card in enumerate(cards, start=1):
         if not card.scryfall_set or not card.collector_number:
+            counts[FetchOutcome.FAILED] += 1
             continue
         outcome = fetch_and_store_tags(
             db,
@@ -401,6 +406,17 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
             card.collector_number,
             card.id,
         )
+        counts[outcome] += 1
+
+        if i % LOG_INTERVAL == 0 or i == total:
+            logger.info(
+                "Tag ingestion progress: %d/%d  success=%d failed=%d session_resets=%d",
+                i, total,
+                counts[FetchOutcome.SUCCESS],
+                counts[FetchOutcome.FAILED],
+                counts[FetchOutcome.RESET_SESSION],
+            )
+
         if outcome != FetchOutcome.RESET_SESSION:
             continue
 
@@ -432,3 +448,15 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
         tagger_session.close()
     except Exception:
         logger.debug("Failed to close Tagger session cleanly at end of run.", exc_info=True)
+
+    tag_count = db.query(Tag).count()
+    tagging_count = db.query(CardTagging).count()
+    relationship_count = db.query(CardRelationship).count()
+    logger.info(
+        "Tag ingestion complete. success=%d failed=%d  db: tags=%d taggings=%d relationships=%d",
+        counts[FetchOutcome.SUCCESS],
+        counts[FetchOutcome.FAILED],
+        tag_count,
+        tagging_count,
+        relationship_count,
+    )

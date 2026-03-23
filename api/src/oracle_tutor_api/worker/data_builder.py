@@ -25,10 +25,18 @@ from ..core.config import (
     ensure_data_dir,
     parse_version,
 )
-from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.database import SessionLocal, engine
+from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.logging_config import setup_loggers
-from ..core.models import Card, CardFace, CardFaceSemanticEmbedding, CardRelationship, CardTagging, IngestionLog, SystemMetadata
+from ..core.models import (
+    Card,
+    CardFace,
+    CardFaceSemanticEmbedding,
+    CardRelationship,
+    CardTagging,
+    IngestionLog,
+    SystemMetadata,
+)
 from .fetch_tags import run_fetch_tags
 
 logger = logging.getLogger("oracle_tutor_api.data")
@@ -645,6 +653,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
     import time
 
     import numpy as np
+
     from ..api.tfidf_index import build_tfidf_index
 
     logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
@@ -791,6 +800,11 @@ def update_scryfall_data(
             "DB already matches remote metadata (%s); skipping download/ingestion.",
             remote_updated_at,
         )
+        try:
+            with SessionLocal() as tags_session:
+                run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+        except Exception as e:
+            logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
         return False
 
     # Download decision
@@ -838,52 +852,52 @@ def update_scryfall_data(
 
     if not ingestion_needed:
         logger.info("System is up to date.")
-        return False
+    else:
+        try:
+            old_path_for_diff: Path | None
+            if ingestion_source == TEMP_CARDS_JSON:
+                old_path_for_diff = CARDS_JSON
+            else:
+                # Treat as full re-process when re-ingesting existing file.
+                old_path_for_diff = None
+
+            ingest_data_diff(
+                new_path=ingestion_source,
+                old_path=old_path_for_diff,
+                scryfall_metadata=remote_meta if remote_meta else (local_meta or {}),
+                trigger_type=effective_trigger,
+            )
+
+            if ingestion_source == TEMP_CARDS_JSON:
+                logger.info("Promoting temp file to active file.")
+                shutil.move(str(TEMP_CARDS_JSON), str(CARDS_JSON))
+                if remote_meta:
+                    save_local_metadata(remote_meta)
+
+            # Compute uniqueness scores now that all cards are in the DB.
+            try:
+                with SessionLocal() as uniqueness_session:
+                    compute_and_store_uniqueness_scores(uniqueness_session)
+            except Exception as e:
+                logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
+
+            logger.info("Ingestion succeeded; requesting API TF-IDF rebuild (best-effort).")
+            trigger_tfidf_rebuild_best_effort(async_call=True)
+        except Exception as e:
+            logger.error("Update process failed: %s", e, exc_info=True)
+            if strict:
+                raise
+            if TEMP_CARDS_JSON.exists():
+                try:
+                    TEMP_CARDS_JSON.unlink()
+                except Exception:
+                    logger.warning("Failed to cleanup temp cards file.")
+            return False
 
     try:
-        old_path_for_diff: Path | None
-        if ingestion_source == TEMP_CARDS_JSON:
-            old_path_for_diff = CARDS_JSON
-        else:
-            # Treat as full re-process when re-ingesting existing file.
-            old_path_for_diff = None
-
-        ingest_data_diff(
-            new_path=ingestion_source,
-            old_path=old_path_for_diff,
-            scryfall_metadata=remote_meta if remote_meta else (local_meta or {}),
-            trigger_type=effective_trigger,
-        )
-
-        if ingestion_source == TEMP_CARDS_JSON:
-            logger.info("Promoting temp file to active file.")
-            shutil.move(str(TEMP_CARDS_JSON), str(CARDS_JSON))
-            if remote_meta:
-                save_local_metadata(remote_meta)
-
-        # Compute uniqueness scores now that all cards are in the DB.
-        try:
-            with SessionLocal() as uniqueness_session:
-                compute_and_store_uniqueness_scores(uniqueness_session)
-        except Exception as e:
-            logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
-
-        try:
-            with SessionLocal() as tags_session:
-                run_fetch_tags(tags_session, refresh_tags=refresh_tags)
-        except Exception as e:
-            logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
-
-        logger.info("Ingestion succeeded; requesting API TF-IDF rebuild (best-effort).")
-        trigger_tfidf_rebuild_best_effort(async_call=True)
-        return True
+        with SessionLocal() as tags_session:
+            run_fetch_tags(tags_session, refresh_tags=refresh_tags)
     except Exception as e:
-        logger.error("Update process failed: %s", e, exc_info=True)
-        if strict:
-            raise
-        if TEMP_CARDS_JSON.exists():
-            try:
-                TEMP_CARDS_JSON.unlink()
-            except Exception:
-                logger.warning("Failed to cleanup temp cards file.")
-        return False
+        logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+
+    return ingestion_needed
