@@ -1,12 +1,12 @@
 # Architecture: Oracle Tutor
 
 ## Overview
-Oracle Tutor is a Magic: The Gathering card search application with a FastAPI backend, a React SPA frontend, and PostgreSQL storage. The current backend serves fuzzy card-name lookup from Postgres trigram search plus semantic Oracle-text search backed by pgvector embeddings and sentence-transformers.
+Oracle Tutor is a Magic: The Gathering card search application with a FastAPI backend, a React SPA frontend, and PostgreSQL storage. The backend serves fuzzy card-name lookup via Postgres trigram search plus semantic Oracle-text search backed by pgvector embeddings and ONNX Runtime inference.
 
 ## Stack
 - Language: Python 3.12+, TypeScript 5.9
 - Framework: FastAPI + Hypercorn, React 19 + Vite 7
-- Key dependencies: SQLAlchemy 2, psycopg 3, pgvector, sentence-transformers, requests, ijson, TanStack Query, React Router 7, Axios, Framer Motion, TailwindCSS 4
+- Key dependencies: SQLAlchemy 2, psycopg 3, pgvector, ONNX Runtime (inference), sentence-transformers (training only), requests, ijson, TanStack Query, React Router 7, Axios, Framer Motion, TailwindCSS 4
 - Test runner: Pytest for backend; frontend has lint/build checks but no committed test suite
 
 ## Project structure
@@ -40,9 +40,9 @@ docker-compose*.yml     local, prod, and worker-only compose definitions
 - `backend/src/ot_backend/ingest/main.py`: cron-friendly one-shot entry point; runs ingestion once and exits.
 - `backend/src/ot_backend/ingest/data_builder.py`: downloads Scryfall bulk data, filters non-playable/digital-only records, chooses a preferred printing per `oracle_id`, upserts cards/faces, cleans stale rows, and optionally triggers tag sync.
 - `backend/src/ot_backend/ingest/fetch_tags.py`: pulls GraphQL data from `tagger.scryfall.com` and stores tags, ancestor links, and card relationships.
-- `backend/src/ot_backend/embed/train.py`: trains a sentence-transformer model from self-pairs plus tag-derived positive pairs and saves it to `data/embed/model`.
-- `backend/src/ot_backend/embed/compute.py`: recomputes all face embeddings offline and stores them in Postgres.
-- `backend/src/ot_backend/embed/index.py`: lazy-loads the trained model at runtime and executes pgvector cosine-distance queries.
+- `backend/src/ot_backend/embed/train.py`: trains a sentence-transformer model from self-pairs plus tag-derived positive pairs, saves checkpoint to `data/embed/model`, and exports to ONNX.
+- `backend/src/ot_backend/embed/compute.py`: recomputes all face embeddings offline using the ONNX model and stores them in Postgres.
+- `backend/src/ot_backend/embed/index.py`: lazy-loads the ONNX model at runtime and executes pgvector cosine-distance queries.
 - `frontend/src/api.ts`: Axios wrapper around same-origin `/api`; all frontend data access is centralized here.
 - `frontend/src/App.tsx`: browser-router shell with lazy-loaded `CardPage` and `OracleSearchPage`.
 - `frontend/src/pages/CardPage.tsx`: fetches one card plus paginated similar cards; manages overlay navigation and mobile details drawer.
@@ -57,7 +57,7 @@ docker-compose*.yml     local, prod, and worker-only compose definitions
 4. Semantic model training and embedding computation are offline jobs. Training writes model assets to `backend/data/embed/model`; compute writes vectors to `card_face_semantic_embeddings`.
 5. API startup calls `init_db(mode="api")`, ensures extensions/tables/indexes exist, and waits for schema readiness before serving data endpoints.
 6. `/search` and `/suggest-names` use Postgres trigram operators when available, with SQLite fallbacks for tests.
-7. `/search-oracle` and `/similar-cards/{id}` call `get_semantic_index()`, which lazy-loads the sentence-transformer model from disk on first use, then queries pgvector for nearest neighbors.
+7. `/search-oracle` and `/similar-cards/{id}` call `get_semantic_index()`, which lazy-loads the ONNX model from disk on first use, then queries pgvector for nearest neighbors.
 8. The frontend talks only to `/api` through Vite dev proxy locally and nginx reverse proxy in production, then renders infinite-scroll result sets with React Query caching.
 
 ## Key conventions
@@ -91,10 +91,9 @@ docker-compose*.yml     local, prod, and worker-only compose definitions
 ## Critical constraints
 - `DATABASE_URL` is mandatory in production; local development instead uses `DB_*` vars from compose.
 - `DB_PASSWORD` must be set for non-`DATABASE_URL` local runs; the backend will refuse to start without it.
-- `sentence-transformers` model files must exist at `SEMANTIC_MODEL_PATH` for semantic endpoints to work; otherwise `/search-oracle` and `/similar-cards/{id}` return 503.
+- ONNX model files must exist at `SEMANTIC_MODEL_PATH/onnx/model.onnx` for semantic endpoints to work; otherwise `/search-oracle` and `/similar-cards/{id}` return 503. Run the `worker-embed` container to (re)generate them.
 - Backend tests run against in-memory SQLite, so Postgres-only behavior such as pgvector distance queries and trigram operators is only partially covered in automated tests.
-- CI is split: `.github/workflows/api-ci.yml` runs backend tests and API image build, while `.github/workflows/ci.yml` conditionally builds frontend assets/images and worker image based on changed paths.
-- Planned rename work appears in `.agent-config/PINBOARD.md`, but the checked-in code still uses `ot_backend`, `ingest`, and `embed`.
+- CI is split: `.github/workflows/api-ci.yml` runs backend tests and API image build, while `.github/workflows/ci.yml` conditionally builds frontend assets/images and worker images based on changed paths.
 
 ## Last updated
 2026-03-23
