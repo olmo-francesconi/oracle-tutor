@@ -52,6 +52,13 @@ Reflect current module structure before rename workers begin.
 - **Result**: short summary of what was done
 -->
 
+### TASK-002
+- **Status**: complete
+- **Worker started**: 2026-03-23 16:00
+- **Files touched**: `.agent-config/PINBOARD.md`, `api/src/ot_backend/api/main.py`, `api/src/ot_backend/core/logging_config.py`, `api/src/ot_backend/core/config.py`, `api/src/ot_backend/ingest/main.py`, `api/src/ot_backend/embed/train.py`, `api/src/ot_backend/embed/compute.py`
+- **Blocker** (if any): none
+- **Result**: Updated logger name literals and the config path comment for the package rename
+
 ### TASK-001
 - **Status**: complete
 - **Worker started**: 2026-03-23 15:36

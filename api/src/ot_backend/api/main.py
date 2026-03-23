@@ -27,7 +27,7 @@ except ImportError:
     get_semantic_index = None
 
 setup_loggers()
-logger = logging.getLogger("oracle_tutor_api.api")
+logger = logging.getLogger("ot_backend.api")
 DbSession = Annotated[Session, Depends(get_db)]
 
 

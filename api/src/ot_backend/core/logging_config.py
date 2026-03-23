@@ -72,9 +72,9 @@ def setup_loggers() -> None:
             logger.addHandler(file_handler)
         logger.addHandler(console)
 
-    configure("oracle_tutor_api.api", logging.INFO, api_file)
-    configure("oracle_tutor_api.data", logging.INFO, update_file)
-    configure("oracle_tutor_api.worker", logging.INFO, update_file)
+    configure("ot_backend.api", logging.INFO, api_file)
+    configure("ot_backend.data", logging.INFO, update_file)
+    configure("ot_backend.ingest", logging.INFO, update_file)
 
 
 def log_performance(
@@ -112,4 +112,3 @@ def log_performance(
 
 P = ParamSpec("P")
 R = TypeVar("R")
-

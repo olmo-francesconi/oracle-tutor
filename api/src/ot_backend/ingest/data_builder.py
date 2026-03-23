@@ -34,7 +34,7 @@ from ..core.models import (
 )
 from .fetch_tags import run_fetch_tags
 
-logger = logging.getLogger("oracle_tutor_api.data")
+logger = logging.getLogger("ot_backend.ingest")
 
 BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
 BATCH_SIZE = 500

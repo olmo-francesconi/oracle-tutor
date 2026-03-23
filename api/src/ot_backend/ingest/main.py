@@ -9,7 +9,7 @@ from ..core.logging_config import setup_loggers
 from .data_builder import update_scryfall_data
 
 setup_loggers()
-logger = logging.getLogger("oracle_tutor_api.worker")
+logger = logging.getLogger("ot_backend.ingest")
 
 def main() -> int:
     """
@@ -74,4 +74,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
