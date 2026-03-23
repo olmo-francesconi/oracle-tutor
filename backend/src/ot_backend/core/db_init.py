@@ -121,6 +121,12 @@ def _ensure_indexes(conn, dialect: str) -> None:
     if dialect == "postgresql":
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_cards_name_trgm ON cards USING gin (name gin_trgm_ops)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_card_faces_name_trgm ON card_faces USING gin (name gin_trgm_ops)"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw "
+                "ON card_face_semantic_embeddings USING hnsw (embedding vector_cosine_ops)"
+            )
+        )
 
 
 def _should_reset_cards(conn) -> bool:

@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from ..core.config import huggingface_cache_dir, semantic_model_path, semantic_onnx_model_path
+from ..core.models import Card, CardFace, CardFaceSemanticEmbedding
 from .text_prep import normalize_oracle_text
 
 logger = logging.getLogger("ot_backend.embed.index")
@@ -29,14 +30,6 @@ def _load_onnx_dependencies() -> tuple[Any, Any]:
             "Install the API dependencies before using this module."
         ) from exc
     return getattr(onnxruntime, "InferenceSession"), getattr(transformers, "AutoTokenizer")
-
-
-def _load_semantic_model_class():
-    try:
-        from ..core.models import CardFaceSemanticEmbedding
-    except Exception as exc:  # pragma: no cover - current branch safety
-        raise RuntimeError("CardFaceSemanticEmbedding model is unavailable in the current codebase state.") from exc
-    return CardFaceSemanticEmbedding
 
 
 def _pooling_config_path(model_root: Path) -> Path:
@@ -142,7 +135,6 @@ class SemanticIndex:
         rarity: str | None = None,
         color_feature: str = "identity",
     ) -> list[tuple[int, float]]:
-        CardFaceSemanticEmbedding = _load_semantic_model_class()
         seed = db.get(CardFaceSemanticEmbedding, face_id)
         if seed is None:
             return []
@@ -200,9 +192,6 @@ class SemanticIndex:
         rarity: str | None = None,
         color_feature: str = "identity",
     ) -> list[tuple[int, float]]:
-        CardFaceSemanticEmbedding = _load_semantic_model_class()
-        from ..core.models import Card, CardFace
-
         distance = CardFaceSemanticEmbedding.embedding.cosine_distance(query_vec).label("distance")
         query = db.query(CardFaceSemanticEmbedding.face_id, distance)
 

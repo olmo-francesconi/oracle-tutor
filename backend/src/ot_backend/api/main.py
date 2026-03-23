@@ -1,6 +1,7 @@
 import importlib.metadata
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Final
 
@@ -10,10 +11,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..core.config import SCHEMA_WAIT_INTERVAL_SECONDS, SCHEMA_WAIT_TIMEOUT_SECONDS
-from ..core.database import get_db
+from ..core.database import engine, get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
 from ..core.models import Card, CardFace
@@ -23,6 +24,8 @@ try:
     from ..embed.index import get_semantic_index
 except ImportError:
     get_semantic_index = None
+
+_IS_POSTGRES: bool = engine.dialect.name == "postgresql"
 
 setup_loggers()
 logger = logging.getLogger("ot_backend.api")
@@ -34,16 +37,19 @@ def _get_api_version() -> str:
 
 
 API_VERSION: Final[str] = _get_api_version()
+_schema_ready: bool = False
+_card_cache: dict[str, tuple[float, dict[str, object]]] = {}
+CARD_CACHE_TTL: float = 3600.0
 
 
 def _ensure_schema_ready() -> None:
+    global _schema_ready
+    if _schema_ready:
+        return
     if wait_for_migration_ready(timeout_s=0.0, interval_s=SCHEMA_WAIT_INTERVAL_SECONDS):
+        _schema_ready = True
         return
     raise HTTPException(status_code=503, detail="Schema migration in progress. Please retry shortly.")
-
-
-def _is_postgres(db: Session) -> bool:
-    return bool(db.bind and db.bind.dialect.name == "postgresql")
 
 
 def _get_semantic_index():
@@ -58,7 +64,7 @@ def _to_similar_cards(results: list[tuple[int, float]], db: Session) -> list[Sim
 
     target_face_ids = [face_id for face_id, _ in results]
     id_to_score = {face_id: score for face_id, score in results}
-    faces = db.query(CardFace).filter(CardFace.id.in_(target_face_ids)).all()
+    faces = db.query(CardFace).options(joinedload(CardFace.card)).filter(CardFace.id.in_(target_face_ids)).all()
     faces_map = {face.id: face for face in faces}
 
     similar_cards: list[SimilarCard] = []
@@ -173,7 +179,7 @@ def search_cards(q: str, db: Session = Depends(get_db), limit: int = 5) -> list[
         return []
     limit = max(1, min(limit, 25))
 
-    if _is_postgres(db):
+    if _IS_POSTGRES:
         distance = Card.name.op("<->")(q)
         results = (
             db.query(Card, distance.label("dist"))
@@ -206,7 +212,7 @@ def search_card_names(q: str, db: Session = Depends(get_db), limit: int = 5, off
     limit = max(1, min(limit, 25))
     offset = max(0, offset)
 
-    if _is_postgres(db):
+    if _IS_POSTGRES:
         distance = Card.name.op("<->")(q)
         cards = (
             db.query(Card.name, Card.id)
@@ -233,11 +239,17 @@ def search_card_names(q: str, db: Session = Depends(get_db), limit: int = 5, off
 @log_performance(logger=logger)
 def get_card_by_id(card_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     _ensure_schema_ready()
-    card = db.get(Card, card_id)
+    now = time.time()
+    cached = _card_cache.get(card_id)
+    if cached and now - cached[0] < CARD_CACHE_TTL:
+        return cached[1]
+
+    card = db.query(Card).options(joinedload(Card.faces)).filter(Card.id == card_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
-    _ = card.faces
-    return card.to_dict()
+    result = card.to_dict()
+    _card_cache[card_id] = (now, result)
+    return result
 
 
 @app.get("/similar-cards/{card_id}", response_model=list[SimilarCard])
@@ -260,13 +272,22 @@ def get_similar_cards(
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
 
-    _ = (card_type, colors, cmc_min, cmc_max, format, rarity, color_feature)
-
     face = db.query(CardFace).filter(CardFace.card_id == card_id).order_by(CardFace.id.asc()).first()
     if face is None:
         raise HTTPException(status_code=404, detail="Card not found")
 
-    results = index.similar_to_face(face.id, limit=limit + offset, db=db)
+    results = index.similar_to_face(
+        face.id,
+        limit=limit + offset,
+        db=db,
+        card_type=card_type,
+        colors=colors,
+        cmc_min=cmc_min,
+        cmc_max=cmc_max,
+        format=format,
+        rarity=rarity,
+        color_feature=color_feature,
+    )
     return _to_similar_cards(results[offset:], db)
 
 
@@ -293,7 +314,16 @@ def search_oracle_text(
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
 
-    _ = (card_type, colors, cmc_min, cmc_max, format, rarity, color_feature)
-
-    results = index.search_oracle(q, limit=limit + offset, db=db)
+    results = index.search_oracle(
+        q,
+        limit=limit + offset,
+        db=db,
+        card_type=card_type,
+        colors=colors,
+        cmc_min=cmc_min,
+        cmc_max=cmc_max,
+        format=format,
+        rarity=rarity,
+        color_feature=color_feature,
+    )
     return _to_similar_cards(results[offset:], db)

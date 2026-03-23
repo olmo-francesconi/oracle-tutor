@@ -18,6 +18,7 @@ TAGGER_GRAPHQL_URL = f"{TAGGER_BASE_URL}/graphql"
 RATE_LIMIT_SLEEP = 0.1
 SESSION_RESET_BACKOFF_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 10
+MAX_SESSION_RESETS: int = 5
 
 FETCH_CARD_QUERY = """
 query FetchCard(
@@ -420,29 +421,39 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
         if outcome != FetchOutcome.RESET_SESSION:
             continue
 
-        try:
-            tagger_session.close()
-        except Exception:
-            logger.debug("Failed to close Tagger session cleanly.", exc_info=True)
+        session_resets = 0
+        while outcome == FetchOutcome.RESET_SESSION:
+            session_resets += 1
+            if session_resets >= MAX_SESSION_RESETS:
+                logger.error(
+                    "Tagger rate limit: exceeded max session resets for card %s/%s, skipping.",
+                    card.scryfall_set,
+                    card.collector_number,
+                )
+                break
 
-        time.sleep(SESSION_RESET_BACKOFF_SECONDS)
-        try:
-            tagger_session, csrf_token = _create_tagger_session()
-        except Exception as e:
-            logger.warning("Tagger session re-bootstrap failed after retryable response: %s", e)
-            return
+            try:
+                tagger_session.close()
+            except Exception:
+                logger.debug("Failed to close Tagger session cleanly.", exc_info=True)
 
-        retry_outcome = fetch_and_store_tags(
-            db,
-            tagger_session,
-            csrf_token,
-            card.scryfall_set,
-            card.collector_number,
-            card.id,
-        )
-        if retry_outcome == FetchOutcome.RESET_SESSION:
-            logger.warning("Tagger still returning retryable failures after session reset; stopping tag ingestion.")
-            return
+            time.sleep(SESSION_RESET_BACKOFF_SECONDS)
+            try:
+                tagger_session, csrf_token = _create_tagger_session()
+            except Exception as e:
+                logger.warning("Tagger session re-bootstrap failed after retryable response: %s", e)
+                break
+
+            outcome = fetch_and_store_tags(
+                db,
+                tagger_session,
+                csrf_token,
+                card.scryfall_set,
+                card.collector_number,
+                card.id,
+            )
+            if outcome == FetchOutcome.RESET_SESSION:
+                counts[FetchOutcome.RESET_SESSION] += 1
 
     try:
         tagger_session.close()
