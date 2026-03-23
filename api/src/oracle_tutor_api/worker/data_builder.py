@@ -586,7 +586,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
     Compute a uniqueness score (0-100) for every card and write it to the DB.
 
     Algorithm:
-      1. Build TF-IDF index from all card faces (reuses the API's index builder).
+      1. Load semantic embeddings for all card faces from the DB.
       2. For each face, sum sim^power for all above-threshold similarities
          (excluding same-card faces). This "redundancy" captures both depth
          and breadth of similar cards.
@@ -598,19 +598,21 @@ def compute_and_store_uniqueness_scores(session) -> None:
 
     import numpy as np
 
-    from ..api.tfidf_index import build_tfidf_index
-
     logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
     t0 = time.perf_counter()
 
-    index = build_tfidf_index(session)
-    n = len(index.face_ids)
+    embedding_rows = session.execute(
+        select(CardFaceSemanticEmbedding.face_id, CardFace.card_id, CardFaceSemanticEmbedding.embedding)
+        .join(CardFace, CardFace.id == CardFaceSemanticEmbedding.face_id)
+        .order_by(CardFaceSemanticEmbedding.face_id)
+    ).all()
+    n = len(embedding_rows)
     if n == 0:
-        logger.warning("No faces found; skipping uniqueness computation.")
+        logger.warning("No semantic embeddings found; skipping uniqueness computation because semantic-worker has not run.")
         return
 
-    matrix = index.matrix_l2
-    face_card_ids = index.face_card_ids
+    face_card_ids = [row[1] for row in embedding_rows]
+    matrix = np.asarray([row[2] for row in embedding_rows], dtype=np.float32)
 
     card_face_map: dict[str, list[int]] = {}
     for i, cid in enumerate(face_card_ids):
@@ -620,13 +622,9 @@ def compute_and_store_uniqueness_scores(session) -> None:
 
     for batch_start in range(0, n, UNIQUENESS_BATCH_SIZE):
         batch_end = min(batch_start + UNIQUENESS_BATCH_SIZE, n)
-        batch = cast(Any, matrix[batch_start:batch_end])
+        batch = matrix[batch_start:batch_end]
 
-        sims = batch @ cast(Any, matrix.T)
-        try:
-            sims = np.asarray(sims.toarray())
-        except AttributeError:
-            sims = np.asarray(sims)
+        sims = np.asarray(batch @ matrix.T)
 
         for i in range(batch_end - batch_start):
             gi = batch_start + i
