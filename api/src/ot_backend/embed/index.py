@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .text_prep import normalize_oracle_text
 
-logger = logging.getLogger("oracle_tutor_api.semantic.index")
+logger = logging.getLogger("ot_backend.embed.index")
 
 MODEL_PATH = os.environ.get("SEMANTIC_MODEL_PATH", "data/semantic/model")
 

@@ -10,7 +10,7 @@ from .config import ALLOW_SCHEMA_RESET, DB_SCHEMA_VERSION, parse_version
 from .database import engine
 from .models import Base
 
-logger = logging.getLogger("oracle_tutor_api.data")
+logger = logging.getLogger("ot_backend.db")
 
 INIT_MODE_API = "api"
 INIT_MODE_WORKER = "worker"

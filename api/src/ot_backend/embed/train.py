@@ -12,7 +12,7 @@ from ..core.database import SessionLocal
 from ..core.models import CardFace
 from .text_prep import face_to_text
 
-logger = logging.getLogger("oracle_tutor_api.semantic.train")
+logger = logging.getLogger("ot_backend.embed.train")
 
 MODEL_OUT = os.environ.get("SEMANTIC_MODEL_PATH", "data/semantic/model")
 BASE_MODEL_NAME = os.environ.get("SEMANTIC_BASE_MODEL", "sentence-transformers/all-MiniLM-L6-v2")

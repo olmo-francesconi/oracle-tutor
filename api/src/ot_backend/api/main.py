@@ -22,12 +22,12 @@ from ..core.models import Card, CardFace
 from .schemas import CardMatch, CardNameMatch, SimilarCard
 
 try:
-    from ..semantic.index import get_semantic_index
+    from ..embed.index import get_semantic_index
 except ImportError:
     get_semantic_index = None
 
 setup_loggers()
-logger = logging.getLogger("oracle_tutor_api.api")
+logger = logging.getLogger("ot_backend.api")
 DbSession = Annotated[Session, Depends(get_db)]
 
 

@@ -9,7 +9,7 @@ from ..core.database import SessionLocal
 from ..core.models import CardFace
 from .text_prep import face_to_text
 
-logger = logging.getLogger("oracle_tutor_api.semantic.compute")
+logger = logging.getLogger("ot_backend.embed.compute")
 
 MODEL_PATH = os.environ.get("SEMANTIC_MODEL_PATH", "data/semantic/model")
 BATCH_SIZE = 256

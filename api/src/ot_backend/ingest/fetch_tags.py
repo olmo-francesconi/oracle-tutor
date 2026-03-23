@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..core.models import Card, CardRelationship, CardTagging, Tag, TagAncestorMap
 
-logger = logging.getLogger("oracle_tutor_api.data")
+logger = logging.getLogger("ot_backend.ingest")
 
 TAGGER_BASE_URL = "https://tagger.scryfall.com"
 TAGGER_GRAPHQL_URL = f"{TAGGER_BASE_URL}/graphql"

@@ -13,10 +13,10 @@ os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-from oracle_tutor_api.core.database import SessionLocal
-from oracle_tutor_api.core.db_init import init_db
-from oracle_tutor_api.api.main import app
-from oracle_tutor_api.core.models import Card, CardFace
+from ot_backend.core.database import SessionLocal
+from ot_backend.core.db_init import init_db
+from ot_backend.api.main import app
+from ot_backend.core.models import Card, CardFace
 
 
 def _seed_db() -> None:
@@ -86,4 +86,3 @@ def client() -> Generator[TestClient, None, None]:
     _seed_db()
     with TestClient(app) as c:
         yield c
-

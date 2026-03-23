@@ -1,5 +1,5 @@
 [project]
-name = "oracle-tutor-api"
+name = "ot-backend"
 version = "1.4.0"
 description = "FastAPI service for MTG oracle search (uv-managed)."
 readme = "README.md"

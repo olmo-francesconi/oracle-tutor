@@ -17,11 +17,11 @@ RUN if [ -f uv.lock ]; then \
       uv sync --active --no-install-project --extra api --extra worker; \
     fi
 
-COPY src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
-COPY src/oracle_tutor_api/core ./src/oracle_tutor_api/core
-COPY src/oracle_tutor_api/worker ./src/oracle_tutor_api/worker
-COPY src/oracle_tutor_api/api ./src/oracle_tutor_api/api
-COPY src/oracle_tutor_api/semantic ./src/oracle_tutor_api/semantic
+COPY src/ot_backend/__init__.py ./src/ot_backend/
+COPY src/ot_backend/core ./src/ot_backend/core
+COPY src/ot_backend/ingest ./src/ot_backend/ingest
+COPY src/ot_backend/api ./src/ot_backend/api
+COPY src/ot_backend/embed ./src/ot_backend/embed
 
 FROM python:3.12-slim AS runtime
 
@@ -39,12 +39,12 @@ RUN set -eux; \
     chown -R app:app /app/data
 
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
-COPY --chown=app:app src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
-COPY --chown=app:app src/oracle_tutor_api/core ./src/oracle_tutor_api/core
-COPY --chown=app:app src/oracle_tutor_api/worker ./src/oracle_tutor_api/worker
-COPY --chown=app:app src/oracle_tutor_api/api ./src/oracle_tutor_api/api
-COPY --chown=app:app src/oracle_tutor_api/semantic ./src/oracle_tutor_api/semantic
+COPY --chown=app:app src/ot_backend/__init__.py ./src/ot_backend/
+COPY --chown=app:app src/ot_backend/core ./src/ot_backend/core
+COPY --chown=app:app src/ot_backend/ingest ./src/ot_backend/ingest
+COPY --chown=app:app src/ot_backend/api ./src/ot_backend/api
+COPY --chown=app:app src/ot_backend/embed ./src/ot_backend/embed
 
 USER app
 
-CMD ["sh", "-c", "python -m oracle_tutor_api.semantic.train && python -m oracle_tutor_api.semantic.compute"]
+CMD ["sh", "-c", "python -m ot_backend.embed.train && python -m ot_backend.embed.compute"]
