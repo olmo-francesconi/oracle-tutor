@@ -93,6 +93,12 @@ TODO.md: update current focus to reflect semantic-only migration completed
 
 <!-- Workers append their status here on start and completion -->
 
+### TASK-D
+- Status: complete
+- Worker: Codex
+- Scope: `api/pyproject.toml`, `api/Dockerfile`, `docker-compose.yml`, `docker-compose.prod.yml`
+- Summary: Removed TF-IDF-related dependencies from the `api`, `worker`, and `test` dependency sets, merged `sentence-transformers` into the `api` extra, removed the separate semantic extra install from `api/Dockerfile`, and cleaned the TF-IDF env vars from both compose files.
+
 ### TASK-C
 - Status: complete
 - Worker: Codex
