@@ -54,6 +54,13 @@ Shared communication board between the orchestrator (Claude) and Codex workers.
 - **Result**: short summary of what was done
 -->
 
+### TASK-001
+- **Status**: complete
+- **Worker started**: 2026-03-23 21:16
+- **Files touched**: `backend/src/ot_backend/core/database.py`, `backend/src/ot_backend/core/db_init.py`
+- **Result**: Reduced Postgres pool defaults to 3/2 and added the HNSW index on `card_face_semantic_embeddings`
+
+
 ---
 
 ## Completed Work

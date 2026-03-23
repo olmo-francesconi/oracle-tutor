@@ -75,8 +75,8 @@ else:
     # Connection pool settings for Postgres to handle high concurrency
     # Defaults: pool_size=5, max_overflow=10 (total: 15 connections)
     _engine_kwargs.update({
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
-        "max_overflow": int(os.getenv("DB_POOL_MAX_OVERFLOW", "30")),
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "3")),
+        "max_overflow": int(os.getenv("DB_POOL_MAX_OVERFLOW", "2")),
         "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "30")),  # seconds to wait for connection
     })
 
@@ -95,4 +95,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
