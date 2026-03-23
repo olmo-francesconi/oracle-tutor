@@ -1,0 +1,1 @@
+/Users/olmo/Desktop/dev/mtg-search/.agent-config/shared.md
