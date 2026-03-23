@@ -12,13 +12,13 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./api
+    build: ./backend
     ports:
       - "8000:8000"
     volumes:
-      - ./api/data:/app/data
-      - ./api/tests:/app/tests
-      - ./api/src:/app/src
+      - ./backend/data:/app/data
+      - ./backend/tests:/app/tests
+      - ./backend/src:/app/src
     environment:
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
       # Database connection details
@@ -31,14 +31,14 @@ services:
       - db
     restart: unless-stopped
 
-  worker:
+  worker-ingest:
     build:
-      context: ./api
+      context: ./backend
       dockerfile: Dockerfile.worker
     volumes:
       # Keep data directory available if you want to inspect bulk files/logs locally.
-      - ./api/data:/app/data
-      - ./api/src:/app/src
+      - ./backend/data:/app/data
+      - ./backend/src:/app/src
     environment:
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
       # Connect to the same DB
@@ -53,13 +53,13 @@ services:
       - api
     restart: "no"
 
-  semantic-worker:
+  worker-embed:
     build:
-      context: ./api
+      context: ./backend
       dockerfile: Dockerfile.semantic-worker
     volumes:
-      - ./api/data:/app/data
-      - ./api/src:/app/src
+      - ./backend/data:/app/data
+      - ./backend/src:/app/src
     environment:
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
       - DB_HOST=db

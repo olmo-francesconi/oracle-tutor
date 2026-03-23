@@ -10,7 +10,7 @@ Fast, fuzzy-search engine for Magic: The Gathering cards — semantic vector sea
 
 ## Repo structure
 ```
-api/                    FastAPI service + Pytest suite
+backend/                FastAPI service + Pytest suite
   src/ot_backend/       Main package
   tests/                Pytest tests
   Dockerfile            API image
@@ -36,7 +36,7 @@ docker-compose.prod.yml Production overrides
 - `VITE_API_URL` — frontend API base (default `/api`)
 - `SEMANTIC_MODEL_PATH` — directory containing a trained sentence-transformers model
 
-## Python dev workflow (run in `api/` directory)
+## Python dev workflow (run in `backend/` directory)
 
 Before committing or running tests, always run in this order:
 
@@ -53,14 +53,14 @@ uv run pytest tests/ -x -q
 
 Notes:
 - `uv sync --all-extras --group test` is required once to populate the venv
-- basedpyright must be run from `api/` (where `pyrightconfig.json` lives) to pick up the venv
+- basedpyright must be run from `backend/` (where `pyrightconfig.json` lives) to pick up the venv
 - Ruff config is in `pyproject.toml` under `[tool.ruff]` — line length 120, E/F/I rules
 - 720 basedpyright warnings are expected noise (`reportAny` from argparse/dynamic imports); only errors matter
 
 ---
 
 ## Project-specific rules
-- Version is kept in sync between `api/pyproject.toml` and `frontend/package.json`
+- Version is kept in sync between `backend/pyproject.toml` and `frontend/package.json`
 - Worker is a one-shot container; it runs daily on Railway Cron and exits after ingestion
 - Never set `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` in production without explicit intent
 

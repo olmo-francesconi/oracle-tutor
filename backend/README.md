@@ -1,4 +1,4 @@
-## Barebones FastAPI (`/api`)
+## Barebones FastAPI (`/backend`)
 
 This folder contains a minimal FastAPI service managed by **uv**.
 
@@ -8,7 +8,7 @@ This folder contains a minimal FastAPI service managed by **uv**.
   - `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 - **Create venv + install deps**:
-  - `cd api`
+  - `cd backend`
   - `uv sync --extra api --extra worker`
 
 - **Run the API**:
@@ -68,7 +68,7 @@ The worker is designed to be run as a **one-time command** (cron-friendly): it r
 ### Tests
 
 - **Install test deps**:
-  - `cd api`
+  - `cd backend`
   - `uv sync --group test`
 
 - **Run**:
@@ -83,7 +83,7 @@ Endpoints:
 From the repo root:
 
 - **Build**:
-  - `docker build -t oracle-tutor-api -f api/Dockerfile api`
+  - `docker build -t oracle-tutor-api -f backend/Dockerfile backend`
 
 - **Run**:
   - `docker run --rm -p 8000:8000 oracle-tutor-api`
@@ -99,4 +99,3 @@ Recommended environment variables:
 Optional:
 
 - `ORACLE_TUTOR_API_CORS_ORIGINS=` (comma-separated origins; leave unset for same-origin deployments)
-

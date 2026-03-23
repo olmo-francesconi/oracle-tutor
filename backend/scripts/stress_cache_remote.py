@@ -4,11 +4,11 @@ Send many API requests to a remote Oracle Tutor deployment to stress the in-memo
 TF-IDF cache. Use this to see if cache usage increases memory on Railway.
 
 Usage:
-  python api/scripts/stress_cache_remote.py
+  python backend/scripts/stress_cache_remote.py
   # default BASE_URL is https://oracletutor.org/api
   # override and/or run more rounds:
-  BASE_URL=https://oracletutor.org/api STRESS_ROUNDS=5 python api/scripts/stress_cache_remote.py
-  # or from api/:
+  BASE_URL=https://oracletutor.org/api STRESS_ROUNDS=5 python backend/scripts/stress_cache_remote.py
+  # or from backend/:
   uv run python scripts/stress_cache_remote.py
 
 Then check your deployment's memory metrics before/during/after the run.

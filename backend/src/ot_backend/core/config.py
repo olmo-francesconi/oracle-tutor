@@ -3,11 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Project root is /api (since this file lives in /api/src/ot_backend/core)
+# Project root is /backend (since this file lives in /backend/src/ot_backend/core)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 DATA_DIR = PROJECT_ROOT / "data"
 CARDS_JSON = DATA_DIR / "cards.json"
+DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
+DEFAULT_SEMANTIC_BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
@@ -42,3 +44,27 @@ def parse_version(version_str: str | None) -> tuple[int, int, int]:
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def semantic_model_path() -> Path:
+    return Path(os.getenv("SEMANTIC_MODEL_PATH", "data/semantic/model"))
+
+
+def semantic_base_model_name() -> str:
+    return os.getenv("SEMANTIC_BASE_MODEL", DEFAULT_SEMANTIC_BASE_MODEL)
+
+
+def semantic_model_source() -> str:
+    model_path = semantic_model_path()
+    if model_path.exists():
+        return str(model_path)
+    return semantic_base_model_name()
+
+
+def huggingface_cache_dir() -> Path:
+    cache_dir = Path(os.getenv("HF_HOME", str(DEFAULT_HF_CACHE_DIR)))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    _ = os.environ.setdefault("HF_HOME", str(cache_dir))
+    _ = os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_dir / "transformers"))
+    _ = os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(cache_dir / "sentence-transformers"))
+    return cache_dir

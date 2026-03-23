@@ -12,9 +12,9 @@ A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
 ## Installation
 
 1.  Clone the repository.
-2.  Navigate to the API directory:
+2.  Navigate to the backend directory:
     ```bash
-    cd api
+    cd backend
     ```
 3.  Install `uv` (once):
     ```bash
@@ -35,17 +35,17 @@ A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
 Before searching, you need to ingest the latest Scryfall Oracle bulk data into the database.
 
 ```bash
-# From the api directory
+# From the backend directory
 uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 ```
 
-This stores bulk metadata/files under `api/data/` (optional) and ingests cards into Postgres.
+This stores bulk metadata/files under `backend/data/` (optional) and ingests cards into Postgres.
 
 ### 2. Run the API Server
 Start the HTTP API:
 
 ```bash
-# From the api directory
+# From the backend directory
 uv run hypercorn ot_backend.api.main:app --reload --bind 0.0.0.0:8000
 ```
 
@@ -87,8 +87,8 @@ This repo is designed to deploy on Railway as **three services** (Frontend + API
 ### 1) Create resources
 
 - **Postgres**: add a Railway Postgres database to the project.
-- **API service**: build from [`api/Dockerfile`](api/Dockerfile).
-- **Worker service** (scheduled ingestion): build from [`api/Dockerfile.worker`](api/Dockerfile.worker).
+- **API service**: build from [`backend/Dockerfile`](backend/Dockerfile).
+- **Worker service** (scheduled ingestion): build from [`backend/Dockerfile.worker`](backend/Dockerfile.worker).
 - **Frontend service**: build from [`frontend/Dockerfile`](frontend/Dockerfile) (nginx runtime serves `dist/` and proxies `/api`).
 
 ### 2) Set environment variables
@@ -152,7 +152,7 @@ python -m ot_backend.ingest.main --strict --trigger-type cron
 If you want to schedule updates yourself, run the same one-shot command via your system cron (or use docker-compose):
 
 ```bash
-# From the api directory
+# From the backend directory
 python -m ot_backend.ingest.main --strict --trigger-type cron
 ```
 

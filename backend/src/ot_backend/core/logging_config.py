@@ -56,11 +56,12 @@ def _log_to_files() -> bool:
 
 
 def setup_loggers() -> None:
-    """Configure a small set of named loggers used across api/worker/ingestion."""
+    """Configure a small set of named loggers used across API, ingest, and embed flows."""
     console = _console_handler()
     write_files = _log_to_files()
     api_file = _file_handler("api.log") if write_files else None
     update_file = _file_handler("update.log") if write_files else None
+    embed_file = _file_handler("embed.log") if write_files else None
 
     def configure(name: str, level: int, file_handler: logging.Handler | None) -> None:
         logger = logging.getLogger(name)
@@ -75,6 +76,10 @@ def setup_loggers() -> None:
     configure("ot_backend.api", logging.INFO, api_file)
     configure("ot_backend.data", logging.INFO, update_file)
     configure("ot_backend.ingest", logging.INFO, update_file)
+    configure("ot_backend.embed", logging.INFO, embed_file)
+    configure("ot_backend.embed.train", logging.INFO, embed_file)
+    configure("ot_backend.embed.compute", logging.INFO, embed_file)
+    configure("ot_backend.embed.index", logging.INFO, embed_file)
 
 
 def log_performance(

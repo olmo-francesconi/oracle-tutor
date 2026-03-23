@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from importlib import import_module
-from pathlib import Path
 
 from sqlalchemy import cast
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
+from ..core.config import huggingface_cache_dir, semantic_model_source
 from .text_prep import normalize_oracle_text
 
 logger = logging.getLogger("ot_backend.embed.index")
-
-MODEL_PATH = os.environ.get("SEMANTIC_MODEL_PATH", "data/semantic/model")
 
 _index: SemanticIndex | None = None
 
@@ -38,9 +35,11 @@ def _load_semantic_model_class():
 
 
 class SemanticIndex:
-    def __init__(self, model_path: str = MODEL_PATH):
+    def __init__(self, model_path: str | None = None):
         SentenceTransformer = _load_sentence_transformers()
-        self.model = SentenceTransformer(model_path)
+        huggingface_cache_dir()
+        resolved_model_source = semantic_model_source() if model_path is None else model_path
+        self.model = SentenceTransformer(resolved_model_source)
 
     def encode_query(self, text: str) -> list[float]:
         normalized = normalize_oracle_text(text)
@@ -165,13 +164,9 @@ def get_semantic_index() -> SemanticIndex | None:
     if _index is not None:
         return _index
 
-    model_path = Path(MODEL_PATH)
-    if not model_path.exists():
-        return None
-
     try:
-        _index = SemanticIndex(str(model_path))
+        _index = SemanticIndex()
     except Exception as exc:
-        logger.warning("Semantic index unavailable at %s: %s", model_path, exc)
+        logger.warning("Semantic index unavailable: %s", exc)
         return None
     return _index

@@ -1,11 +1,10 @@
 {
-  "include": ["api/src", "api/tests"],
+  "include": ["backend/src", "backend/tests"],
   "executionEnvironments": [
     {
       "root": ".",
-      "extraPaths": ["api/src"]
+      "extraPaths": ["backend/src"]
     }
   ]
 }
-
 

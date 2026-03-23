@@ -10,11 +10,16 @@ dependencies = [
   "pgvector>=0.3",
 ]
 
+[project.scripts]
+oracle-tutor-embed-worker = "ot_backend.embed.main:main"
+
 [project.optional-dependencies]
 api = [
+  "accelerate>=1.1.0",
   "fastapi>=0.115.0",
   "hypercorn>=0.17.0",
   "uvicorn[standard]>=0.32.0",
+  "datasets>=3.0.0",
   "sentence-transformers>=3.0",
 ]
 worker = [

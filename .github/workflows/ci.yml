@@ -18,7 +18,7 @@ jobs:
     name: Detect changed paths
     runs-on: ubuntu-latest
     outputs:
-      api: ${{ steps.filter.outputs.api }}
+      backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       workflow: ${{ steps.filter.outputs.workflow }}
     steps:
@@ -33,8 +33,8 @@ jobs:
           filters: |
             workflow:
               - ".github/workflows/**"
-            api:
-              - "api/**"
+            backend:
+              - "backend/**"
             frontend:
               - "frontend/**"
 
@@ -42,7 +42,7 @@ jobs:
     name: Worker Docker build
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.workflow == 'true'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -51,8 +51,8 @@ jobs:
       - name: Build worker image (no push)
         uses: docker/build-push-action@v6
         with:
-          context: api
-          file: api/Dockerfile.worker
+          context: backend
+          file: backend/Dockerfile.worker
           push: false
           provenance: false
           sbom: false
@@ -103,4 +103,3 @@ jobs:
           provenance: false
           sbom: false
           tags: oracle-tutor-frontend:ci
-

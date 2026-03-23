@@ -29,7 +29,7 @@ RUN if [ -f uv.lock ]; then \
 COPY src/ot_backend/__init__.py ./src/ot_backend/
 COPY src/ot_backend/core ./src/ot_backend/core
 COPY src/ot_backend/api ./src/ot_backend/api
-COPY src/ot_backend/semantic ./src/ot_backend/semantic
+COPY src/ot_backend/embed ./src/ot_backend/embed
 
 
 FROM python:3.12-slim AS runtime
@@ -41,18 +41,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:${PATH}" \
     PYTHONPATH=/app/src \
+    HF_HOME=/app/data/huggingface \
+    TRANSFORMERS_CACHE=/app/data/huggingface/transformers \
+    SENTENCE_TRANSFORMERS_HOME=/app/data/huggingface/sentence-transformers \
     PORT=8000
 
 RUN set -eux; \
     groupadd -r app && useradd -r -g app -d /app -s /usr/sbin/nologin app; \
-    mkdir -p /app/data; \
+    mkdir -p /app/data/huggingface/transformers /app/data/huggingface/sentence-transformers; \
     chown -R app:app /app/data
 
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
 COPY --chown=app:app src/ot_backend/__init__.py ./src/ot_backend/
 COPY --chown=app:app src/ot_backend/core ./src/ot_backend/core
 COPY --chown=app:app src/ot_backend/api ./src/ot_backend/api
-COPY --chown=app:app src/ot_backend/semantic ./src/ot_backend/semantic
+COPY --chown=app:app src/ot_backend/embed ./src/ot_backend/embed
 
 EXPOSE 8000
 

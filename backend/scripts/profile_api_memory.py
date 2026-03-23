@@ -2,7 +2,7 @@
 """
 Profile the API's memory footprint.
 
-Run from the api directory:
+Run from the backend directory:
     uv run python scripts/profile_api_memory.py
 
 Uses an in-memory SQLite database with test card data to simulate
@@ -23,10 +23,10 @@ _ = os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 # Avoid importing before env is set
 _ = os.environ.setdefault("ORACLE_TUTOR_API_ENV", "development")
 
-# Add api src to path when run as script
-_api_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _api_dir not in sys.path:
-    sys.path.insert(0, _api_dir)
+# Add backend src to path when run as script
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 
 class _MemoryInfo(Protocol):
