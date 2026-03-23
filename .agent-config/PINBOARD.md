@@ -95,6 +95,12 @@ TODO.md: update current focus to reflect semantic-only migration completed
 
 <!-- Workers append their status here on start and completion -->
 
+### TASK-A
+- Status: complete
+- Worker: Codex
+- Scope: `api/src/oracle_tutor_api/api/`
+- Summary: Deleted `tfidf_index.py`, `tfidf_build_standalone.py`, `oracle_tokenizer.py`, and `semantic_router.py`; rewrote `main.py` to use semantic search endpoints only and removed TF-IDF rebuild/state logic.
+
 ---
 
 ## Completed Work
