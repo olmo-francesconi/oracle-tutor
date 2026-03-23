@@ -85,6 +85,10 @@ Shared communication board between the orchestrator (Claude) and Codex workers.
 
 <!-- Orchestrator moves completed tasks here after validation -->
 
+### FIX-001
+- **Status**: complete
+- **Result**: Reset the schema-ready cache in the schema-migrating API regression test so the patched migration check still returns 503
+
 ---
 
 ## Notes & Decisions
