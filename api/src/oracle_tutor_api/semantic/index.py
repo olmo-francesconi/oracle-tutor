@@ -5,6 +5,8 @@ import os
 from importlib import import_module
 from pathlib import Path
 
+from sqlalchemy import cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from .text_prep import normalize_oracle_text
@@ -44,15 +46,62 @@ class SemanticIndex:
         normalized = normalize_oracle_text(text)
         return self.model.encode([normalized], normalize_embeddings=True)[0].tolist()
 
-    def similar_to_face(self, face_id: int, limit: int, db: Session) -> list[tuple[int, float]]:
+    def similar_to_face(
+        self,
+        face_id: int,
+        limit: int,
+        db: Session,
+        card_type: str | None = None,
+        colors: str | None = None,
+        cmc_min: float | None = None,
+        cmc_max: float | None = None,
+        format: str | None = None,
+        rarity: str | None = None,
+        color_feature: str = "identity",
+    ) -> list[tuple[int, float]]:
         CardFaceSemanticEmbedding = _load_semantic_model_class()
         seed = db.get(CardFaceSemanticEmbedding, face_id)
         if seed is None:
             return []
-        return self._pgvector_query(seed.embedding, limit + 1, db, exclude=face_id)
+        return self._pgvector_query(
+            seed.embedding,
+            limit + 1,
+            db,
+            exclude=face_id,
+            card_type=card_type,
+            colors=colors,
+            cmc_min=cmc_min,
+            cmc_max=cmc_max,
+            format=format,
+            rarity=rarity,
+            color_feature=color_feature,
+        )
 
-    def search_oracle(self, query: str, limit: int, db: Session) -> list[tuple[int, float]]:
-        return self._pgvector_query(self.encode_query(query), limit, db)
+    def search_oracle(
+        self,
+        query: str,
+        limit: int,
+        db: Session,
+        card_type: str | None = None,
+        colors: str | None = None,
+        cmc_min: float | None = None,
+        cmc_max: float | None = None,
+        format: str | None = None,
+        rarity: str | None = None,
+        color_feature: str = "identity",
+    ) -> list[tuple[int, float]]:
+        return self._pgvector_query(
+            self.encode_query(query),
+            limit,
+            db,
+            card_type=card_type,
+            colors=colors,
+            cmc_min=cmc_min,
+            cmc_max=cmc_max,
+            format=format,
+            rarity=rarity,
+            color_feature=color_feature,
+        )
 
     def _pgvector_query(
         self,
@@ -60,12 +109,53 @@ class SemanticIndex:
         limit: int,
         db: Session,
         exclude: int | None = None,
+        card_type: str | None = None,
+        colors: str | None = None,
+        cmc_min: float | None = None,
+        cmc_max: float | None = None,
+        format: str | None = None,
+        rarity: str | None = None,
+        color_feature: str = "identity",
     ) -> list[tuple[int, float]]:
         CardFaceSemanticEmbedding = _load_semantic_model_class()
+        from ..core.models import Card, CardFace
+
         distance = CardFaceSemanticEmbedding.embedding.cosine_distance(query_vec).label("distance")
         query = db.query(CardFaceSemanticEmbedding.face_id, distance)
+
+        has_filters = any(value is not None for value in (card_type, colors, cmc_min, cmc_max, format, rarity))
+        if has_filters:
+            query = query.join(CardFace, CardFace.id == CardFaceSemanticEmbedding.face_id).join(Card, Card.id == CardFace.card_id)
+
         if exclude is not None:
             query = query.filter(CardFaceSemanticEmbedding.face_id != exclude)
+
+        if card_type is not None:
+            query = query.filter(CardFace.type_line.ilike(f"%{card_type}%"))
+
+        if colors is not None:
+            color_values: list[str] = []
+            for ch in colors.upper():
+                if ch in {"W", "U", "B", "R", "G"} and ch not in color_values:
+                    color_values.append(ch)
+            if color_values:
+                if color_feature == "colors":
+                    query = query.filter(cast(CardFace.colors, JSONB).contains(color_values))
+                else:
+                    query = query.filter(cast(Card.color_identity, JSONB).contains(color_values))
+
+        if cmc_min is not None:
+            query = query.filter(Card.cmc >= cmc_min)
+
+        if cmc_max is not None:
+            query = query.filter(Card.cmc <= cmc_max)
+
+        if format is not None:
+            query = query.filter(Card.legalities[format].astext.in_(["legal", "restricted"]))
+
+        if rarity is not None:
+            query = query.filter(Card.rarity == rarity)
+
         rows = query.order_by(distance).limit(limit).all()
         return [(row.face_id, round(1.0 - row.distance, 6)) for row in rows]
 
