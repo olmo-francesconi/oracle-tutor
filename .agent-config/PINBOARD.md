@@ -54,6 +54,12 @@ Shared communication board between the orchestrator (Claude) and Codex workers.
 - **Result**: short summary of what was done
 -->
 
+### TASK-002
+- **Status**: complete
+- **Worker started**: 2026-03-23 21:18
+- **Files touched**: `backend/src/ot_backend/api/main.py`, `.agent-config/PINBOARD.md`
+- **Result**: Added schema/card caches, moved Postgres detection to module scope, eager-loaded card relations, and passed semantic filters through to the index calls
+
 ### TASK-001
 - **Status**: complete
 - **Worker started**: 2026-03-23 21:16
