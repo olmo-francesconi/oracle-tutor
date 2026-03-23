@@ -52,6 +52,13 @@ Reflect current module structure before rename workers begin.
 - **Result**: short summary of what was done
 -->
 
+### TASK-001
+- **Status**: complete
+- **Worker started**: 2026-03-23 15:36
+- **Files touched**: `api/src/ot_backend/`, `api/pyproject.toml`, `.agent-config/PINBOARD.md`
+- **Blocker** (if any): none
+- **Result**: Renamed the package and subdirectories, and updated the project name in `api/pyproject.toml`
+
 ---
 
 ## Completed Work
