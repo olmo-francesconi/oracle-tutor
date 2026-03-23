@@ -15,12 +15,11 @@ import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError, TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session
@@ -37,6 +36,8 @@ from ..core.database import SessionLocal, get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
 from ..core.models import Card, CardFace, SystemMetadata
+from .schemas import CardMatch, CardNameMatch, SimilarCard
+from .semantic_router import router as semantic_router
 from .tfidf_index import TfidfIndex, build_tfidf_index
 
 setup_loggers()
@@ -428,6 +429,15 @@ async def lifespan(app: FastAPI):
         logger.error("TF-IDF build failed (oracle search disabled until rebuild): %s", e, exc_info=True)
         _tfidf_index = None
 
+    try:
+        from ..semantic.index import get_semantic_index
+
+        get_semantic_index()
+    except ImportError:
+        logger.info("Semantic runtime dependencies not installed; semantic endpoints remain unavailable.")
+    except Exception as e:
+        logger.warning("Semantic index startup load failed: %s", e, exc_info=True)
+
     # Reclaim memory after startup build.
     _gc_collect_and_log("startup")
 
@@ -438,6 +448,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="oracle-tutor api")
+app.include_router(semantic_router)
 
 
 # ---- Exception Handlers ----
@@ -479,40 +490,6 @@ if cors_origins_env:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-
-# ---- Pydantic models ----
-
-class CardMatch(BaseModel):
-    name: str
-    similarity: float = 1.0
-    rank: Optional[int] = None
-    id: Optional[str] = None
-
-
-class CardNameMatch(BaseModel):
-    name: str
-    id: str
-
-
-class SimilarCard(BaseModel):
-    id: str  # Card id
-    name: str  # Face name
-    card_name: str  # Full Card name
-    similarity: float
-    rank: Optional[int] = None
-
-    type_line: Optional[str] = None
-    mana_cost: Optional[str] = None
-    oracle_text: Optional[str] = None
-    power: Optional[str] = None
-    toughness: Optional[str] = None
-    colors: Optional[List[str]] = None
-
-    layout: Optional[str] = None
-    rarity: Optional[str] = None
-    legalities: Optional[Dict[str, str]] = None
-    uniqueness: Optional[float] = None
 
 
 # ---- Meta ----

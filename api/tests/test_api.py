@@ -68,6 +68,63 @@ def test_similar_cards(client):
     assert "c2" in ids
 
 
+def test_semantic_search_oracle(client, monkeypatch):
+    class FakeSemanticIndex:
+        def search_oracle(self, query, limit, db):
+            assert query == "damage"
+            assert limit == 5
+            return [(1, 0.99), (2, 0.88)]
+
+    monkeypatch.setattr(
+        "oracle_tutor_api.api.semantic_router._get_semantic_index",
+        lambda: FakeSemanticIndex(),
+    )
+
+    res = client.get("/semantic/search-oracle", params={"q": "damage", "limit": 5})
+    assert res.status_code == 200
+    rows = res.json()
+    assert [row["id"] for row in rows] == ["c1", "c2"]
+
+
+def test_semantic_similar_cards(client, monkeypatch):
+    class FakeSemanticIndex:
+        def similar_to_face(self, face_id, limit, db):
+            assert face_id == 1
+            assert limit == 3
+            return [(2, 0.91), (4, 0.74), (1, 0.50)]
+
+    monkeypatch.setattr(
+        "oracle_tutor_api.api.semantic_router._get_semantic_index",
+        lambda: FakeSemanticIndex(),
+    )
+
+    res = client.get("/semantic/similar-cards/c1", params={"limit": 2, "offset": 1})
+    assert res.status_code == 200
+    rows = res.json()
+    assert [row["id"] for row in rows] == ["c4", "c1"]
+
+
+def test_semantic_endpoints_return_503_without_index(client, monkeypatch):
+    monkeypatch.setattr("oracle_tutor_api.api.semantic_router._get_semantic_index", lambda: None)
+
+    res = client.get("/semantic/search-oracle", params={"q": "damage"})
+    assert res.status_code == 503
+
+
+def test_semantic_similar_cards_returns_404_for_missing_card(client, monkeypatch):
+    class FakeSemanticIndex:
+        def similar_to_face(self, face_id, limit, db):
+            return []
+
+    monkeypatch.setattr(
+        "oracle_tutor_api.api.semantic_router._get_semantic_index",
+        lambda: FakeSemanticIndex(),
+    )
+
+    res = client.get("/semantic/similar-cards/missing")
+    assert res.status_code == 404
+
+
 def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):
     monkeypatch.setattr("oracle_tutor_api.api.main._schema_ready", False)
     monkeypatch.setattr("oracle_tutor_api.api.main.wait_for_migration_ready", lambda **_: False)
@@ -174,4 +231,3 @@ def test_internal_rebuild_accepts_worker_via_dns_resolved_hostname(client, monke
     data = res.json()
     assert data["status"] == "ok"
     assert data["rebuilt"] is True
-
