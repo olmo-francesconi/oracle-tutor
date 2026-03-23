@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import text
 
-from oracle_tutor_api.core.config import DB_SCHEMA_VERSION
-from oracle_tutor_api.core.database import SessionLocal
-from oracle_tutor_api.core.db_init import (
+from ot_backend.core.config import DB_SCHEMA_VERSION
+from ot_backend.core.database import SessionLocal
+from ot_backend.core.db_init import (
     INIT_MODE_API,
     INIT_MODE_WORKER,
     MIGRATION_STATE_FAILED,
@@ -17,7 +17,7 @@ from oracle_tutor_api.core.db_init import (
     init_db,
     wait_for_migration_ready,
 )
-from oracle_tutor_api.core.models import Card, CardFace, SystemMetadata
+from ot_backend.core.models import Card, CardFace, SystemMetadata
 
 
 def _utcnow_naive() -> datetime:
@@ -72,7 +72,7 @@ def test_worker_mode_refuses_destructive_reset_without_flag(monkeypatch: pytest.
     _clean_db()
     _seed_card_and_old_schema()
 
-    monkeypatch.setattr("oracle_tutor_api.core.db_init.ALLOW_SCHEMA_RESET", False)
+    monkeypatch.setattr("ot_backend.core.db_init.ALLOW_SCHEMA_RESET", False)
 
     with pytest.raises(RuntimeError, match="Schema reset required but disabled"):
         init_db(mode=INIT_MODE_WORKER)
@@ -85,7 +85,7 @@ def test_worker_mode_resets_cards_and_sets_ready_state(monkeypatch: pytest.Monke
     _clean_db()
     _seed_card_and_old_schema()
 
-    monkeypatch.setattr("oracle_tutor_api.core.db_init.ALLOW_SCHEMA_RESET", True)
+    monkeypatch.setattr("ot_backend.core.db_init.ALLOW_SCHEMA_RESET", True)
     init_db(mode=INIT_MODE_WORKER)
 
     with SessionLocal() as db:
@@ -121,4 +121,3 @@ def test_wait_for_migration_ready_times_out_when_stuck_migrating() -> None:
 
     ready = wait_for_migration_ready(timeout_s=0.05, interval_s=0.01)
     assert ready is False
-

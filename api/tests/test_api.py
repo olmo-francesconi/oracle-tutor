@@ -25,8 +25,7 @@ def test_suggest_names(client):
 
 
 def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):
-    monkeypatch.setattr("oracle_tutor_api.api.main.wait_for_migration_ready", lambda **_: False)
+    monkeypatch.setattr("ot_backend.api.main.wait_for_migration_ready", lambda **_: False)
 
     res = client.get("/search", params={"q": "shock"})
     assert res.status_code == 503
-

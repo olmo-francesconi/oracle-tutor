@@ -1,4 +1,4 @@
-from oracle_tutor_api.worker.data_builder import should_skip_card
+from ot_backend.ingest.data_builder import should_skip_card
 
 
 def test_should_skip_card_skips_a_prefix_name() -> None:

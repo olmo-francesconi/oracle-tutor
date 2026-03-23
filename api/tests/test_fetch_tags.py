@@ -4,10 +4,10 @@ from typing import Any, cast
 
 import requests
 
-from oracle_tutor_api.core.database import SessionLocal
-from oracle_tutor_api.core.db_init import init_db
-from oracle_tutor_api.core.models import Card, CardRelationship, CardTagging, Tag, TagAncestorMap
-from oracle_tutor_api.worker.fetch_tags import FetchOutcome, _cards_needing_tag_fetch, _extract_card_entities, _replace_card_entities, fetch_and_store_tags
+from ot_backend.core.database import SessionLocal
+from ot_backend.core.db_init import init_db
+from ot_backend.core.models import Card, CardRelationship, CardTagging, Tag, TagAncestorMap
+from ot_backend.ingest.fetch_tags import FetchOutcome, _cards_needing_tag_fetch, _extract_card_entities, _replace_card_entities, fetch_and_store_tags
 
 
 SAMPLE_TAGGER_PAYLOAD = {

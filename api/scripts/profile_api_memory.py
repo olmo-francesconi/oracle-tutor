@@ -75,10 +75,10 @@ def _rss_mb() -> float:
 
 
 def main() -> None:
-    from oracle_tutor_api.core.database import SessionLocal
-    from oracle_tutor_api.core.db_init import init_db
-    from oracle_tutor_api.core.models import Card, CardFace
-    from oracle_tutor_api.api.tfidf_index import build_tfidf_index
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.db_init import init_db
+    from ot_backend.core.models import Card, CardFace
+    from ot_backend.api.tfidf_index import build_tfidf_index
 
     print("Memory profiling: oracle-tutor-api")
     print("-" * 50)

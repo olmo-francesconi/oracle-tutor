@@ -52,6 +52,13 @@ Reflect current module structure before rename workers begin.
 - **Result**: short summary of what was done
 -->
 
+### TASK-003
+- **Status**: complete
+- **Worker started**: 2026-03-23 00:00
+- **Files touched**: `.agent-config/PINBOARD.md`, `api/scripts/profile_api_memory.py`, `api/tests/conftest.py`, `api/tests/test_api.py`, `api/tests/test_data_builder.py`, `api/tests/test_fetch_tags.py`, `api/tests/test_printing_selection.py`, `api/tests/test_schema_init_race.py`
+- **Blocker** (if any): none
+- **Result**: Updated imports and module-path references in the scoped test and script files for the package rename
+
 ### TASK-002
 - **Status**: complete
 - **Worker started**: 2026-03-23 16:00
