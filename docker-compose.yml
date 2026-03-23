@@ -67,6 +67,25 @@ services:
       - api
     restart: "no"
 
+  semantic-worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.semantic-worker
+    volumes:
+      - ./api/data:/app/data
+      - ./api/src:/app/src
+    environment:
+      - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-mtg_search}
+      - DB_USER=${DB_USER:-oracle}
+      - DB_PASSWORD=${DB_PASSWORD:-secret_password}
+      - SEMANTIC_MODEL_PATH=/app/data/semantic/model
+    depends_on:
+      - db
+    restart: "no"
+
   frontend:
     build:
       context: ./frontend

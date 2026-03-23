@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
   "sqlalchemy>=2.0.0",
   "psycopg[binary]>=3.2.0",
+  "pgvector>=0.3",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +24,10 @@ worker = [
   "ijson>=3.3.0",
   "scikit-learn>=1.5.0",
   "cachetools>=5.5.0",
+]
+semantic = [
+  "sentence-transformers>=3.0",
+  "pgvector>=0.3",
 ]
 
 [dependency-groups]

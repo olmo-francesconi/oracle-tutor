@@ -12,9 +12,9 @@ ENV PATH="/opt/venv/bin:${PATH}"
 ENV UV_CACHE_DIR=/root/.cache/uv
 
 RUN if [ -f uv.lock ]; then \
-      uv sync --active --frozen --no-install-project --extra worker; \
+      uv sync --active --frozen --no-install-project --extra semantic --extra worker; \
     else \
-      uv sync --active --no-install-project --extra worker; \
+      uv sync --active --no-install-project --extra semantic --extra worker; \
     fi
 
 COPY src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
@@ -35,7 +35,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN set -eux; \
     groupadd -r app && useradd -r -g app -d /app -s /usr/sbin/nologin app; \
-    mkdir -p /app/data; \
+    mkdir -p /app/data/semantic; \
     chown -R app:app /app/data
 
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
@@ -47,6 +47,4 @@ COPY --chown=app:app src/oracle_tutor_api/semantic ./src/oracle_tutor_api/semant
 
 USER app
 
-# One-shot cron-friendly entrypoint (runs once and exits).
-CMD ["python", "-m", "oracle_tutor_api.worker.main", "--strict", "--trigger-type", "cron"]
-
+CMD ["sh", "-c", "python -m oracle_tutor_api.semantic.train && python -m oracle_tutor_api.semantic.compute"]
