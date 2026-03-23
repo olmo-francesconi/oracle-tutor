@@ -54,6 +54,12 @@ Shared communication board between the orchestrator (Claude) and Codex workers.
 - **Result**: short summary of what was done
 -->
 
+### TASK-003
+- **Status**: complete
+- **Worker started**: 2026-03-23 21:18
+- **Files touched**: `backend/src/ot_backend/embed/index.py`, `.agent-config/PINBOARD.md`
+- **Result**: Moved `Card`, `CardFace`, and `CardFaceSemanticEmbedding` to module-level imports and removed the lazy model-class loader
+
 ### TASK-002
 - **Status**: complete
 - **Worker started**: 2026-03-23 21:18
