@@ -1,7 +1,7 @@
 # TODO: Oracle Tutor
 
 ## Current focus
-<!-- What is being worked on right now -->
+Semantic-only migration is in progress on `feature/semantic-api-only`.
 
 ## Up next
 - [ ] Review and flesh out ROADMAP milestones with the team

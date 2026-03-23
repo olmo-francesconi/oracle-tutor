@@ -1,10 +1,10 @@
 # Project: Oracle Tutor (mtg-search)
 
 ## Purpose
-Fast, fuzzy-search engine for Magic: The Gathering cards — TF-IDF semantic search over Scryfall bulk data with EDHREC ranking, serving a React SPA via a FastAPI backend.
+Fast, fuzzy-search engine for Magic: The Gathering cards — semantic vector search over Scryfall bulk data using sentence-transformers and pgvector, serving a React SPA via a FastAPI backend.
 
 ## Tech stack
-- **Backend:** Python 3.12+, FastAPI, Hypercorn, SQLAlchemy 2, PostgreSQL (pgvector), scikit-learn (TF-IDF), uv
+- **Backend:** Python 3.12+, FastAPI, Hypercorn, SQLAlchemy 2, PostgreSQL (pgvector), sentence-transformers, uv
 - **Frontend:** React 19, TypeScript 5.9, Vite, TailwindCSS 4, Tanstack Query, Framer Motion
 - **Infra:** Docker Compose (local), Railway (production), GitHub Actions (CI)
 
@@ -32,10 +32,9 @@ docker-compose.prod.yml Production overrides
 ## Key environment variables
 - `DATABASE_URL` — required in production (Railway injects)
 - `ORACLE_TUTOR_API_ENV` — `development` | `production`
-- `ORACLE_TUTOR_API_WORKER_TOKEN` — shared secret for internal rebuild endpoint
-- `ORACLE_TUTOR_API_CORS_ORIGINS` — comma-separated allowed origins
-- `ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS` — set `1` to reclaim memory after TF-IDF build
+- `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET` — `true` only for local reset workflows
 - `VITE_API_URL` — frontend API base (default `/api`)
+- `SEMANTIC_MODEL_PATH` — directory containing a trained sentence-transformers model
 
 ## Python dev workflow (run in `api/` directory)
 
@@ -64,7 +63,6 @@ Notes:
 - Version is kept in sync between `api/pyproject.toml` and `frontend/package.json`
 - Worker is a one-shot container; it runs daily on Railway Cron and exits after ingestion
 - Never set `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` in production without explicit intent
-- TF-IDF matrix is built in-memory on startup; avoid blocking the event loop during rebuild
 
 ---
 

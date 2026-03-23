@@ -93,6 +93,12 @@ TODO.md: update current focus to reflect semantic-only migration completed
 
 <!-- Workers append their status here on start and completion -->
 
+### TASK-F
+- Status: complete
+- Worker: Codex
+- Scope: `CLAUDE.md`, `.agent-config/shared.md`, `TODO.md`
+- Summary: Updated project docs to reflect the semantic-only architecture and removed remaining TF-IDF references from the project guidance files.
+
 ### TASK-D
 - Status: complete
 - Worker: Codex
