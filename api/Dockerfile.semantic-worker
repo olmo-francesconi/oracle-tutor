@@ -12,9 +12,9 @@ ENV PATH="/opt/venv/bin:${PATH}"
 ENV UV_CACHE_DIR=/root/.cache/uv
 
 RUN if [ -f uv.lock ]; then \
-      uv sync --active --frozen --no-install-project --extra semantic --extra worker; \
+      uv sync --active --frozen --no-install-project --extra api --extra worker; \
     else \
-      uv sync --active --no-install-project --extra semantic --extra worker; \
+      uv sync --active --no-install-project --extra api --extra worker; \
     fi
 
 COPY src/oracle_tutor_api/__init__.py ./src/oracle_tutor_api/
