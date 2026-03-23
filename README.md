@@ -36,7 +36,7 @@ Before searching, you need to ingest the latest Scryfall Oracle bulk data into t
 
 ```bash
 # From the api directory
-uv run python -m oracle_tutor_api.worker.main --strict --trigger-type manual
+uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 ```
 
 This stores bulk metadata/files under `api/data/` (optional) and ingests cards into Postgres.
@@ -46,7 +46,7 @@ Start the HTTP API:
 
 ```bash
 # From the api directory
-uv run hypercorn oracle_tutor_api.api.main:app --reload --bind 0.0.0.0:8000
+uv run hypercorn ot_backend.api.main:app --reload --bind 0.0.0.0:8000
 ```
 
 **Endpoints:**
@@ -107,7 +107,7 @@ Set these in Railway (do not rely on local defaults):
   - `ORACLE_TUTOR_API_ENV=production`
   - Configure a **Railway Cron** schedule for this service (recommended), e.g. `0 2 * * *` (UTC unless you set a timezone).
   - The worker is a **one-shot command** (it runs the stale-aware update once and exits). The default container command is equivalent to:
-    - `python -m oracle_tutor_api.worker --strict --trigger-type cron`
+    - `python -m ot_backend.ingest.main --strict --trigger-type cron`
 
 - **Frontend service**
   - `API_PROXY_TARGET` = the API service internal URL (or your private service DNS if you use one)
@@ -144,7 +144,7 @@ On Railway, the recommended approach is:
 The worker command runs the stale-aware update once and exits:
 
 ```bash
-python -m oracle_tutor_api.worker --strict --trigger-type cron
+python -m ot_backend.ingest.main --strict --trigger-type cron
 ```
 
 ### Local / self-hosted cron
@@ -153,7 +153,7 @@ If you want to schedule updates yourself, run the same one-shot command via your
 
 ```bash
 # From the api directory
-python -m oracle_tutor_api.worker --strict --trigger-type cron
+python -m ot_backend.ingest.main --strict --trigger-type cron
 ```
 
 Or with Docker (from repo root):

@@ -12,10 +12,10 @@ This folder contains a minimal FastAPI service managed by **uv**.
   - `uv sync --extra api --extra worker`
 
 - **Run the API**:
-  - `uv run hypercorn oracle_tutor_api.api.main:app --reload --bind 0.0.0.0:8000`
+  - `uv run hypercorn ot_backend.api.main:app --reload --bind 0.0.0.0:8000`
 
 - **Ingest/update data (one-shot worker)**:
-  - `uv run python -m oracle_tutor_api.worker.main --strict --trigger-type manual`
+  - `uv run python -m ot_backend.ingest.main --strict --trigger-type manual`
 
 ### Production / Railway env vars
 
@@ -34,14 +34,14 @@ This folder contains a minimal FastAPI service managed by **uv**.
 ### Database configuration precedence
 
 - **Production / Railway**: set `DATABASE_URL` (required; the API refuses to start without it in production).
-- **Local/dev**: you can either set `DATABASE_URL`, or set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` (see `src/oracle_tutor_api/core/database.py`).
+- **Local/dev**: you can either set `DATABASE_URL`, or set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` (see `src/ot_backend/core/database.py`).
 
 ### One-shot worker (Railway Cron)
 
 The worker is designed to be run as a **one-time command** (cron-friendly): it runs the stale-aware update once and exits.
 
 - **Command**:
-  - `python -m oracle_tutor_api.worker --strict --trigger-type cron`
+  - `python -m ot_backend.ingest.main --strict --trigger-type cron`
 
 - **Optional immediate TF-IDF refresh trigger**:
   - Worker posts to API internal endpoint after successful ingestion.
@@ -99,5 +99,4 @@ Recommended environment variables:
 Optional:
 
 - `ORACLE_TUTOR_API_CORS_ORIGINS=` (comma-separated origins; leave unset for same-origin deployments)
-
 

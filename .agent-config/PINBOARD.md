@@ -52,6 +52,13 @@ Reflect current module structure before rename workers begin.
 - **Result**: short summary of what was done
 -->
 
+### TASK-005
+- **Status**: complete
+- **Worker started**: 2026-03-23 15:40
+- **Files touched**: `.agent-config/PINBOARD.md`, `.github/workflows/api-ci.yml`, `.github/workflows/ci.yml`, `docker-compose.yml`, `README.md`, `api/README.md`, `ARCHITECTURE.md`, `.agent-config/shared.md`, `CLAUDE.md`
+- **Blocker** (if any): none
+- **Result**: Updated workflow, compose, and documentation references for the `ot_backend` rename
+
 ### TASK-004
 - **Status**: complete
 - **Worker started**: 2026-03-23 16:00

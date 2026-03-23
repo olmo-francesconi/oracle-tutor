@@ -11,7 +11,7 @@ Fast, fuzzy-search engine for Magic: The Gathering cards — semantic vector sea
 ## Repo structure
 ```
 api/                    FastAPI service + Pytest suite
-  src/oracle_tutor_api/ Main package
+  src/ot_backend/       Main package
   tests/                Pytest tests
   Dockerfile            API image
   Dockerfile.worker     One-shot data ingestion worker image
