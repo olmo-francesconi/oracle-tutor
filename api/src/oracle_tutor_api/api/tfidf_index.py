@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, List, Optional, Tuple, cast
+from typing import Protocol, TypeAlias, cast
 
 from cachetools import TTLCache
 import numpy as np
@@ -15,8 +17,6 @@ from sqlalchemy.orm import Session
 
 from ..core.models import Card, CardFace
 from .oracle_tokenizer import (
-    _CARD_NAME_DELIMITER,
-    _TYPE_LINE_DELIMITER,
     iter_type_filters,
     make_mtg_analyzer,
     normalize_type_line,
@@ -26,6 +26,92 @@ logger = logging.getLogger("oracle_tutor_api.api")
 
 # Max results kept when ranking for pagination
 DEFAULT_CACHE_TOP_K = 1000
+CARD_NAME_DELIMITER = "\x00\x01CARD_NAME\x01\x00"
+TYPE_LINE_DELIMITER = "\x00\x01TYPE_LINE\x01\x00"
+FloatArray: TypeAlias = np.ndarray[tuple[int], np.dtype[np.float64]]
+IndexArray: TypeAlias = np.ndarray[tuple[int], np.dtype[np.int_]]
+
+
+class SparseLike(Protocol):
+    T: object
+
+    @property
+    def nnz(self) -> int: ...
+
+    @property
+    def data(self) -> FloatArray: ...
+
+    @property
+    def indices(self) -> IndexArray: ...
+
+    def __matmul__(self, other: object, /) -> object: ...
+    def __getitem__(self, key: object, /) -> object: ...
+    def multiply(self, other: object, /) -> SparseLike: ...
+    def sum(self, axis: int | None = None) -> object: ...
+    def toarray(self) -> object: ...
+
+
+AnalyzerFn: TypeAlias = Callable[[str], list[str]]
+
+
+class VectorizerLike(Protocol):
+    vocabulary_: dict[str, int]
+
+    def transform(self, raw_documents: list[str]) -> object: ...
+    def fit_transform(self, raw_documents: list[str]) -> object: ...
+    def set_params(self, **params: object) -> object: ...
+
+
+def _build_vectorizer(*, analyzer: AnalyzerFn, min_df: int, max_df: int | float) -> VectorizerLike:
+    vectorizer = TfidfVectorizer(
+        analyzer=analyzer,  # pyright: ignore[reportArgumentType]
+        lowercase=False,
+        min_df=min_df,
+        max_df=max_df,
+        sublinear_tf=True,
+        norm=None,  # pyright: ignore[reportArgumentType]
+    )
+    return cast(VectorizerLike, vectorizer)
+
+
+def _set_vectorizer_params(vectorizer: VectorizerLike, *, min_df: int, max_df: int | float) -> None:
+    _ = vectorizer.set_params(min_df=min_df, max_df=max_df)
+
+
+def _fit_transform(vectorizer: VectorizerLike, docs: list[str]) -> SparseLike:
+    return cast(SparseLike, vectorizer.fit_transform(docs))
+
+
+def _transform(vectorizer: VectorizerLike, docs: list[str]) -> SparseLike:
+    return cast(SparseLike, vectorizer.transform(docs))
+
+
+def _normalize_matrix(matrix: SparseLike) -> SparseLike:
+    return cast(SparseLike, normalize(matrix, norm="l2", axis=1, copy=True))
+
+
+def _vocabulary_size(vectorizer: VectorizerLike) -> int:
+    return len(vectorizer.vocabulary_)
+
+
+def _dense_1d(value: object) -> FloatArray:
+    return cast(FloatArray, np.asarray(value).ravel())
+
+
+def _dot_scores(value: object) -> FloatArray:
+    try:
+        return cast(FloatArray, getattr(value, "A1"))
+    except Exception:
+        return _dense_1d(cast(SparseLike, value).toarray())
+
+
+def _squared_l2_norm(values: FloatArray) -> float:
+    return float(values @ values)
+
+
+def _linear_kernel_scores(seed_vec: object, matrix: SparseLike) -> FloatArray:
+    kernel_scores = cast(object, linear_kernel(seed_vec, matrix))
+    return _dense_1d(kernel_scores)
 
 
 def _parse_colors(colors: str | None) -> set[str]:
@@ -36,25 +122,38 @@ def _parse_colors(colors: str | None) -> set[str]:
     return {c for c in cleaned if c in {"W", "U", "B", "R", "G"}}
 
 
+CacheKey = tuple[
+    str,
+    str | None,
+    str | None,
+    str | None,
+    float | None,
+    float | None,
+    str | None,
+    str,
+    str,
+]
+
+
 @dataclass
 class TfidfIndex:
-    vectorizer: TfidfVectorizer
-    matrix_raw: Any  # scipy sparse matrix, NOT normalized (norm=None)
-    matrix_l2: Any  # scipy sparse matrix, L2-normalized rows
-    face_ids: List[int]
+    vectorizer: VectorizerLike
+    matrix_raw: SparseLike  # scipy sparse matrix, NOT normalized (norm=None)
+    matrix_l2: SparseLike  # scipy sparse matrix, L2-normalized rows
+    face_ids: list[int]
     face_id_to_idx: dict[int, int]
-    face_card_ids: List[str]
-    face_names: List[str]
-    face_type_lines_lower: List[str]
-    face_colors: List[set[str]]
-    face_color_identities: List[set[str]]
-    face_legalities: List[dict]
-    face_cmcs: List[float]
-    face_rarities: List[str]
+    face_card_ids: list[str]
+    face_names: list[str]
+    face_type_lines_lower: list[str]
+    face_colors: list[set[str]]
+    face_color_identities: list[set[str]]
+    face_legalities: list[dict[str, str]]
+    face_cmcs: list[float]
+    face_rarities: list[str]
     built_at: float
 
-    # cache key: (query_or_seed, card_type, colors, format, cmc_min, cmc_max, rarity, match_mode) -> List[(face_id, score)]
-    cache: TTLCache
+    # cache key: (query_or_seed, card_type, colors, format, cmc_min, cmc_max, rarity, match_mode, color_feature)
+    cache: TTLCache[CacheKey, list[tuple[int, float]]]
 
     def _filter_mask(
         self,
@@ -68,13 +167,13 @@ class TfidfIndex:
         rarity: str | None,
         match_mode: str = "at_least",  # "at_least", "at_most", or "exact"
         color_feature: str = "identity",  # "identity" or "colors"
-    ) -> List[bool]:
+    ) -> list[bool]:
         type_filters = list(iter_type_filters(card_type))
         # Handle colorless logic: if colors="C" (or similar indicator) treat as empty set
         is_colorless_search = colors == "C"
-        want_colors = set() if is_colorless_search else _parse_colors(colors)
+        want_colors: set[str] = set() if is_colorless_search else _parse_colors(colors)
 
-        mask: List[bool] = [True] * len(self.face_ids)
+        mask: list[bool] = [True] * len(self.face_ids)
         for i in range(len(mask)):
             if exclude_card_id and self.face_card_ids[i] == exclude_card_id:
                 mask[i] = False
@@ -138,13 +237,13 @@ class TfidfIndex:
 
     def _rank(
         self,
-        scores,
+        scores: Iterable[float],
         *,
-        mask: List[bool],
+        mask: list[bool],
         top_k: int,
-    ) -> List[Tuple[int, float]]:
+    ) -> list[tuple[int, float]]:
         # scores is a 1D numpy array-like
-        candidates: List[Tuple[int, float]] = []
+        candidates: list[tuple[int, float]] = []
         for i, s in enumerate(scores):
             if not mask[i]:
                 continue
@@ -171,7 +270,7 @@ class TfidfIndex:
         match_mode: str = "at_least",
         color_feature: str = "identity",
         cache_top_k: int = DEFAULT_CACHE_TOP_K,
-    ) -> List[Tuple[int, float]]:
+    ) -> list[tuple[int, float]]:
         if not self.face_ids:
             return []
         q = (query or "").strip()
@@ -185,19 +284,16 @@ class TfidfIndex:
             # Match-only cosine similarity:
             # - dot uses full vectors (query has only its own terms)
             # - doc norm only considers query term dimensions, so extra oracle text doesn't penalize.
-            q_vec = cast(Any, self.vectorizer.transform([q]))
+            q_vec = _transform(self.vectorizer, [q])
             if q_vec.nnz == 0:
                 logger.warning("Query '%s' produced no tokens in vocabulary", q)
                 return []
 
-            matrix_raw = cast(Any, self.matrix_raw)
+            matrix_raw = self.matrix_raw
             dot = (q_vec @ matrix_raw.T)
-            try:
-                dot_scores = dot.A1  # (n_docs,)
-            except Exception:
-                dot_scores = np.asarray(dot.toarray()).ravel()
+            dot_scores = _dot_scores(dot)
 
-            q_norm = float(np.sqrt(np.sum(np.square(q_vec.data))))
+            q_norm = math.sqrt(_squared_l2_norm(q_vec.data))
             if q_norm <= 0:
                 return []
 
@@ -205,9 +301,9 @@ class TfidfIndex:
             if q_term_idx.size == 0:
                 return []
 
-            docs_q = matrix_raw[:, q_term_idx]
+            docs_q = cast(SparseLike, matrix_raw[:, q_term_idx])
             doc_match_sq = docs_q.multiply(docs_q).sum(axis=1)
-            doc_match_norm = np.sqrt(np.asarray(doc_match_sq).ravel())
+            doc_match_norm = cast(FloatArray, np.sqrt(_dense_1d(doc_match_sq)))
 
             denom = q_norm * doc_match_norm
             scores = np.zeros_like(dot_scores, dtype=float)
@@ -246,7 +342,7 @@ class TfidfIndex:
         match_mode: str = "at_least",
         color_feature: str = "identity",
         cache_top_k: int = DEFAULT_CACHE_TOP_K,
-    ) -> List[Tuple[int, float]]:
+    ) -> list[tuple[int, float]]:
         if not self.face_ids:
             return []
         cache_key = (f"similar:{seed_face_id}", card_type, colors, format, cmc_min, cmc_max, rarity, match_mode, color_feature)
@@ -257,9 +353,9 @@ class TfidfIndex:
             if seed_idx is None:
                 return []
 
-            matrix_l2 = cast(Any, self.matrix_l2)
+            matrix_l2 = self.matrix_l2
             seed_vec = matrix_l2[seed_idx]
-            scores = linear_kernel(seed_vec, matrix_l2).ravel()
+            scores = _linear_kernel_scores(seed_vec, matrix_l2)
 
             mask = self._filter_mask(
                 exclude_card_id=exclude_card_id,
@@ -290,7 +386,22 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     """
     started = time.perf_counter()
 
-    rows = (
+    rows = cast(
+        list[
+            tuple[
+                int,
+                str,
+                str | None,
+                str | None,
+                str | None,
+                list[str] | None,
+                list[str] | None,
+                str,
+                dict[str, str] | None,
+                float | None,
+                str | None,
+            ]
+        ],
         db.query(
             CardFace.id,
             CardFace.card_id,
@@ -305,19 +416,19 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
             Card.rarity,
         )
         .join(Card, CardFace.card_id == Card.id)
-        .all()
+        .all(),
     )
 
-    face_ids: List[int] = []
-    face_card_ids: List[str] = []
-    face_names: List[str] = []
-    face_type_lines_lower: List[str] = []
-    face_colors: List[set[str]] = []
-    face_color_identities: List[set[str]] = []
-    face_legalities: List[dict] = []
-    face_cmcs: List[float] = []
-    face_rarities: List[str] = []
-    docs: List[str] = []
+    face_ids: list[int] = []
+    face_card_ids: list[str] = []
+    face_names: list[str] = []
+    face_type_lines_lower: list[str] = []
+    face_colors: list[set[str]] = []
+    face_color_identities: list[set[str]] = []
+    face_legalities: list[dict[str, str]] = []
+    face_cmcs: list[float] = []
+    face_rarities: list[str] = []
+    docs: list[str] = []
 
     for (
         face_id,
@@ -327,7 +438,7 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
         oracle_text,
         colors,
         color_identity,
-        card_name,
+        _card_name,
         legalities,
         cmc,
         rarity,
@@ -345,9 +456,9 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
 
         oracle_doc = oracle_text or ""
         if face_name:
-            oracle_doc = oracle_doc + _CARD_NAME_DELIMITER + face_name
+            oracle_doc = oracle_doc + CARD_NAME_DELIMITER + face_name
         if type_line:
-            oracle_doc = oracle_doc + _TYPE_LINE_DELIMITER + type_line
+            oracle_doc = oracle_doc + TYPE_LINE_DELIMITER + type_line
         docs.append(oracle_doc)
 
     def _parse_max_df(raw: str) -> int | float:
@@ -414,46 +525,36 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
     min_df_env = int(os.getenv("TFIDF_MIN_DF", "1"))
     max_df_env = _parse_max_df(os.getenv("TFIDF_MAX_DF", "0.98"))
 
-    vectorizer = TfidfVectorizer(
-        # sklearn stubs used by Pyright can be overly strict here; at runtime a callable analyzer is valid.
-        analyzer=cast(Any, make_mtg_analyzer((1, 2))),
-        lowercase=False,  # we lowercase in tokenizer
-        min_df=1,  # will be overwritten after docs are aligned
-        max_df=1.0,  # will be overwritten after docs are aligned
-        sublinear_tf=True,
-        norm=cast(Any, None),  # normalize explicitly so oracle search can use match-only norms
-    )
+    analyzer: AnalyzerFn = make_mtg_analyzer((1, 2))
+    vectorizer = _build_vectorizer(analyzer=analyzer, min_df=1, max_df=1.0)
     # Keep 1 doc per face. If a doc is empty/untokenizable, use a placeholder so indices align.
     if not docs:
         docs = ["__empty__"]
     docs_aligned = [d if (d and d.strip()) else "__empty__" for d in docs]
     min_df, max_df = _sanitize_df(min_df_env, max_df_env, n_docs=len(docs_aligned))
-    vectorizer.set_params(min_df=min_df, max_df=max_df)
+    _set_vectorizer_params(vectorizer, min_df=min_df, max_df=max_df)
 
     try:
-        matrix_raw = vectorizer.fit_transform(docs_aligned)
+        matrix_raw = _fit_transform(vectorizer, docs_aligned)
     except ValueError as e:
         # e.g. "empty vocabulary; perhaps the documents only contain stop words"
         logger.warning(
             "TF-IDF fit failed (%s). Falling back to safe empty index (min_df=1, max_df=1.0).",
             e,
         )
-        safe_vectorizer = TfidfVectorizer(
-            # sklearn stubs used by Pyright can be overly strict here; at runtime a callable analyzer is valid.
-            analyzer=cast(Any, make_mtg_analyzer((1, 2))),
-            lowercase=False,
-            min_df=1,
-            max_df=1.0,
-            sublinear_tf=True,
-            norm=cast(Any, None),
-        )
+        safe_vectorizer = _build_vectorizer(analyzer=analyzer, min_df=1, max_df=1.0)
         vectorizer = safe_vectorizer
-        matrix_raw = vectorizer.fit_transform(["__empty__"])
+        matrix_raw = _fit_transform(vectorizer, ["__empty__"])
 
-    matrix_l2 = normalize(matrix_raw, norm="l2", axis=1, copy=True)
+    matrix_l2 = _normalize_matrix(matrix_raw)
 
     elapsed_ms = (time.perf_counter() - started) * 1000
-    logger.info("TF-IDF index built: %d faces, %d features, %.2f ms", len(face_ids), len(vectorizer.vocabulary_), elapsed_ms)
+    logger.info(
+        "TF-IDF index built: %d faces, %d features, %.2f ms",
+        len(face_ids),
+        _vocabulary_size(vectorizer),
+        elapsed_ms,
+    )
 
     face_id_to_idx = {face_id: i for i, face_id in enumerate(face_ids)}
     return TfidfIndex(
@@ -476,5 +577,3 @@ def build_tfidf_index(db: Session) -> TfidfIndex:
             ttl=int(os.getenv("ORACLE_TUTOR_API_TFIDF_CACHE_TTL", "600")),
         ),
     )
-
-

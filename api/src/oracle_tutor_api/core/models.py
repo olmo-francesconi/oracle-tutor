@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import datetime
-from typing import List, Optional
-
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -63,14 +61,14 @@ class Card(Base):
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rarity: Mapped[str | None] = mapped_column(String, nullable=True)
     color_identity: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    legalities: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    legalities: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
     uniqueness: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     faces: Mapped[list["CardFace"]] = relationship(back_populates="card", cascade="all, delete-orphan")
-    taggings: Mapped[List["CardTagging"]] = relationship(back_populates="card", cascade="all, delete-orphan")
-    relationships: Mapped[List["CardRelationship"]] = relationship(back_populates="card", cascade="all, delete-orphan")
+    taggings: Mapped[list["CardTagging"]] = relationship(back_populates="card", cascade="all, delete-orphan")
+    relationships: Mapped[list["CardRelationship"]] = relationship(back_populates="card", cascade="all, delete-orphan")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "id": self.id,
             "name": self.name,
@@ -100,14 +98,14 @@ class CardFace(Base):
     colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     card: Mapped["Card"] = relationship(back_populates="faces")
-    semantic_embedding: Mapped[Optional["CardFaceSemanticEmbedding"]] = relationship(
+    semantic_embedding: Mapped["CardFaceSemanticEmbedding"] = relationship(
         back_populates="face",
         uselist=False,
         cascade="all, delete-orphan",
         single_parent=True,
     )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "name": self.name,
             "mana_cost": self.mana_cost,
@@ -129,7 +127,7 @@ class Tag(Base):
     tag_namespace: Mapped[str | None] = mapped_column(String, nullable=True)
     tag_slug: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    card_taggings: Mapped[List["CardTagging"]] = relationship(back_populates="tag", cascade="all, delete-orphan")
+    card_taggings: Mapped[list["CardTagging"]] = relationship(back_populates="tag", cascade="all, delete-orphan")
 
 
 class CardTagging(Base):

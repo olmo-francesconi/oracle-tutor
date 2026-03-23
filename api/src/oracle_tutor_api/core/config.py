@@ -33,9 +33,14 @@ WORKER_TRIGGER_ALLOWLIST = tuple(
     for host in os.getenv("ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST", "").split(",")
     if host.strip()
 )
-WORKER_REBUILD_PATH = os.getenv("ORACLE_TUTOR_API_WORKER_REBUILD_PATH", "/internal/rebuild-tfidf").strip()
-if not WORKER_REBUILD_PATH.startswith("/"):
-    WORKER_REBUILD_PATH = f"/{WORKER_REBUILD_PATH}"
+def _get_worker_rebuild_path() -> str:
+    path = os.getenv("ORACLE_TUTOR_API_WORKER_REBUILD_PATH", "/internal/rebuild-tfidf").strip()
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return path
+
+
+WORKER_REBUILD_PATH = _get_worker_rebuild_path()
 WORKER_REBUILD_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS", "10"))
 API_BASE_URL = os.getenv("ORACLE_TUTOR_API_BASE_URL", "").strip().rstrip("/")
 

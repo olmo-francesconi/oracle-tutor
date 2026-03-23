@@ -6,7 +6,7 @@ import shutil
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import ijson
@@ -95,7 +95,7 @@ def trigger_tfidf_rebuild_best_effort(*, async_call: bool = True) -> None:
     _trigger_tfidf_rebuild_request()
 
 
-def _delete_card_related_rows(session, card_ids: List[str]) -> None:
+def _delete_card_related_rows(session, card_ids: list[str]) -> None:
     if not card_ids:
         return
 
@@ -131,18 +131,18 @@ def _validate_scryfall_download_url(download_url: str) -> None:
         raise ValueError(f"Refusing non-scryfall download host: {download_url}")
 
 
-def fetch_bulk_metadata(url: str = BULK_DATA_URL) -> Dict[str, Any]:
+def fetch_bulk_metadata(url: str = BULK_DATA_URL) -> dict[str, Any]:
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
-def save_local_metadata(metadata: Dict[str, Any]) -> None:
+def save_local_metadata(metadata: dict[str, Any]) -> None:
     with META_JSON.open("w") as f:
         json.dump(metadata, f, indent=2)
 
 
-def load_local_metadata() -> Optional[Dict[str, Any]]:
+def load_local_metadata() -> dict[str, Any] | None:
     if not META_JSON.exists():
         return None
     try:
@@ -166,7 +166,7 @@ def download_bulk_file(download_url: str, destination: Path = CARDS_JSON) -> Non
     logger.info("Download complete.")
 
 
-def should_skip_card(card: Dict[str, Any]) -> bool:
+def should_skip_card(card: dict[str, Any]) -> bool:
     """
     Return True for Scryfall records we don't want in the playable search corpus.
 
@@ -246,7 +246,7 @@ def should_skip_card(card: Dict[str, Any]) -> bool:
     return False
 
 
-def cleanup_unplayable_cards(session) -> dict:
+def cleanup_unplayable_cards(session) -> dict[str, int]:
     """
     Best-effort cleanup for unplayable records that may have been ingested previously.
 
@@ -286,7 +286,7 @@ def cleanup_unplayable_cards(session) -> dict:
     return stats
 
 
-def prepare_parent_card(card_data: Dict[str, Any]) -> Dict[str, Any]:
+def prepare_parent_card(card_data: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": card_data.get("id"),
         "name": card_data.get("name"),
@@ -301,7 +301,7 @@ def prepare_parent_card(card_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def prepare_card_face(card_id: str, face_data: Dict[str, Any]) -> Dict[str, Any]:
+def prepare_card_face(card_id: str, face_data: dict[str, Any]) -> dict[str, Any]:
     return {
         "card_id": card_id,
         "name": face_data.get("name"),
@@ -314,8 +314,8 @@ def prepare_card_face(card_id: str, face_data: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
-def normalize_card_data(card: Dict[str, Any]) -> Dict[str, Any]:
-    normalized: Dict[str, Any] = {
+def normalize_card_data(card: dict[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {
         "id": card.get("id"),
         "name": card.get("name"),
         "scryfall_set": card.get("set"),
@@ -329,7 +329,7 @@ def normalize_card_data(card: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     faces = card.get("card_faces") or [card]
-    normalized_faces: List[Dict[str, Any]] = []
+    normalized_faces: list[dict[str, Any]] = []
     for face in faces:
         normalized_faces.append(
             {
@@ -347,7 +347,7 @@ def normalize_card_data(card: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
-def load_existing_cards_map(file_path: Path) -> Dict[str, Dict[str, Any]]:
+def load_existing_cards_map(file_path: Path) -> dict[str, dict[str, Any]]:
     if not file_path.exists():
         return {}
 
@@ -355,7 +355,7 @@ def load_existing_cards_map(file_path: Path) -> Dict[str, Dict[str, Any]]:
     try:
         with file_path.open("r") as f:
             data = json.load(f)
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
         for card in data:
             if not should_skip_card(card):
                 out[card.get("id")] = normalize_card_data(card)
@@ -366,12 +366,12 @@ def load_existing_cards_map(file_path: Path) -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
+def ingest_batch(session, batch_cards: list[dict[str, Any]]) -> None:
     if not batch_cards:
         return
 
-    parents: List[Dict[str, Any]] = []
-    faces_to_insert: List[Dict[str, Any]] = []
+    parents: list[dict[str, Any]] = []
+    faces_to_insert: list[dict[str, Any]] = []
 
     for card in batch_cards:
         card_id = card.get("id")
@@ -415,7 +415,7 @@ def ingest_batch(session, batch_cards: List[Dict[str, Any]]) -> None:
             session.bulk_insert_mappings(CardFace, faces_to_insert)
 
 
-def select_best_printing(current: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
+def select_best_printing(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     """
     Compare two card objects (printings) and return the one we prefer to keep.
     Preference order:
@@ -465,8 +465,8 @@ def select_best_printing(current: Dict[str, Any], candidate: Dict[str, Any]) -> 
 
 def ingest_data_diff(
     new_path: Path,
-    old_path: Optional[Path],
-    scryfall_metadata: Dict[str, Any],
+    old_path: Path | None,
+    scryfall_metadata: dict[str, Any],
     *,
     trigger_type: str = "scheduled",
 ) -> None:
@@ -497,7 +497,7 @@ def ingest_data_diff(
         # 3. Compare this map against DB state.
 
         logger.info("Reading and reducing new bulk data...")
-        best_printings: Dict[str, Dict[str, Any]] = {}
+        best_printings: dict[str, dict[str, Any]] = {}
         stats = {"seen": 0, "kept": 0, "skipped": 0}
 
         with new_path.open("rb") as f:
@@ -542,7 +542,7 @@ def ingest_data_diff(
         logger.info("Found %d existing cards in DB.", len(existing_ids))
 
         ingest_stats = {"added": 0, "modified": 0, "deleted": 0, "unchanged": 0}
-        batch: List[Dict[str, Any]] = []
+        batch: list[dict[str, Any]] = []
 
         # We need to handle the case where we swap printing A for printing B.
         # We should insert B and delete A.
@@ -659,7 +659,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
     matrix = index.matrix_l2
     face_card_ids = index.face_card_ids
 
-    card_face_map: Dict[str, List[int]] = {}
+    card_face_map: dict[str, list[int]] = {}
     for i, cid in enumerate(face_card_ids):
         card_face_map.setdefault(cid, []).append(i)
 
@@ -667,9 +667,9 @@ def compute_and_store_uniqueness_scores(session) -> None:
 
     for batch_start in range(0, n, UNIQUENESS_BATCH_SIZE):
         batch_end = min(batch_start + UNIQUENESS_BATCH_SIZE, n)
-        batch = matrix[batch_start:batch_end]
+        batch = cast(Any, matrix[batch_start:batch_end])
 
-        sims = batch @ matrix.T
+        sims = batch @ cast(Any, matrix.T)
         try:
             sims = np.asarray(sims.toarray())
         except AttributeError:
@@ -684,7 +684,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
             face_redundancy[gi] = float(np.power(above, UNIQUENESS_POWER).sum())
 
     # Aggregate face -> card (max redundancy across faces)
-    card_redundancy: Dict[str, float] = {}
+    card_redundancy: dict[str, float] = {}
     for i, cid in enumerate(face_card_ids):
         val = float(face_redundancy[i])
         if cid not in card_redundancy or val > card_redundancy[cid]:
@@ -703,7 +703,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
         }
 
     from ..core.models import Card as CardTable
-    cards_table: Table = CardTable.__table__  # type: ignore[assignment]
+    cards_table = cast(Table, CardTable.__table__)
     stmt = (
         update(cards_table)
         .where(cards_table.c.id == bindparam("_id"))
@@ -739,7 +739,7 @@ def update_scryfall_data(
     ensure_data_dir()
     init_db(mode=INIT_MODE_WORKER)
 
-    remote_meta: Dict[str, Any] | None = None
+    remote_meta: dict[str, Any] | None = None
     remote_updated_at: str | None = None
     try:
         remote_meta = fetch_bulk_metadata()
@@ -841,7 +841,7 @@ def update_scryfall_data(
         return False
 
     try:
-        old_path_for_diff: Optional[Path]
+        old_path_for_diff: Path | None
         if ingestion_source == TEMP_CARDS_JSON:
             old_path_for_diff = CARDS_JSON
         else:

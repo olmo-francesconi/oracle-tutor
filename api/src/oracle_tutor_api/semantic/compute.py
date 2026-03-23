@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from importlib import import_module
 from typing import Any
 
 from ..core.database import SessionLocal
@@ -16,13 +17,13 @@ BATCH_SIZE = 256
 
 def _load_sentence_transformers() -> Any:
     try:
-        from sentence_transformers import SentenceTransformer
+        sentence_transformers = import_module("sentence_transformers")
     except Exception as exc:  # pragma: no cover - optional dependency guard
         raise RuntimeError(
             "sentence-transformers is required for semantic embedding computation. "
             "Install the optional semantic extra before running this module."
         ) from exc
-    return SentenceTransformer
+    return getattr(sentence_transformers, "SentenceTransformer")
 
 
 def _load_embedding_model(model_path: str):

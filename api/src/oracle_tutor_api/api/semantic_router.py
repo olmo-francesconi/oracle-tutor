@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from ..core.models import CardFace
 from .schemas import SimilarCard
 
 router = APIRouter(prefix="/semantic", tags=["semantic"])
+DbSession = Annotated[Session, Depends(get_db)]
 
 
 def _get_semantic_index():
@@ -20,7 +21,7 @@ def _get_semantic_index():
     return get_semantic_index()
 
 
-def _to_similar_cards(results: list[tuple[int, float]], db: Session) -> List[SimilarCard]:
+def _to_similar_cards(results: list[tuple[int, float]], db: Session) -> list[SimilarCard]:
     if not results:
         return []
 
@@ -33,7 +34,7 @@ def _to_similar_cards(results: list[tuple[int, float]], db: Session) -> List[Sim
     )
     faces_map = {face.id: face for face in cards_data}
 
-    out: List[SimilarCard] = []
+    out: list[SimilarCard] = []
     for face_id in target_face_ids:
         face = faces_map.get(face_id)
         if face is None:
@@ -61,13 +62,13 @@ def _to_similar_cards(results: list[tuple[int, float]], db: Session) -> List[Sim
     return out
 
 
-@router.get("/similar-cards/{card_id}", response_model=List[SimilarCard])
+@router.get("/similar-cards/{card_id}", response_model=list[SimilarCard])
 def semantic_similar_cards(
     card_id: str,
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
-):
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[SimilarCard]:
     index = _get_semantic_index()
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
@@ -85,13 +86,13 @@ def semantic_similar_cards(
     return _to_similar_cards(results[offset:], db)
 
 
-@router.get("/search-oracle", response_model=List[SimilarCard])
+@router.get("/search-oracle", response_model=list[SimilarCard])
 def semantic_search_oracle(
     q: str,
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
-):
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[SimilarCard]:
     if not q.strip():
         return []
 

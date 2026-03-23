@@ -1,3 +1,6 @@
+from typing import Any
+
+import pytest
 import requests
 
 from oracle_tutor_api.worker import data_builder
@@ -97,14 +100,14 @@ def test_should_not_skip_digital_representative_if_paper_legal() -> None:
     assert should_skip_card(card) is False
 
 
-def test_trigger_tfidf_rebuild_posts_to_api(monkeypatch) -> None:
-    calls: list[dict] = []
+def test_trigger_tfidf_rebuild_posts_to_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
 
     class DummyResponse:
         status_code = 200
         text = "ok"
 
-    def fake_post(url, headers=None, timeout=None):
+    def fake_post(url: str, headers: dict[str, str] | None = None, timeout: float | None = None) -> DummyResponse:
         calls.append({"url": url, "headers": headers, "timeout": timeout})
         return DummyResponse()
 
@@ -123,8 +126,8 @@ def test_trigger_tfidf_rebuild_posts_to_api(monkeypatch) -> None:
     assert calls[0]["timeout"] == 1.5
 
 
-def test_trigger_tfidf_rebuild_failure_is_best_effort(monkeypatch) -> None:
-    def fake_post(url, headers=None, timeout=None):
+def test_trigger_tfidf_rebuild_failure_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, headers: dict[str, str] | None = None, timeout: float | None = None) -> None:
         raise requests.RequestException("network error")
 
     monkeypatch.setattr(data_builder, "API_BASE_URL", "http://api-internal:8000")

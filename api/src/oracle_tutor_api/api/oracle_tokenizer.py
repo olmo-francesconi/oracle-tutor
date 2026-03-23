@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Callable, Iterable, List, Tuple
+from collections.abc import Callable, Iterable
+from typing import Final, cast
 
 
-_WORD_RE = re.compile(r"[a-z0-9_]+")
+_WORD_RE: Final[re.Pattern[str]] = re.compile(r"[a-z0-9_]+")
 
 # Symbol mapping constants
 _COLOR_WORDS = {"w": "white", "u": "blue", "b": "black", "r": "red", "g": "green", "c": "colorless"}
@@ -73,7 +74,7 @@ def _resolve_single_symbol(symbol: str) -> str:
         # Filter out 'p' for the color-joining logic
         clean_parts = [p for p in parts if p != "p"]
         
-        semantic_parts = []
+        semantic_parts: list[str] = []
         for p in clean_parts:
             if p in _COLOR_WORDS:
                 semantic_parts.append(_COLOR_WORDS[p])
@@ -89,7 +90,7 @@ def _resolve_single_symbol(symbol: str) -> str:
     return ""  # Unknown symbol
 
 
-def _count_consecutive_symbols(text: str, start_pos: int) -> Tuple[int, str]:
+def _count_consecutive_symbols(text: str, start_pos: int) -> tuple[int, str]:
     """Count consecutive identical symbols starting at position. Returns (count, symbol_text)."""
     if not text or start_pos >= len(text) or text[start_pos] != "{":
         return 0, ""
@@ -154,7 +155,7 @@ def resolve_symbols_inplace(text: str) -> str:
     if "{" not in text:
         return text
 
-    result = []
+    result: list[str] = []
     i = 0
     while i < len(text):
         if text[i] == "{":
@@ -183,7 +184,7 @@ def resolve_symbols_inplace(text: str) -> str:
     return "".join(result)
 
 
-def split_into_phrases(text: str) -> List[str]:
+def split_into_phrases(text: str) -> list[str]:
     """Split text into phrases on line breaks and periods. Filter out empty phrases."""
     if not text:
         return []
@@ -197,17 +198,17 @@ def split_into_phrases(text: str) -> List[str]:
     return cleaned
 
 
-def tokenize_phrase(phrase: str) -> List[str]:
+def tokenize_phrase(phrase: str) -> list[str]:
     """Tokenize a single phrase into words. Handles P/T patterns and extracts word tokens."""
     if not phrase:
         return []
     
     # Normalize P/T patterns (e.g., +1/+1, 2/2, +X/+X)
-    def pt_replacer(match: re.Match) -> str:
+    def pt_replacer(match: re.Match[str]) -> str:
         v1, v2 = match.groups()
         
         def resolve_val(v: str) -> str:
-            res = []
+            res: list[str] = []
             if v.startswith("+"):
                 res.append("plus")
                 num = v[1:]
@@ -232,7 +233,7 @@ def tokenize_phrase(phrase: str) -> List[str]:
     t = re.sub(r"[^a-z0-9_]+", " ", t)
     
     # Extract word tokens
-    tokens = _WORD_RE.findall(t)
+    tokens = cast(list[str], _WORD_RE.findall(t))
     
     # Filter short tokens (keep 'x' and digits)
     return [tok for tok in tokens if len(tok) > 1 or tok == "x" or tok.isdigit()]
@@ -262,8 +263,8 @@ def _generate_mana_ability(type_line: str) -> str | None:
 
     tokens = type_line.replace("—", " ").replace("-", " ").split()
 
-    found_types = []
-    seen_types = set()
+    found_types: list[str] = []
+    seen_types: set[str] = set()
 
     for token in tokens:
         if token in BASIC_LAND_TYPE_TO_MANA and token not in seen_types:
@@ -273,7 +274,7 @@ def _generate_mana_ability(type_line: str) -> str | None:
     if not found_types:
         return None
 
-    mana_symbols = [BASIC_LAND_TYPE_TO_MANA[t] for t in found_types]
+    mana_symbols: list[str] = [BASIC_LAND_TYPE_TO_MANA[land_type] for land_type in found_types]
 
     if len(mana_symbols) == 1:
         return f"{{T}}: Add {mana_symbols[0]}."
@@ -287,7 +288,7 @@ def _generate_mana_ability(type_line: str) -> str | None:
 _NO_ORACLE_TEXT_TOKEN = "__no_oracle_text__"
 
 
-def _tokenize_internal(text: str, card_name: str | None = None, type_line: str | None = None) -> List[List[str]]:
+def _tokenize_internal(text: str, card_name: str | None = None, type_line: str | None = None) -> list[list[str]]:
     """Internal core tokenization workflow without n-gram generation. Returns tokens grouped by phrase."""
     
     # 1. Strip reminder text first (so we don't duplicate ability if it was only in reminder text)
@@ -310,7 +311,7 @@ def _tokenize_internal(text: str, card_name: str | None = None, type_line: str |
     t = normalize_text(t)
     
     phrases = split_into_phrases(t)
-    all_phrase_tokens: List[List[str]] = []
+    all_phrase_tokens: list[list[str]] = []
     
     for phrase in phrases:
         phrase_with_symbols = resolve_symbols_inplace(phrase)
@@ -321,7 +322,7 @@ def _tokenize_internal(text: str, card_name: str | None = None, type_line: str |
     return all_phrase_tokens
 
 
-def mtg_tokenize(text: str, card_name: str | None = None, type_line: str | None = None) -> List[str]:
+def mtg_tokenize(text: str, card_name: str | None = None, type_line: str | None = None) -> list[str]:
     """Tokenize MTG oracle-ish text for TF-IDF."""
     phrase_tokens_list = _tokenize_internal(text, card_name, type_line)
     return [tok for phrase_tokens in phrase_tokens_list for tok in phrase_tokens]
@@ -333,16 +334,19 @@ class _MtgAnalyzer:
     Expects input format: "oracle_text{CARD_NAME_DELIMITER}card_name{TYPE_LINE_DELIMITER}type_line"
     """
 
-    __slots__ = ("_lo", "_hi")
+    __slots__: Final[tuple[str, str]] = ("_lo", "_hi")
 
-    def __init__(self, ngram_range: Tuple[int, int] = (1, 1)) -> None:
+    _lo: int
+    _hi: int
+
+    def __init__(self, ngram_range: tuple[int, int] = (1, 1)) -> None:
         lo, hi = ngram_range
         if lo < 1 or hi < lo:
             raise ValueError("ngram_range must satisfy 1 <= lo <= hi")
         self._lo = lo
         self._hi = hi
 
-    def __call__(self, text: str) -> List[str]:
+    def __call__(self, text: str) -> list[str]:
         card_name: str | None = None
         type_line: str | None = None
 
@@ -359,7 +363,7 @@ class _MtgAnalyzer:
                 card_name = parts[1] or None
 
         phrase_tokens_list = _tokenize_internal(text, card_name, type_line)
-        all_tokens: List[str] = []
+        all_tokens: list[str] = []
 
         for phrase_tokens in phrase_tokens_list:
             if self._lo <= 1 <= self._hi:
@@ -373,7 +377,7 @@ class _MtgAnalyzer:
         return all_tokens
 
 
-def make_mtg_analyzer(ngram_range: Tuple[int, int] = (1, 1)) -> Callable[[str], List[str]]:
+def make_mtg_analyzer(ngram_range: tuple[int, int] = (1, 1)) -> Callable[[str], list[str]]:
     """
     Return a scikit-learn-compatible analyzer(text)->tokens callable, with configurable n-grams.
     Uses a picklable class so the TF-IDF index can be serialized (e.g. for subprocess rebuild).
@@ -383,7 +387,7 @@ def make_mtg_analyzer(ngram_range: Tuple[int, int] = (1, 1)) -> Callable[[str], 
 
 def join_fields(*fields: str | None) -> str:
     """Utility to join oracle-ish fields into one document string."""
-    parts: List[str] = []
+    parts: list[str] = []
     for f in fields:
         if f:
             parts.append(f)
@@ -401,5 +405,3 @@ def iter_type_filters(card_type: str | None) -> Iterable[str]:
     if not card_type:
         return []
     return [t.strip().lower() for t in card_type.split(",") if t.strip()]
-
-

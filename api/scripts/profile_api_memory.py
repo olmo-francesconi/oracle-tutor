@@ -12,19 +12,29 @@ PostgreSQL or the full dataset.
 from __future__ import annotations
 
 import gc
+from importlib import import_module
 import os
 import resource
 import sys
+from typing import Protocol, cast
 
 # Use sqlite for profiling (no external DB needed)
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+_ = os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 # Avoid importing before env is set
-os.environ.setdefault("ORACLE_TUTOR_API_ENV", "development")
+_ = os.environ.setdefault("ORACLE_TUTOR_API_ENV", "development")
 
 # Add api src to path when run as script
 _api_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _api_dir not in sys.path:
     sys.path.insert(0, _api_dir)
+
+
+class _MemoryInfo(Protocol):
+    rss: int
+
+
+class _Process(Protocol):
+    def memory_info(self) -> _MemoryInfo: ...
 
 
 def _rss_mb() -> float:
@@ -35,9 +45,12 @@ def _rss_mb() -> float:
     (peak RSS; monotonic, not suitable for "freed" deltas).
     """
     try:
-        import psutil  # type: ignore
-
-        return float(psutil.Process().memory_info().rss) / (1024 * 1024)
+        # Use dynamic import so the script can still run without psutil installed.
+        # A small Protocol + cast avoids type-checker treating `process` as Any.
+        psutil = import_module("psutil")
+        process = cast(_Process, getattr(psutil, "Process")())
+        memory_info = process.memory_info()
+        return float(memory_info.rss) / (1024 * 1024)
     except Exception:
         pass
 
@@ -71,15 +84,15 @@ def main() -> None:
     print("-" * 50)
 
     # Baseline after imports
-    gc.collect()
+    _ = gc.collect()
     baseline_mb = _rss_mb()
     print(f"After imports: {baseline_mb:.1f} MiB")
 
     # Init DB and seed minimal data (same pattern as conftest)
     init_db(mode="api")
     with SessionLocal() as db:
-        db.query(CardFace).delete()
-        db.query(Card).delete()
+        _ = db.query(CardFace).delete()
+        _ = db.query(Card).delete()
         db.commit()
         db.add_all([
             Card(id="c1", name="Lightning Bolt", layout="normal", cmc=1.0, rarity="common", legalities={}, color_identity=["R"]),
@@ -94,7 +107,7 @@ def main() -> None:
         ])
         db.commit()
 
-    gc.collect()
+    _ = gc.collect()
     after_db_mb = _rss_mb()
     print(f"After DB init + seed: {after_db_mb:.1f} MiB (+{after_db_mb - baseline_mb:.1f})")
 
@@ -102,12 +115,11 @@ def main() -> None:
     db = SessionLocal()
     try:
         index = build_tfidf_index(db)
-        gc.collect()
+        _ = gc.collect()
         after_tfidf_mb = _rss_mb()
         print(f"After TF-IDF build: {after_tfidf_mb:.1f} MiB (+{after_tfidf_mb - after_db_mb:.1f})")
 
         # Rough breakdown
-        import numpy as np
         m_raw = index.matrix_raw
         m_l2 = index.matrix_l2
         n_faces = len(index.face_ids)
@@ -121,7 +133,7 @@ def main() -> None:
     finally:
         db.close()
 
-    gc.collect()
+    _ = gc.collect()
     after_del_mb = _rss_mb()
     print(f"After index release + gc: {after_del_mb:.1f} MiB")
 

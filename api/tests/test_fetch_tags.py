@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
+import requests
+
 from oracle_tutor_api.core.database import SessionLocal
 from oracle_tutor_api.core.db_init import init_db
 from oracle_tutor_api.core.models import Card, CardRelationship, CardTagging, Tag, TagAncestorMap
@@ -185,13 +189,13 @@ def test_fetch_and_store_tags_requests_session_reset_on_retryable_status() -> No
             return {}
 
     class DummySession:
-        def post(self, *args, **kwargs):
+        def post(self, *args: object, **kwargs: object) -> DummyResponse:
             return DummyResponse()
 
     with SessionLocal() as db:
         outcome = fetch_and_store_tags(
             db,
-            DummySession(),  # type: ignore[arg-type]
+            cast(requests.Session, cast(object, DummySession())),
             "csrf-token",
             "rvr",
             "404",

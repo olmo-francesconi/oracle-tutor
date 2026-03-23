@@ -21,9 +21,12 @@ import os
 import random
 import sys
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
+
+JsonScalar = str | int | float | bool | None
+JsonValue = JsonScalar | dict[str, "JsonValue"] | list["JsonValue"]
+QueryParams = dict[str, str]
 
 BASE_URL = os.environ.get("BASE_URL", "https://oracletutor.org/api").rstrip("/")
 # Number of requests per "round" (search + similar + search-oracle)
@@ -49,7 +52,7 @@ ORACLE_QUERIES = [
 ]
 
 
-def get(path: str, params: dict | None = None) -> dict | list:
+def get(path: str, params: QueryParams | None = None) -> JsonValue:
     url = BASE_URL + path
     if params:
         url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
@@ -81,7 +84,9 @@ def main() -> None:
             if isinstance(results, list):
                 for r in results:
                     if isinstance(r, dict) and "id" in r:
-                        card_ids.append(r["id"])
+                        card_id = r["id"]
+                        if isinstance(card_id, str):
+                            card_ids.append(card_id)
         except Exception as e:
             errors += 1
             print(f"  [skip search {q!r}] {e}", file=sys.stderr)

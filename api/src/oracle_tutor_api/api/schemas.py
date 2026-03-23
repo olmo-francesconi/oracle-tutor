@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 from pydantic import BaseModel
 
 
 class CardMatch(BaseModel):
     name: str
     similarity: float = 1.0
-    rank: Optional[int] = None
-    id: Optional[str] = None
+    rank: int | None = None
+    id: str | None = None
 
 
 class CardNameMatch(BaseModel):
@@ -22,16 +20,16 @@ class SimilarCard(BaseModel):
     name: str
     card_name: str
     similarity: float
-    rank: Optional[int] = None
+    rank: int | None = None
 
-    type_line: Optional[str] = None
-    mana_cost: Optional[str] = None
-    oracle_text: Optional[str] = None
-    power: Optional[str] = None
-    toughness: Optional[str] = None
-    colors: Optional[List[str]] = None
+    type_line: str | None = None
+    mana_cost: str | None = None
+    oracle_text: str | None = None
+    power: str | None = None
+    toughness: str | None = None
+    colors: list[str] | None = None
 
-    layout: Optional[str] = None
-    rarity: Optional[str] = None
-    legalities: Optional[Dict[str, str]] = None
-    uniqueness: Optional[float] = None
+    layout: str | None = None
+    rarity: str | None = None
+    legalities: dict[str, str] | None = None
+    uniqueness: float | None = None

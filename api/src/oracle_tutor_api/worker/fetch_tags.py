@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 import requests
 from sqlalchemy import delete
@@ -137,7 +137,10 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
     for tagging in taggings:
         if not isinstance(tagging, dict):
             continue
-        tag = tagging.get("tag")
+        raw_tag = tagging.get("tag")
+        if not isinstance(raw_tag, dict):
+            continue
+        tag = cast(dict[str, Any], raw_tag)
         tag_id = upsert_tag(tag)
         tagging_id = _normalize_tag_value(tagging.get("id"))
         if not tagging_id or not tag_id:
@@ -240,7 +243,11 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
     taggings = extracted["taggings"]
     ancestor_edges = extracted["ancestor_edges"]
     relationships = extracted["relationships"]
-    direct_tag_ids = sorted({tagging["tag_id"] for tagging in taggings if tagging.get("tag_id")})
+    direct_tag_ids = sorted(
+        tagging["tag_id"]
+        for tagging in taggings
+        if isinstance(tagging.get("tag_id"), str) and tagging["tag_id"]
+    )
 
     db.execute(delete(CardRelationship).where(CardRelationship.card_id == card_id))
     db.execute(delete(CardTagging).where(CardTagging.card_id == card_id))

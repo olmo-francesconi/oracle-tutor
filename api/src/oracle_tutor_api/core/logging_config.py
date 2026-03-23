@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from functools import wraps
-from typing import Callable
+from typing import Callable, ParamSpec, TypeVar
 
 from .config import DATA_DIR
 
@@ -77,12 +77,16 @@ def setup_loggers() -> None:
     configure("oracle_tutor_api.worker", logging.INFO, update_file)
 
 
-def log_performance(func: Callable | None = None, *, logger: logging.Logger | None = None) -> Callable:
+def log_performance(
+    func: Callable[P, R] | None = None,
+    *,
+    logger: logging.Logger | None = None,
+) -> Callable[[Callable[P, R]], Callable[P, R]] | Callable[P, R]:
     """Decorator to time endpoint handlers (sync functions)."""
 
-    def decorator(f: Callable) -> Callable:
+    def decorator(f: Callable[P, R]) -> Callable[P, R]:
         @wraps(f)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             current_logger = logger or logging.getLogger()
             start = time.perf_counter()
             result = f(*args, **kwargs)
@@ -106,4 +110,6 @@ def log_performance(func: Callable | None = None, *, logger: logging.Logger | No
         return decorator(func)
     return decorator
 
+P = ParamSpec("P")
+R = TypeVar("R")
 

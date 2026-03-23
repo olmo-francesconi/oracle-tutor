@@ -4,6 +4,7 @@ import gc
 import hmac
 import importlib.metadata
 import ipaddress
+from importlib import import_module
 import logging
 import os
 import pickle
@@ -15,7 +16,7 @@ import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import Annotated, Final, Protocol, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +43,7 @@ from .tfidf_index import TfidfIndex, build_tfidf_index
 
 setup_loggers()
 logger = logging.getLogger("oracle_tutor_api.api")
+DbSession = Annotated[Session, Depends(get_db)]
 
 # Global in-memory TF-IDF index (rebuilt on startup)
 _tfidf_index: TfidfIndex | None = None
@@ -59,6 +61,23 @@ class RebuildInProgressError(RuntimeError):
     pass
 
 
+class _MemoryInfo(Protocol):
+    @property
+    def rss(self) -> int: ...
+
+
+class _PsutilProcess(Protocol):
+    def memory_info(self) -> _MemoryInfo: ...
+
+
+class _PsutilModule(Protocol):
+    def Process(self) -> _PsutilProcess: ...
+
+
+class _LibC(Protocol):
+    def malloc_trim(self, pad: int) -> int: ...
+
+
 def _rss_mb() -> float:
     """
     Return current process RSS in MiB.
@@ -68,9 +87,9 @@ def _rss_mb() -> float:
     """
     # 1) Best: psutil (cross-platform, current RSS).
     try:
-        import psutil  # type: ignore
-
-        return float(psutil.Process().memory_info().rss) / (1024 * 1024)
+        psutil = cast(_PsutilModule, cast(object, import_module("psutil")))
+        process = psutil.Process()
+        return float(process.memory_info().rss) / (1024 * 1024)
     except Exception:
         pass
 
@@ -124,7 +143,7 @@ def _malloc_trim_best_effort(context: str) -> None:
         import ctypes
 
         before_mb = _rss_mb()
-        libc = ctypes.CDLL("libc.so.6")
+        libc = cast(_LibC, cast(object, ctypes.CDLL("libc.so.6")))
         res = int(libc.malloc_trim(0))
         after_mb = _rss_mb()
         logger.info(
@@ -206,7 +225,7 @@ def _rebuild_tfidf_index(db: Session | None = None, *, reason: str) -> str | Non
                 )
                 if proc.returncode == 0:
                     with open(pkl_path, "rb") as f:
-                        new_index = pickle.load(f)
+                        new_index = cast(TfidfIndex, pickle.load(f))
                     logger.info("TF-IDF index loaded from subprocess pickle")
                 else:
                     logger.warning(
@@ -504,10 +523,14 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-try:
-    API_VERSION = importlib.metadata.version("oracle-tutor-api")
-except importlib.metadata.PackageNotFoundError:
-    API_VERSION = "1.2.0"  # Fallback if package not installed
+def _get_api_version() -> str:
+    try:
+        return importlib.metadata.version("oracle-tutor-api")
+    except importlib.metadata.PackageNotFoundError:
+        return "1.2.0"
+
+
+API_VERSION: Final[str] = _get_api_version()
 
 
 @app.get("/version", tags=["meta"])
@@ -591,20 +614,21 @@ def _is_postgres(db: Session) -> bool:
 def _results_to_similar_cards(
     results: list[tuple[int, float]],
     db: Session,
-) -> List[SimilarCard]:
+) -> list[SimilarCard]:
     """Convert TF-IDF results (face_id, score) to SimilarCard list."""
     if not results:
         return []
     target_face_ids = [r[0] for r in results]
     id_to_score = {r[0]: r[1] for r in results}
-    cards_data = (
+    cards_data = cast(
+        list[tuple[CardFace, Card]],
         db.query(CardFace, Card)
         .join(Card, CardFace.card_id == Card.id)
         .filter(CardFace.id.in_(target_face_ids))
-        .all()
+        .all(),
     )
     cards_map = {face.id: (face, card) for face, card in cards_data}
-    out: List[SimilarCard] = []
+    out: list[SimilarCard] = []
     for face_id in target_face_ids:
         if face_id not in cards_map:
             continue
@@ -656,9 +680,9 @@ def internal_rebuild_tfidf(request: Request) -> dict[str, object]:
 
 # ---- Endpoints ----
 
-@app.get("/search", response_model=List[CardMatch])
+@app.get("/search", response_model=list[CardMatch])
 @log_performance(logger=logger)
-def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
+def search_cards(q: str, db: DbSession, limit: int = 5) -> list[CardMatch]:
     _ensure_schema_ready()
     if not q.strip():
         return []
@@ -666,12 +690,13 @@ def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
 
     if _is_postgres(db):
         distance = Card.name.op("<->")(q)
-        results = (
+        results = cast(
+            list[tuple[Card, float]],
             db.query(Card, distance.label("dist"))
             .filter(or_(Card.name.op("%")(q), Card.name.ilike(f"%{q}%")))
             .order_by(distance, Card.edhrec_rank.asc().nulls_last())
             .limit(limit)
-            .all()
+            .all(),
         )
         return [
             CardMatch(name=c.name, id=c.id, rank=c.edhrec_rank, similarity=float(1.0 - dist))
@@ -689,9 +714,9 @@ def search_cards(q: str, limit: int = 5, db: Session = Depends(get_db)):
     return [CardMatch(name=c.name, id=c.id, rank=c.edhrec_rank, similarity=1.0) for c in cards]
 
 
-@app.get("/suggest-names", response_model=List[CardNameMatch])
+@app.get("/suggest-names", response_model=list[CardNameMatch])
 @log_performance(logger=logger)
-def search_card_names(q: str, limit: int = 5, offset: int = 0, db: Session = Depends(get_db)):
+def search_card_names(q: str, db: DbSession, limit: int = 5, offset: int = 0) -> list[CardNameMatch]:
     _ensure_schema_ready()
     if not q.strip():
         return []
@@ -700,30 +725,32 @@ def search_card_names(q: str, limit: int = 5, offset: int = 0, db: Session = Dep
 
     if _is_postgres(db):
         distance = Card.name.op("<->")(q)
-        cards = (
+        cards = cast(
+            list[tuple[str, str]],
             db.query(Card.name, Card.id)
             .filter(or_(Card.name.op("%")(q), Card.name.ilike(f"%{q}%")))
             .order_by(distance, Card.edhrec_rank.asc().nulls_last())
             .offset(offset)
             .limit(limit)
-            .all()
+            .all(),
         )
-        return [CardNameMatch(name=c.name, id=c.id) for c in cards]
+        return [CardNameMatch(name=name, id=card_id) for name, card_id in cards]
 
-    cards = (
+    cards = cast(
+        list[tuple[str, str]],
         db.query(Card.name, Card.id)
         .filter(Card.name.ilike(f"%{q}%"))
         .order_by(Card.name.asc())
         .offset(offset)
         .limit(limit)
-        .all()
+        .all(),
     )
-    return [CardNameMatch(name=c.name, id=c.id) for c in cards]
+    return [CardNameMatch(name=name, id=card_id) for name, card_id in cards]
 
 
 @app.get("/card/{card_id}")
 @log_performance(logger=logger)
-def get_card_by_id(card_id: str, db: Session = Depends(get_db)):
+def get_card_by_id(card_id: str, db: DbSession) -> dict[str, object]:
     _ensure_schema_ready()
     card = db.get(Card, card_id)
     if not card:
@@ -733,23 +760,23 @@ def get_card_by_id(card_id: str, db: Session = Depends(get_db)):
     return card.to_dict()
 
 
-@app.get("/similar-cards/{card_id}", response_model=List[SimilarCard])
+@app.get("/similar-cards/{card_id}", response_model=list[SimilarCard])
 @log_performance(logger=logger)
 def get_similar_cards(
     card_id: str,
+    db: DbSession,
     face_index: int = 0,
     limit: int = 20,
     offset: int = 0,
-    card_type: Optional[str] = Query(None),
-    colors: Optional[str] = Query(None),
-    format: Optional[str] = Query(None),
-    cmc_min: Optional[float] = Query(None),
-    cmc_max: Optional[float] = Query(None),
-    rarity: Optional[str] = Query(None),
-    match_mode: str = Query("at_least"),
-    color_feature: str = Query("identity"),
-    db: Session = Depends(get_db),
-):
+    card_type: Annotated[str | None, Query()] = None,
+    colors: Annotated[str | None, Query()] = None,
+    format: Annotated[str | None, Query()] = None,
+    cmc_min: Annotated[float | None, Query()] = None,
+    cmc_max: Annotated[float | None, Query()] = None,
+    rarity: Annotated[str | None, Query()] = None,
+    match_mode: Annotated[str, Query()] = "at_least",
+    color_feature: Annotated[str, Query()] = "identity",
+) -> list[SimilarCard]:
     _ensure_schema_ready()
     _ensure_tfidf_available_for_queries()
     index = _require_index(db)
@@ -758,7 +785,7 @@ def get_similar_cards(
     if not target_card:
         raise HTTPException(status_code=404, detail="Card not found")
 
-    faces = (
+    faces: list[CardFace] = (
         db.query(CardFace)
         .filter(CardFace.card_id == target_card.id)
         .order_by(CardFace.id.asc())
@@ -787,22 +814,22 @@ def get_similar_cards(
     return _results_to_similar_cards(results, db)
 
 
-@app.get("/search-oracle", response_model=List[SimilarCard])
+@app.get("/search-oracle", response_model=list[SimilarCard])
 @log_performance(logger=logger)
 def search_oracle_text(
     q: str,
+    db: DbSession,
     limit: int = 20,
     offset: int = 0,
-    card_type: Optional[str] = Query(None),
-    colors: Optional[str] = Query(None),
-    format: Optional[str] = Query(None),
-    cmc_min: Optional[float] = Query(None),
-    cmc_max: Optional[float] = Query(None),
-    rarity: Optional[str] = Query(None),
-    match_mode: str = Query("at_least"),
-    color_feature: str = Query("identity"),
-    db: Session = Depends(get_db),
-):
+    card_type: Annotated[str | None, Query()] = None,
+    colors: Annotated[str | None, Query()] = None,
+    format: Annotated[str | None, Query()] = None,
+    cmc_min: Annotated[float | None, Query()] = None,
+    cmc_max: Annotated[float | None, Query()] = None,
+    rarity: Annotated[str | None, Query()] = None,
+    match_mode: Annotated[str, Query()] = "at_least",
+    color_feature: Annotated[str, Query()] = "identity",
+) -> list[SimilarCard]:
     _ensure_schema_ready()
     _ensure_tfidf_available_for_queries()
     if not q.strip():

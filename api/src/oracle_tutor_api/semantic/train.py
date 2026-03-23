@@ -4,6 +4,7 @@ import logging
 import os
 import random
 from collections import defaultdict
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -25,13 +26,17 @@ MAX_TAG_PAIR_GROUP_SIZE = 2
 
 def _load_sentence_transformers() -> tuple[Any, Any, Any]:
     try:
-        from sentence_transformers import InputExample, SentenceTransformer, losses
+        sentence_transformers = import_module("sentence_transformers")
     except Exception as exc:  # pragma: no cover - optional dependency guard
         raise RuntimeError(
             "sentence-transformers is required for semantic training. "
             "Install the optional semantic extra before running this module."
         ) from exc
-    return SentenceTransformer, InputExample, losses
+    return (
+        getattr(sentence_transformers, "SentenceTransformer"),
+        getattr(sentence_transformers, "InputExample"),
+        getattr(sentence_transformers, "losses"),
+    )
 
 
 def build_training_examples(db, input_example_cls: Any) -> list[Any]:
@@ -92,9 +97,10 @@ def main() -> int:
     model = SentenceTransformer(BASE_MODEL_NAME)
 
     try:
-        from torch.utils.data import DataLoader
+        torch_utils_data = import_module("torch.utils.data")
     except Exception as exc:  # pragma: no cover - optional dependency guard
         raise RuntimeError("torch is required for semantic training.") from exc
+    DataLoader = getattr(torch_utils_data, "DataLoader")
 
     dataloader = DataLoader(examples, shuffle=True, batch_size=BATCH_SIZE)
     loss = losses.MultipleNegativesRankingLoss(model)

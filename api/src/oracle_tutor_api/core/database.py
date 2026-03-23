@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -58,7 +59,7 @@ DATABASE_URL = _build_database_url()
 #
 # Tests often use sqlite :memory:, which requires a StaticPool to keep one connection alive
 # across the whole process.
-_engine_kwargs = {
+_engine_kwargs: dict[str, Any] = {
     "pool_pre_ping": True,
     "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "3600")),  # recycle connections after 1 hour
 }
@@ -94,5 +95,4 @@ def get_db():
         yield db
     finally:
         db.close()
-
 

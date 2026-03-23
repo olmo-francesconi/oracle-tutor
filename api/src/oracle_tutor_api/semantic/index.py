@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from importlib import import_module
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -13,18 +13,18 @@ logger = logging.getLogger("oracle_tutor_api.semantic.index")
 
 MODEL_PATH = os.environ.get("SEMANTIC_MODEL_PATH", "data/semantic/model")
 
-_index: Optional["SemanticIndex"] = None
+_index: SemanticIndex | None = None
 
 
 def _load_sentence_transformers():
     try:
-        from sentence_transformers import SentenceTransformer
+        sentence_transformers = import_module("sentence_transformers")
     except Exception as exc:  # pragma: no cover - optional dependency guard
         raise RuntimeError(
             "sentence-transformers is required for semantic inference. "
             "Install the optional semantic extra before using this module."
         ) from exc
-    return SentenceTransformer
+    return getattr(sentence_transformers, "SentenceTransformer")
 
 
 def _load_semantic_model_class():
@@ -59,7 +59,7 @@ class SemanticIndex:
         query_vec,
         limit: int,
         db: Session,
-        exclude: Optional[int] = None,
+        exclude: int | None = None,
     ) -> list[tuple[int, float]]:
         CardFaceSemanticEmbedding = _load_semantic_model_class()
         distance = CardFaceSemanticEmbedding.embedding.cosine_distance(query_vec).label("distance")
@@ -70,7 +70,7 @@ class SemanticIndex:
         return [(row.face_id, round(1.0 - row.distance, 6)) for row in rows]
 
 
-def get_semantic_index() -> Optional[SemanticIndex]:
+def get_semantic_index() -> SemanticIndex | None:
     global _index
     if _index is not None:
         return _index
@@ -85,4 +85,3 @@ def get_semantic_index() -> Optional[SemanticIndex]:
         logger.warning("Semantic index unavailable at %s: %s", model_path, exc)
         return None
     return _index
-
