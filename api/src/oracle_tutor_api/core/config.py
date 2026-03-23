@@ -26,24 +26,6 @@ ALLOW_SCHEMA_RESET = os.getenv("ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET", "").strip(
 SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS", "30"))
 SCHEMA_WAIT_INTERVAL_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS", "1"))
 
-# Internal worker -> API trigger config
-WORKER_TRIGGER_TOKEN = os.getenv("ORACLE_TUTOR_API_WORKER_TOKEN", "").strip()
-WORKER_TRIGGER_ALLOWLIST = tuple(
-    host.strip().lower()
-    for host in os.getenv("ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST", "").split(",")
-    if host.strip()
-)
-def _get_worker_rebuild_path() -> str:
-    path = os.getenv("ORACLE_TUTOR_API_WORKER_REBUILD_PATH", "/internal/rebuild-tfidf").strip()
-    if not path.startswith("/"):
-        path = f"/{path}"
-    return path
-
-
-WORKER_REBUILD_PATH = _get_worker_rebuild_path()
-WORKER_REBUILD_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS", "10"))
-API_BASE_URL = os.getenv("ORACLE_TUTOR_API_BASE_URL", "").strip().rstrip("/")
-
 
 def parse_version(version_str: str | None) -> tuple[int, int, int]:
     if not version_str:

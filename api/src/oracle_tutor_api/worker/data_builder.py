@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -15,13 +14,9 @@ from sqlalchemy import Table, bindparam, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from ..core.config import (
-    API_BASE_URL,
     CARDS_JSON,
     DATA_DIR,
     DB_SCHEMA_VERSION,
-    WORKER_REBUILD_PATH,
-    WORKER_REBUILD_TIMEOUT_SECONDS,
-    WORKER_TRIGGER_TOKEN,
     ensure_data_dir,
     parse_version,
 )
@@ -48,59 +43,8 @@ META_JSON = DATA_DIR / "scryfall_meta.json"
 TEMP_CARDS_JSON = DATA_DIR / "scryfall-cards-temp.json"
 
 
-# Internal API trigger headers/contract
-_WORKER_TRIGGER_HEADER = "X-Worker-Token"
-_WORKER_SOURCE_HEADER = "X-Worker-Source"
-
-
 def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _trigger_tfidf_rebuild_request() -> None:
-    if not API_BASE_URL:
-        logger.info("Skipping TF-IDF rebuild trigger: ORACLE_TUTOR_API_BASE_URL not configured.")
-        return
-    if not WORKER_TRIGGER_TOKEN:
-        logger.info("Skipping TF-IDF rebuild trigger: ORACLE_TUTOR_API_WORKER_TOKEN not configured.")
-        return
-
-    url = f"{API_BASE_URL}{WORKER_REBUILD_PATH}"
-    logger.info(
-        "Sending TF-IDF rebuild trigger to API. url=%s timeout_s=%.2f token_configured=%s",
-        url,
-        WORKER_REBUILD_TIMEOUT_SECONDS,
-        bool(WORKER_TRIGGER_TOKEN),
-    )
-    headers = {
-        _WORKER_TRIGGER_HEADER: WORKER_TRIGGER_TOKEN,
-        _WORKER_SOURCE_HEADER: "worker",
-    }
-    try:
-        resp = requests.post(url, headers=headers, timeout=WORKER_REBUILD_TIMEOUT_SECONDS)
-        if resp.status_code >= 400:
-            logger.warning(
-                "TF-IDF rebuild trigger returned HTTP %s from %s. body=%s",
-                resp.status_code,
-                url,
-                resp.text[:300],
-            )
-            return
-        logger.info("TF-IDF rebuild trigger accepted by API (status=%s).", resp.status_code)
-    except Exception as e:
-        logger.warning("TF-IDF rebuild trigger failed (best-effort): %s", e)
-
-
-def trigger_tfidf_rebuild_best_effort(*, async_call: bool = True) -> None:
-    if async_call:
-        logger.info("Scheduling async best-effort TF-IDF rebuild trigger.")
-        # Non-daemon thread: for one-shot worker runs, this allows the process to wait
-        # for the short-timeout request so trigger logs/attempt are not silently dropped.
-        thread = threading.Thread(target=_trigger_tfidf_rebuild_request, daemon=False, name="tfidf-rebuild-trigger")
-        thread.start()
-        return
-    logger.info("Running synchronous best-effort TF-IDF rebuild trigger.")
-    _trigger_tfidf_rebuild_request()
 
 
 def _delete_card_related_rows(session, card_ids: list[str]) -> None:
@@ -881,8 +825,6 @@ def update_scryfall_data(
             except Exception as e:
                 logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
 
-            logger.info("Ingestion succeeded; requesting API TF-IDF rebuild (best-effort).")
-            trigger_tfidf_rebuild_best_effort(async_call=True)
         except Exception as e:
             logger.error("Update process failed: %s", e, exc_info=True)
             if strict:

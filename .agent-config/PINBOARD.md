@@ -89,11 +89,17 @@ CLAUDE.md:
 
 TODO.md: update current focus to reflect semantic-only migration completed
 
----
-
 ## Worker Status
 
 <!-- Workers append their status here on start and completion -->
+
+### TASK-C
+- Status: complete
+- Worker: Codex
+- Scope: `api/src/oracle_tutor_api/core/config.py`, `api/src/oracle_tutor_api/worker/data_builder.py`
+- Summary: Removed TF-IDF worker trigger config from `config.py`, deleted worker-side TF-IDF rebuild trigger helpers from `data_builder.py`, and removed the ingestion-end trigger call.
+
+---
 
 ### TASK-A
 - Status: complete
