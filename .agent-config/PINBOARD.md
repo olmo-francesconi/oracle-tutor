@@ -54,6 +54,12 @@ Shared communication board between the orchestrator (Claude) and Codex workers.
 - **Result**: short summary of what was done
 -->
 
+### TASK-004
+- **Status**: complete
+- **Worker started**: 2026-03-23 21:19
+- **Files touched**: `backend/src/ot_backend/ingest/fetch_tags.py`, `.agent-config/PINBOARD.md`
+- **Result**: Added a max session reset budget for Tagger 429 retries and now stop ingesting a card after five consecutive reset attempts
+
 ### TASK-003
 - **Status**: complete
 - **Worker started**: 2026-03-23 21:18
