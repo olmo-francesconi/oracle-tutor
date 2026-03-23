@@ -805,7 +805,7 @@ wheels = [
 ]
 
 [[package]]
-name = "oracle-tutor-api"
+name = "ot-backend"
 version = "1.4.0"
 source = { editable = "." }
 dependencies = [
