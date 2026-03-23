@@ -8,14 +8,15 @@ from typing import Any
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
 from ot_backend.core.models import Card, CardFace, CardTagging, Tag
+from ot_backend.embed.text_prep import face_to_text
 from ot_backend.embed.train import (
     LazyInputExampleDataset,
     build_training_dataset_state,
+    export_onnx_model,
     export_training_dataset,
     load_training_dataset,
     main,
 )
-from ot_backend.embed.text_prep import face_to_text
 
 
 @dataclass
@@ -284,3 +285,98 @@ def test_main_can_train_from_exported_dataset_without_db(monkeypatch, tmp_path) 
     assert exit_code == 0
     assert len(FakeSentenceTransformer.instances) == 1
     assert FakeSentenceTransformer.instances[0].saved_path == str(output_path)
+
+
+def test_main_uses_old_fit_on_mps(monkeypatch, tmp_path) -> None:
+    _seed_training_records()
+
+    class FakeDataLoader:
+        def __init__(self, dataset: Any, shuffle: bool, batch_size: int) -> None:
+            self.dataset = dataset
+            self.shuffle = shuffle
+            self.batch_size = batch_size
+
+        def __len__(self) -> int:
+            return len(self.dataset)
+
+    class FakeLosses:
+        @staticmethod
+        def MultipleNegativesRankingLoss(model: Any) -> str:
+            return f"loss-for-{model.base_model_name}"
+
+    class FakeSentenceTransformer:
+        instances: list["FakeSentenceTransformer"] = []
+
+        def __init__(self, base_model_name: str) -> None:
+            self.base_model_name = base_model_name
+            self.fit_calls: list[dict[str, Any]] = []
+            self.old_fit_calls: list[dict[str, Any]] = []
+            self.saved_path: str | None = None
+            FakeSentenceTransformer.instances.append(self)
+
+        def fit(self, **kwargs: Any) -> None:
+            self.fit_calls.append(kwargs)
+
+        def old_fit(self, **kwargs: Any) -> None:
+            self.old_fit_calls.append(kwargs)
+
+        def save(self, path: str) -> None:
+            self.saved_path = path
+
+    monkeypatch.setattr("ot_backend.embed.train._ensure_training_dependencies", lambda: None)
+    monkeypatch.setattr(
+        "ot_backend.embed.train._load_sentence_transformers",
+        lambda: (FakeSentenceTransformer, DummyInputExample, FakeLosses),
+    )
+    monkeypatch.setattr("ot_backend.embed.train.huggingface_cache_dir", lambda: tmp_path / "hf-cache")
+    monkeypatch.setattr("ot_backend.embed.train.semantic_model_path", lambda: tmp_path / "semantic-model")
+    monkeypatch.setattr("ot_backend.embed.train._is_mps_available", lambda: True)
+
+    def fake_import_module(module_name: str) -> Any:
+        if module_name == "torch.utils.data":
+            return SimpleNamespace(DataLoader=FakeDataLoader)
+        raise AssertionError(f"Unexpected import: {module_name}")
+
+    monkeypatch.setattr("ot_backend.embed.train.import_module", fake_import_module)
+
+    exit_code = main()
+
+    assert exit_code == 0
+    assert len(FakeSentenceTransformer.instances) == 1
+    model = FakeSentenceTransformer.instances[0]
+    assert len(model.old_fit_calls) == 1
+    assert model.fit_calls == []
+
+
+def test_export_onnx_model_writes_conventional_artifact(monkeypatch, tmp_path) -> None:
+    calls: list[tuple[str, dict[str, object], bool]] = []
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_source: str, **kwargs: object) -> None:
+            calls.append((model_source, kwargs, False))
+
+        def save(self, path: str) -> None:
+            model_path, kwargs, _ = calls[-1]
+            calls[-1] = (model_path, kwargs, True)
+            assert path == str(tmp_path / "semantic-model")
+
+    monkeypatch.setattr("ot_backend.embed.train._load_sentence_transformer_class", lambda: FakeSentenceTransformer)
+    monkeypatch.setattr("ot_backend.embed.train.huggingface_cache_dir", lambda: tmp_path / "hf-cache")
+
+    export_onnx_model("sentence-transformers/test-model", tmp_path / "semantic-model")
+
+    assert calls == [
+        (
+            "sentence-transformers/test-model",
+            {
+                "backend": "onnx",
+                "model_kwargs": {
+                    "provider": "CPUExecutionProvider",
+                    "export": True,
+                    "file_name": "onnx/model.onnx",
+                },
+                "local_files_only": False,
+            },
+            True,
+        )
+    ]

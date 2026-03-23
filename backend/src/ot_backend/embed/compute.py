@@ -43,7 +43,10 @@ def compute_and_store(db) -> None:
     CardFaceSemanticEmbedding = _load_semantic_models()
     model_source = semantic_model_source()
     cache_dir = huggingface_cache_dir()
-    logger.info("Starting semantic embedding computation. model_source=%s cache_dir=%s", model_source, cache_dir)
+
+    logger.info("Starting semantic embedding computation.")
+    logger.info("  model_source=%s", model_source)
+    logger.info("  cache_dir=%s", cache_dir)
 
     model = _load_embedding_model(model_source)
     logger.info("Semantic model loaded successfully for embedding computation.")

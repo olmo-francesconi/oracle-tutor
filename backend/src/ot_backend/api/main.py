@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import importlib.metadata
 import logging
 import os
@@ -28,9 +26,6 @@ except ImportError:
 
 setup_loggers()
 logger = logging.getLogger("ot_backend.api")
-DbSession = Annotated[Session, Depends(get_db)]
-
-
 def _get_api_version() -> str:
     try:
         return importlib.metadata.version("oracle-tutor-api")
@@ -172,7 +167,7 @@ def favicon():
 
 @app.get("/search", response_model=list[CardMatch])
 @log_performance(logger=logger)
-def search_cards(q: str, db: DbSession, limit: int = 5) -> list[CardMatch]:
+def search_cards(q: str, db: Session = Depends(get_db), limit: int = 5) -> list[CardMatch]:
     _ensure_schema_ready()
     if not q.strip():
         return []
@@ -204,7 +199,7 @@ def search_cards(q: str, db: DbSession, limit: int = 5) -> list[CardMatch]:
 
 @app.get("/suggest-names", response_model=list[CardNameMatch])
 @log_performance(logger=logger)
-def search_card_names(q: str, db: DbSession, limit: int = 5, offset: int = 0) -> list[CardNameMatch]:
+def search_card_names(q: str, db: Session = Depends(get_db), limit: int = 5, offset: int = 0) -> list[CardNameMatch]:
     _ensure_schema_ready()
     if not q.strip():
         return []
@@ -236,7 +231,7 @@ def search_card_names(q: str, db: DbSession, limit: int = 5, offset: int = 0) ->
 
 @app.get("/card/{card_id}")
 @log_performance(logger=logger)
-def get_card_by_id(card_id: str, db: DbSession) -> dict[str, object]:
+def get_card_by_id(card_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     _ensure_schema_ready()
     card = db.get(Card, card_id)
     if not card:
@@ -249,7 +244,7 @@ def get_card_by_id(card_id: str, db: DbSession) -> dict[str, object]:
 @log_performance(logger=logger)
 def get_similar_cards(
     card_id: str,
-    db: DbSession,
+    db: Session = Depends(get_db),
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     card_type: str | None = None,
@@ -279,7 +274,7 @@ def get_similar_cards(
 @log_performance(logger=logger)
 def search_oracle_text(
     q: str,
-    db: DbSession,
+    db: Session = Depends(get_db),
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     card_type: str | None = None,

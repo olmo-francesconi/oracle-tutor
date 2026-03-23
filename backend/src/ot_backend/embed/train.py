@@ -23,7 +23,7 @@ from .text_prep import normalize_oracle_text
 logger = logging.getLogger("ot_backend.embed.train")
 
 BASE_MODEL_NAME = os.environ.get("SEMANTIC_BASE_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 EPOCHS = 5
 MIN_WARMUP_STEPS = 100
 WARMUP_DIVISOR = 20
@@ -79,6 +79,10 @@ def _load_sentence_transformers() -> tuple[Any, Any, Any]:
     )
 
 
+def _load_sentence_transformer_class() -> Any:
+    return _load_sentence_transformers()[0]
+
+
 def _ensure_training_dependencies() -> None:
     required_modules = {
         "datasets": "The `datasets` package is required for semantic training.",
@@ -93,10 +97,52 @@ def _ensure_training_dependencies() -> None:
             ) from exc
 
 
+def _is_mps_available() -> bool:
+    try:
+        torch = import_module("torch")
+    except Exception:
+        return False
+
+    mps = getattr(getattr(torch, "backends", None), "mps", None)
+    return bool(mps is not None and getattr(mps, "is_available", lambda: False)())
+
+
 def _training_output_path(path_override: str | None = None) -> Path:
     if path_override:
         return Path(path_override)
     return semantic_model_path()
+
+
+def export_onnx_model(model_source: str, output_path: Path) -> None:
+    SentenceTransformer = _load_sentence_transformer_class()
+    cache_dir = huggingface_cache_dir()
+    logger.info(
+        "Exporting ONNX semantic model. model_source=%s output_path=%s cache_dir=%s",
+        model_source,
+        output_path,
+        cache_dir,
+    )
+    model = SentenceTransformer(
+        model_source,
+        backend="onnx",
+        model_kwargs={
+            "provider": "CPUExecutionProvider",
+            "export": True,
+            "file_name": "onnx/model.onnx",
+        },
+        local_files_only=Path(model_source).exists(),
+    )
+    output_path.mkdir(parents=True, exist_ok=True)
+    model.save(str(output_path))
+    logger.info("Exported ONNX semantic model to %s", output_path)
+
+
+def _fit_model(model: Any, **kwargs: Any) -> None:
+    if _is_mps_available() and hasattr(model, "old_fit"):
+        logger.info("Using legacy sentence-transformers training path on MPS to avoid unsupported pin_memory warnings.")
+        model.old_fit(**kwargs)
+        return
+    model.fit(**kwargs)
 
 
 def _face_text_records(db) -> list[FaceTextRecord]:
@@ -175,10 +221,7 @@ def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Pa
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,
-        "face_texts": [
-            {"id": face_id, "text": text}
-            for face_id, text in sorted(dataset_state.face_texts.items())
-        ],
+        "face_texts": [{"id": face_id, "text": text} for face_id, text in sorted(dataset_state.face_texts.items())],
         "pair_ids": [[left_face_id, right_face_id] for left_face_id, right_face_id in dataset_state.pair_ids],
         "simcse_examples": dataset_state.simcse_examples,
         "tag_pair_examples": dataset_state.tag_pair_examples,
@@ -188,14 +231,8 @@ def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Pa
 
 def load_training_dataset(input_path: Path) -> TrainingDatasetState:
     payload = json.loads(input_path.read_text(encoding="utf-8"))
-    face_texts = {
-        int(record["id"]): str(record["text"])
-        for record in payload["face_texts"]
-    }
-    pair_ids = [
-        (int(left_face_id), int(right_face_id))
-        for left_face_id, right_face_id in payload["pair_ids"]
-    ]
+    face_texts = {int(record["id"]): str(record["text"]) for record in payload["face_texts"]}
+    pair_ids = [(int(left_face_id), int(right_face_id)) for left_face_id, right_face_id in payload["pair_ids"]]
     return TrainingDatasetState(
         face_texts=face_texts,
         pair_ids=pair_ids,
@@ -255,13 +292,12 @@ def train_dataset_state(
     _ensure_training_dependencies()
     cache_dir = huggingface_cache_dir()
     checkpoint_path = output_path.parent / CHECKPOINT_DIR_NAME
-    logger.info(
-        "Starting semantic model training. base_model=%s output_path=%s checkpoint_path=%s cache_dir=%s",
-        BASE_MODEL_NAME,
-        output_path,
-        checkpoint_path,
-        cache_dir,
-    )
+
+    logger.info("Starting semantic model training")
+    logger.info("  base_model=%s", BASE_MODEL_NAME)
+    logger.info("  output_path=%s", output_path)
+    logger.info("  checkpoint_path=%s", checkpoint_path)
+    logger.info("  chace_dir=%s", cache_dir)
 
     if not dataset_state.pair_ids:
         logger.error("No semantic training examples found; nothing to train.")
@@ -301,7 +337,8 @@ def train_dataset_state(
 
     checkpoint_path.mkdir(parents=True, exist_ok=True)
     logger.info("Starting semantic model fit.")
-    model.fit(
+    _fit_model(
+        model,
         train_objectives=[(dataloader, loss)],
         epochs=EPOCHS,
         warmup_steps=warmup_steps,
@@ -350,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         return train_dataset_state(dataset_state, output_path=output_path)
 
     dataset_path = output_path.parent / TRAINING_DATASET_FILE_NAME
-    prepare_training_dataset_file(dataset_path)
+    _ = prepare_training_dataset_file(dataset_path)
     dataset_state = load_training_dataset(dataset_path)
     logger.info("Loaded exported semantic training dataset from %s", dataset_path)
     return train_dataset_state(dataset_state, output_path=output_path)

@@ -5,6 +5,7 @@ import logging
 import sys
 from importlib import import_module
 
+from ..core.config import semantic_model_path, semantic_model_source
 from ..core.logging_config import setup_loggers
 from . import compute, train
 
@@ -37,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv if argv is not None else [])
     logger.info("Semantic worker starting. device=%s", _semantic_device())
+    model_output_path = semantic_model_path()
 
     try:
         if args.no_train:
@@ -48,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
                 logger.error("Semantic worker training stage failed with exit_code=%d.", train_exit_code)
                 return train_exit_code
             logger.info("Semantic worker training stage finished successfully.")
+
+        logger.info("Semantic worker exporting ONNX model.")
+        train.export_onnx_model(semantic_model_source(), model_output_path)
+        logger.info("Semantic worker ONNX export finished successfully.")
 
         logger.info("Semantic worker entering embedding computation stage.")
         compute_exit_code = compute.main()

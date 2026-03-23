@@ -10,6 +10,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 CARDS_JSON = DATA_DIR / "cards.json"
 DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
 DEFAULT_SEMANTIC_BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+DEFAULT_SEMANTIC_MODEL_PATH = Path("data/semantic/model")
+DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH = Path("onnx/model.onnx")
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
@@ -47,7 +49,18 @@ def ensure_data_dir() -> None:
 
 
 def semantic_model_path() -> Path:
-    return Path(os.getenv("SEMANTIC_MODEL_PATH", "data/semantic/model"))
+    return Path(os.getenv("SEMANTIC_MODEL_PATH", str(DEFAULT_SEMANTIC_MODEL_PATH)))
+
+
+def semantic_onnx_model_path() -> Path:
+    model_root = semantic_model_path()
+    default_path = model_root / DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH
+    legacy_path = model_root / "model.onnx"
+    if default_path.exists():
+        return default_path
+    if legacy_path.exists():
+        return legacy_path
+    return default_path
 
 
 def semantic_base_model_name() -> str:
