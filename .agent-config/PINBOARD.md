@@ -52,6 +52,13 @@ Reflect current module structure before rename workers begin.
 - **Result**: short summary of what was done
 -->
 
+### TASK-004
+- **Status**: complete
+- **Worker started**: 2026-03-23 16:00
+- **Files touched**: `.agent-config/PINBOARD.md`, `api/Dockerfile`, `api/Dockerfile.worker`, `api/Dockerfile.semantic-worker`
+- **Blocker** (if any): none
+- **Result**: Updated Dockerfile copy paths and entrypoints for the package rename
+
 ### TASK-003
 - **Status**: complete
 - **Worker started**: 2026-03-23 00:00
