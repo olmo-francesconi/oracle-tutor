@@ -22,7 +22,7 @@ from ..core.models import Card, CardFace
 from .schemas import CardMatch, CardNameMatch, SimilarCard
 
 try:
-    from ..semantic.index import get_semantic_index
+    from ..embed.index import get_semantic_index
 except ImportError:
     get_semantic_index = None
 
