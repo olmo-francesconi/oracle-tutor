@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 import requests
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
 from ot_backend.core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
-from ot_backend.ingest.fetch_tags import FetchOutcome, _cards_needing_tag_fetch, _extract_card_entities, _replace_card_entities, fetch_and_store_tags
-
+from ot_backend.ingest.fetch_tags import (
+    FetchOutcome,
+    _cards_needing_tag_fetch,
+    _extract_card_entities,
+    _replace_card_entities,
+    fetch_and_store_tags,
+)
 
 SAMPLE_TAGGER_PAYLOAD = {
     "data": {
