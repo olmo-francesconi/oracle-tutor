@@ -629,7 +629,7 @@ def test_pipeline_creates_versioned_run_dir_and_latest_symlink(
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._prepare_and_save_dataset",
         lambda path, config: path.write_text(
-            '{"version":1,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
+            '{"version":2,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
             encoding="utf-8",
         ),
     )
@@ -672,7 +672,7 @@ def test_pipeline_no_embeddings_skips_compute(
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._prepare_and_save_dataset",
         lambda path, config: path.write_text(
-            '{"version":1,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
+            '{"version":2,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
             encoding="utf-8",
         ),
     )

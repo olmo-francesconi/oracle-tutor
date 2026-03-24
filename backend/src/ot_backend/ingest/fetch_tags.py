@@ -244,16 +244,6 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
     taggings = extracted["taggings"]
     ancestor_edges = extracted["ancestor_edges"]
     relationships = extracted["relationships"]
-    tagging_foreign_keys = sorted(
-        foreign_key
-        for foreign_key in {
-            tagging.get("foreign_key")
-            for tagging in taggings
-            if isinstance(tagging.get("foreign_key"), str) and tagging.get("foreign_key")
-        }
-        if foreign_key
-    )
-    tagging_card_ids: dict[str, str] = {}
     direct_tag_ids = sorted(
         tagging["tag_id"]
         for tagging in taggings
@@ -267,13 +257,6 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
         _upsert_tag(db, tag_data)
     db.flush()
 
-    if tagging_foreign_keys:
-        tagging_card_ids = dict(
-            db.execute(
-                select(Card.scryfall_id, Card.oracle_id).where(Card.scryfall_id.in_(tagging_foreign_keys))
-            ).all()
-        )
-
     if direct_tag_ids:
         db.execute(delete(TagAncestorMap).where(TagAncestorMap.tag_id.in_(direct_tag_ids)))
 
@@ -282,15 +265,10 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
 
     for tagging_data in taggings:
         foreign_key = tagging_data.get("foreign_key")
-        if not isinstance(foreign_key, str) or not foreign_key:
-            continue
-        tagging_card_id = tagging_card_ids.get(foreign_key)
-        if not tagging_card_id:
-            continue
         db.merge(
             CardTagging(
                 id=tagging_data["id"],
-                card_id=tagging_card_id,
+                card_id=card_id,
                 tag_id=tagging_data["tag_id"],
                 foreign_key=foreign_key,
                 status=tagging_data.get("status"),
@@ -384,7 +362,7 @@ def fetch_and_store_tags(
     return FetchOutcome.SUCCESS
 
 
-def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> list[dict[str, str]]:
+def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> list[Any]:
     query = (
         select(Card.oracle_id, CardRaw.set_code, CardRaw.collector_number)
         .join(CardRaw, CardRaw.id == Card.scryfall_id)
@@ -395,11 +373,7 @@ def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> list[dict[str, 
             query.outerjoin(CardTagging, CardTagging.card_id == Card.oracle_id)
             .where(CardTagging.id.is_(None))
         )
-    rows = db.execute(query).all()
-    return [
-        {"oracle_id": oracle_id, "set_code": set_code, "collector_number": collector_number}
-        for oracle_id, set_code, collector_number in rows
-    ]
+    return db.execute(query).all()
 
 
 def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
@@ -425,16 +399,16 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
     LOG_INTERVAL = 100
 
     for i, card in enumerate(cards, start=1):
-        if not card["set_code"] or not card["collector_number"]:
+        if not card.set_code or not card.collector_number:
             counts[FetchOutcome.FAILED] += 1
             continue
         outcome = fetch_and_store_tags(
             db,
             tagger_session,
             csrf_token,
-            card["set_code"],
-            card["collector_number"],
-            card["oracle_id"],
+            card.set_code,
+            card.collector_number,
+            card.oracle_id,
         )
         counts[outcome] += 1
 
@@ -456,8 +430,8 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
             if session_resets >= MAX_SESSION_RESETS:
                 logger.error(
                     "Tagger rate limit: exceeded max session resets for card %s/%s, skipping.",
-                    card["set_code"],
-                    card["collector_number"],
+                    card.set_code,
+                    card.collector_number,
                 )
                 break
 
@@ -477,9 +451,9 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
                 db,
                 tagger_session,
                 csrf_token,
-                card["set_code"],
-                card["collector_number"],
-                card["oracle_id"],
+                card.set_code,
+                card.collector_number,
+                card.oracle_id,
             )
             if outcome == FetchOutcome.RESET_SESSION:
                 counts[FetchOutcome.RESET_SESSION] += 1

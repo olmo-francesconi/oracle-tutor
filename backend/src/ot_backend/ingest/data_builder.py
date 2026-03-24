@@ -25,9 +25,9 @@ from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
-    CardRaw,
     CardFace,
     CardFaceSemanticEmbedding,
+    CardRaw,
     CardRelationship,
     CardTagging,
     IngestionLog,

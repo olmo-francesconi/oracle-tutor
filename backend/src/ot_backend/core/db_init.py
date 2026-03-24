@@ -5,9 +5,10 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
+
+from alembic import command
 
 from .config import DB_SCHEMA_VERSION
 from .database import engine
@@ -146,10 +147,9 @@ def init_db(mode: str = INIT_MODE_API) -> None:
             inspector = inspect(conn)
             if mode == INIT_MODE_WORKER and inspector.has_table("system_metadata"):
                 _set_migration_state(conn, state=MIGRATION_STATE_MIGRATING, target_version=DB_SCHEMA_VERSION)
-
-            _upgrade_schema_to_head()
-
-            if mode == INIT_MODE_WORKER:
+        _upgrade_schema_to_head()
+        if mode == INIT_MODE_WORKER:
+            with engine.begin() as conn:
                 _upsert_schema_version(conn, DB_SCHEMA_VERSION)
                 _set_migration_state(conn, state=MIGRATION_STATE_READY, target_version=DB_SCHEMA_VERSION)
     except Exception:

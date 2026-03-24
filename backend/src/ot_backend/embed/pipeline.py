@@ -34,12 +34,13 @@ _DEFAULT_BASE_MODEL: str = os.environ.get("SEMANTIC_BASE_MODEL", "sentence-trans
 _DEFAULT_RUNS_DIR: Path = Path(os.environ.get("SEMANTIC_RUNS_DIR", "data/semantic/runs"))
 _DEFAULT_MAX_TAG_PAIRS_PER_TAG = 50
 _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 2
+FaceIdentity = tuple[str, int]
 
 
 @dataclass(frozen=True)
 class FaceTextRecord:
-    id: int
-    card_id: str
+    oracle_id: str
+    face_ix: int
     name: str
     type_line: str
     oracle_text: str
@@ -47,14 +48,19 @@ class FaceTextRecord:
 
 @dataclass(frozen=True)
 class TrainingDatasetState:
-    face_texts: dict[int, str]
-    pair_ids: list[tuple[int, int]]
+    face_texts: dict[FaceIdentity, str]
+    pair_ids: list[tuple[FaceIdentity, FaceIdentity]]
     simcse_examples: int
     tag_pair_examples: int
 
 
 class LazyInputExampleDataset:
-    def __init__(self, pair_ids: list[tuple[int, int]], face_texts: dict[int, str], input_example_cls: Any) -> None:
+    def __init__(
+        self,
+        pair_ids: list[tuple[FaceIdentity, FaceIdentity]],
+        face_texts: dict[FaceIdentity, str],
+        input_example_cls: Any,
+    ) -> None:
         self._pair_ids = pair_ids
         self._face_texts = face_texts
         self._input_example_cls = input_example_cls
@@ -63,8 +69,10 @@ class LazyInputExampleDataset:
         return len(self._pair_ids)
 
     def __getitem__(self, index: int) -> Any:
-        left_face_id, right_face_id = self._pair_ids[index]
-        return self._input_example_cls(texts=[self._face_texts[left_face_id], self._face_texts[right_face_id]])
+        left_face_key, right_face_key = self._pair_ids[index]
+        return self._input_example_cls(
+            texts=[self._face_texts[left_face_key], self._face_texts[right_face_key]]
+        )
 
 
 @dataclass
@@ -146,19 +154,23 @@ def _is_mps_available() -> bool:
 
 
 def _face_text_records(db: Any) -> list[FaceTextRecord]:
-    query = select(CardFace.id, CardFace.card_id, CardFace.name, CardFace.type_line, CardFace.oracle_text).order_by(
-        CardFace.id
-    )
+    query = select(
+        CardFace.oracle_id,
+        CardFace.face_ix,
+        CardFace.name,
+        CardFace.type_line,
+        CardFace.oracle_text,
+    ).order_by(CardFace.oracle_id, CardFace.face_ix)
     rows = db.execute(query)
     return [
         FaceTextRecord(
-            id=face_id,
-            card_id=card_id,
+            oracle_id=oracle_id,
+            face_ix=face_ix,
             name=name or "",
             type_line=type_line or "",
             oracle_text=oracle_text or "",
         )
-        for face_id, card_id, name, type_line, oracle_text in rows
+        for oracle_id, face_ix, name, type_line, oracle_text in rows
     ]
 
 
@@ -174,12 +186,12 @@ def build_training_dataset_state(
 ) -> TrainingDatasetState:
     logger.info("Loading face text for semantic training.")
     face_records = _face_text_records(db)
-    face_texts = {face.id: _normalize_face_record(face) for face in face_records}
-    card_face_map: dict[str, list[int]] = defaultdict(list)
+    face_texts = {(face.oracle_id, face.face_ix): _normalize_face_record(face) for face in face_records}
+    card_face_map: dict[str, list[FaceIdentity]] = defaultdict(list)
     for face in face_records:
-        card_face_map[face.card_id].append(face.id)
+        card_face_map[face.oracle_id].append((face.oracle_id, face.face_ix))
 
-    self_pair_ids = [(face_id, face_id) for face_id, text in face_texts.items() if text.strip()]
+    self_pair_ids = [(face_key, face_key) for face_key, text in face_texts.items() if text.strip()]
 
     try:
         from ..core.models import CardTagging, Tag
@@ -187,7 +199,7 @@ def build_training_dataset_state(
         raise RuntimeError("Tag models are unavailable in the current codebase state.") from exc
 
     logger.info("Building tag-derived positive pairs.")
-    tag_to_face_ids: dict[str, list[int]] = defaultdict(list)
+    tag_to_face_ids: dict[str, list[FaceIdentity]] = defaultdict(list)
     direct_oracle_taggings = db.execute(
         select(CardTagging.card_id, Tag.tag_name)
         .join(Tag, CardTagging.tag_id == Tag.id)
@@ -195,11 +207,11 @@ def build_training_dataset_state(
         .filter(Tag.tag_namespace == "card")
     )
     for card_id, tag_name in direct_oracle_taggings:
-        for fid in card_face_map.get(card_id, []):
-            if fid in face_texts:
-                tag_to_face_ids[tag_name].append(fid)
+        for face_key in card_face_map.get(card_id, []):
+            if face_key in face_texts:
+                tag_to_face_ids[tag_name].append(face_key)
 
-    tag_pair_ids: list[tuple[int, int]] = []
+    tag_pair_ids: list[tuple[FaceIdentity, FaceIdentity]] = []
     for fids in tag_to_face_ids.values():
         if len(fids) < max_tag_pair_group_size:
             continue
@@ -221,9 +233,15 @@ def build_training_dataset_state(
 def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "version": 1,
-        "face_texts": [{"id": face_id, "text": text} for face_id, text in sorted(dataset_state.face_texts.items())],
-        "pair_ids": [[left, right] for left, right in dataset_state.pair_ids],
+        "version": 2,
+        "face_texts": [
+            {"oracle_id": oracle_id, "face_ix": face_ix, "text": text}
+            for (oracle_id, face_ix), text in sorted(dataset_state.face_texts.items())
+        ],
+        "pair_ids": [
+            [[left_oracle_id, left_face_ix], [right_oracle_id, right_face_ix]]
+            for (left_oracle_id, left_face_ix), (right_oracle_id, right_face_ix) in dataset_state.pair_ids
+        ],
         "simcse_examples": dataset_state.simcse_examples,
         "tag_pair_examples": dataset_state.tag_pair_examples,
     }
@@ -232,8 +250,16 @@ def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Pa
 
 def load_training_dataset(input_path: Path) -> TrainingDatasetState:
     payload = json.loads(input_path.read_text(encoding="utf-8"))
-    face_texts = {int(r["id"]): str(r["text"]) for r in payload["face_texts"]}
-    pair_ids = [(int(left), int(right)) for left, right in payload["pair_ids"]]
+    if int(payload["version"]) != 2:
+        raise ValueError("Unsupported training dataset format version.")
+    face_texts = {
+        (str(r["oracle_id"]), int(r["face_ix"])): str(r["text"])
+        for r in payload["face_texts"]
+    }
+    pair_ids = [
+        ((str(left_oracle_id), int(left_face_ix)), (str(right_oracle_id), int(right_face_ix)))
+        for [left_oracle_id, left_face_ix], [right_oracle_id, right_face_ix] in payload["pair_ids"]
+    ]
     return TrainingDatasetState(
         face_texts=face_texts,
         pair_ids=pair_ids,
@@ -369,7 +395,10 @@ def _compute_embeddings(model: Any, batch_size: int = 256) -> int:
 
         texts = [face_to_text(face) for face in faces]
         embeddings = model.encode(texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=True)
-        db.add_all(CardFaceSemanticEmbedding(face_id=face.id, embedding=emb) for face, emb in zip(faces, embeddings))
+        db.add_all(
+            CardFaceSemanticEmbedding(oracle_id=face.oracle_id, face_ix=face.face_ix, embedding=emb)
+            for face, emb in zip(faces, embeddings)
+        )
 
         db.commit()
         logger.info("Stored %d embeddings.", len(faces))
