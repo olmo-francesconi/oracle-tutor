@@ -6,12 +6,13 @@ The go-to search tool for MTG players — fast, accurate card discovery by name,
 ## Milestones
 
 ### Up next
-- [ ] Semantic-only API (remove fuzzy fallback, unify search surface)
+- [ ] Semantic-only API (remove fuzzy fallback, unify search surface) — `semantic-api` branch in progress
 - [ ] Advanced filters applied server-side (color identity, CMC, card type, format legality)
 - [ ] `.env.example` for local dev onboarding
 - [ ] Public API with rate limiting and docs
 
 ### Future
+- [ ] Expose `cards_raw` print data via API (reprint browsing, set filtering)
 - [ ] Saved searches / collections (user accounts)
 
 ## Completed
@@ -22,3 +23,4 @@ The go-to search tool for MTG players — fast, accurate card discovery by name,
 - [x] Railway production deployment with daily ingest worker cron (v1.3)
 - [x] API performance: HNSW index, schema-ready cache, N+1 fix, TTL cache, pool tuning (v1.4)
 - [x] Switch inference from sentence-transformers to ONNX Runtime (v1.4)
+- [x] Scryfall schema refactor: `cards_raw` (all printings), oracle_id PK, composite card_faces, Alembic migrations (v2.1)

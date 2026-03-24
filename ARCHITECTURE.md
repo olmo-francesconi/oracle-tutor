@@ -34,11 +34,11 @@ docker-compose.yml      local db + api + ingest worker + semantic worker + front
 - `backend/src/ot_backend/api/schemas.py`: response models for fuzzy matches and semantic results.
 - `backend/src/ot_backend/core/database.py`: central SQLAlchemy engine/session setup. Uses `DATABASE_URL` when present, otherwise composes a local Postgres URL from `DB_*`; treats Railway env vars as production; uses `StaticPool` for in-memory SQLite tests.
 - `backend/src/ot_backend/core/models.py`: ORM schema for cards, faces, semantic embeddings, tags, taggings, relationships, ingestion logs, and `system_metadata`. Semantic vectors are stored at face granularity with dimension 384. SQLite falls back to JSON for embeddings when pgvector is unavailable.
-- `backend/src/ot_backend/core/db_init.py`: schema bootstrap and migration-state coordination. There is no Alembic yet; schema is created from models, Postgres extensions/indexes are created manually, and worker mode can destructively reset card tables when schema version or legacy-shape checks require it.
+- `backend/src/ot_backend/core/db_init.py`: schema bootstrap and migration-state coordination. Uses **Alembic** (`backend/alembic/`) to apply `upgrade head` on startup; worker mode writes migration state to `system_metadata` and updates schema version after a successful run.
 - `backend/src/ot_backend/core/config.py`: canonical paths for data/model artifacts plus schema versioning and semantic model path resolution.
 - `backend/src/ot_backend/core/logging_config.py`: named logger setup for API/ingest/embed flows and a `log_performance` decorator used on endpoints.
 - `backend/src/ot_backend/ingest/main.py`: cron-friendly worker entry point; runs one ingestion pass and exits.
-- `backend/src/ot_backend/ingest/data_builder.py`: fetches Scryfall bulk metadata/file, filters unsupported records, diffs against the previous local cards snapshot, upserts cards/faces, deletes stale rows, computes uniqueness, writes ingestion metadata, and can trigger Tagger sync.
+- `backend/src/ot_backend/ingest/data_builder.py`: fetches Scryfall bulk metadata/file, filters unsupported records, streams all printings into `cards_raw` (~300k rows), selects the best printing per `oracle_id` and upserts into `cards`/`card_faces`, deletes stale oracle rows, computes uniqueness, and can trigger Tagger sync.
 - `backend/src/ot_backend/ingest/fetch_tags.py`: calls `tagger.scryfall.com` GraphQL, upserts tags, direct taggings, ancestor edges, and card relationships.
 - `backend/src/ot_backend/embed/pipeline.py`: offline semantic pipeline. Builds a training dataset from face text plus selected Tagger-derived positive pairs, optionally fine-tunes a sentence-transformer, exports ONNX artifacts, and computes/stores embeddings.
 - `backend/src/ot_backend/embed/index.py`: runtime semantic index. Lazily loads tokenizer + ONNX model from local files, encodes queries, and performs pgvector cosine-distance queries with optional server-side filters.
@@ -53,7 +53,7 @@ docker-compose.yml      local db + api + ingest worker + semantic worker + front
 ## Data flow
 1. `docker compose` or Railway brings up Postgres plus the API; worker containers are separate one-shot processes.
 2. API startup calls `init_db(mode="api")`, which creates tables/extensions/indexes if needed and checks a migration-state flag in `system_metadata`; data endpoints return `503` while schema migration is marked in progress.
-3. The ingest worker runs `update_scryfall_data()`, which initializes the DB in worker mode, optionally resets card tables when the schema is incompatible, downloads Scryfall bulk data, filters out tokens/digital-only/theme-card records, and writes `cards` plus `card_faces`.
+3. The ingest worker runs `update_scryfall_data()`, which initializes the DB in worker mode (running any pending Alembic migrations), downloads Scryfall bulk data, filters out tokens/digital-only/theme-card records, upserts all printings into `cards_raw`, derives oracle-unique `cards` and `card_faces`.
 4. The same ingest flow can call Tagger sync, storing `tags`, `card_taggings`, `tag_ancestor_map`, and `card_relationships`.
 5. The semantic worker runs `python -m ot_backend.embed.pipeline`, which derives training pairs from card faces and selected Tagger links, exports ONNX artifacts under `backend/data/semantic/runs/...`, and writes embeddings into `card_face_semantic_embeddings`.
 6. Runtime semantic endpoints call `get_semantic_index()`, which loads tokenizer/model files from `SEMANTIC_MODEL_PATH` on first use and queries pgvector in Postgres for nearest faces.
@@ -63,9 +63,9 @@ docker-compose.yml      local db + api + ingest worker + semantic worker + front
 ## Key conventions
 - Backend uses a Python `src/` layout rooted at `backend/src/ot_backend`; tests manually add `backend/src` to `sys.path` instead of relying on editable installs.
 - The backend has three dependency shapes in `backend/pyproject.toml`: `api`, `worker`, and `semantic-worker`; Dockerfiles install only the extra each image needs.
-- Database ownership is model-first. Schema evolution is currently coordinated by `DB_SCHEMA_VERSION`, legacy-shape detection, and `system_metadata`; there is no migration framework yet.
-- `init_db()` is mode-sensitive: API mode must be non-destructive; worker mode may drop and rebuild card tables only when `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true`.
-- Semantic search is face-centric. Query vectors target `CardFaceSemanticEmbedding.face_id`, then results are hydrated back through `CardFace -> Card`.
+- Database schema is managed by **Alembic** (`backend/alembic/`). `init_db()` runs `alembic upgrade head` on every startup — safe for both API (no-op when current) and worker (applies pending migrations).
+- The data model is 3-layer: `cards_raw` (all Scryfall printings, ~300k) → `cards` (oracle-deduplicated, ~30k, PK = `oracle_id`) → `card_faces` (composite PK `(oracle_id, face_ix)`).
+- Semantic search is face-centric. Query vectors target `CardFaceSemanticEmbedding(oracle_id, face_ix)`, then results are hydrated back through `CardFace → Card`.
 - Semantic artifacts are expected to be local files, not remote model pulls at request time. Runtime inference uses CPU ONNX only.
 - Frontend server state uses TanStack Query; routing state lives in React Router params/query string; transient UI state stays in component state.
 - Frontend network calls should go through `frontend/src/api.ts`; UI components do not fetch directly.
@@ -95,7 +95,7 @@ docker-compose.yml      local db + api + ingest worker + semantic worker + front
 - `DATABASE_URL` is required in production. Local development can fall back to `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`; `DB_PASSWORD` is mandatory when `DATABASE_URL` is absent.
 - `SEMANTIC_MODEL_PATH` must point to a directory containing `onnx/model.onnx` (or legacy `model.onnx`) plus tokenizer assets. If the artifact is missing, semantic endpoints return `503`.
 - Backend tests run against in-memory SQLite, so Postgres-only behavior such as pgvector distance queries, trigram operators, JSONB containment, and extension/index DDL is only partially covered in automated tests.
-- Worker-mode schema init may drop card tables when it detects a major/minor schema mismatch or legacy table shape; never enable `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` in production casually.
+- Alembic migrations are applied automatically on startup. Never run destructive migrations in production without reviewing the migration file first.
 - The repo may contain unrelated in-progress changes on feature branches. For architecture updates, treat the checked-in source as canonical unless a worktree diff clearly reflects an already-adopted structural change.
 - Backend and frontend are versioned independently: `backend/pyproject.toml` is `2.0.0`, `frontend/package.json` is `1.4.0`.
 
