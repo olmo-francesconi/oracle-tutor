@@ -13,10 +13,10 @@ os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-from ot_backend.core.database import SessionLocal
-from ot_backend.core.db_init import init_db
-from ot_backend.api.main import app
-from ot_backend.core.models import Card, CardFace, CardRaw
+from ot_backend.api.main import app  # noqa: E402
+from ot_backend.core.database import SessionLocal  # noqa: E402
+from ot_backend.core.db_init import init_db  # noqa: E402
+from ot_backend.core.models import Card, CardFace, CardRaw  # noqa: E402
 
 
 def _make_card_raw(*, scryfall_id: str, oracle_id: str, name: str, collector_number: str) -> CardRaw:
