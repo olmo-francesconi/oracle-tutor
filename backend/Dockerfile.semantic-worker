@@ -33,12 +33,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:${PATH}" \
     PYTHONPATH=/app/src \
     HF_HOME=/app/data/huggingface \
-    TRANSFORMERS_CACHE=/app/data/huggingface/transformers \
     SENTENCE_TRANSFORMERS_HOME=/app/data/huggingface/sentence-transformers
 
 RUN set -eux; \
     groupadd -r app && useradd -r -g app -d /app -s /usr/sbin/nologin app; \
-    mkdir -p /app/data/semantic /app/data/huggingface/transformers /app/data/huggingface/sentence-transformers; \
+    mkdir -p /app/data/semantic/runs /app/data/huggingface/transformers /app/data/huggingface/sentence-transformers; \
     chown -R app:app /app/data
 
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
@@ -50,4 +49,4 @@ COPY --chown=app:app src/ot_backend/embed ./src/ot_backend/embed
 
 USER app
 
-CMD ["python", "-m", "ot_backend.embed.main"]
+CMD ["python", "-m", "ot_backend.embed.pipeline"]

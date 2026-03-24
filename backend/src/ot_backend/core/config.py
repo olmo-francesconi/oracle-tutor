@@ -10,7 +10,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 CARDS_JSON = DATA_DIR / "cards.json"
 DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
 DEFAULT_SEMANTIC_BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-DEFAULT_SEMANTIC_MODEL_PATH = Path("data/semantic/model")
+DEFAULT_SEMANTIC_RUNS_DIR = Path("data/semantic/runs")
+DEFAULT_SEMANTIC_MODEL_PATH = DEFAULT_SEMANTIC_RUNS_DIR / "latest"
 DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH = Path("onnx/model.onnx")
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
@@ -78,6 +79,5 @@ def huggingface_cache_dir() -> Path:
     cache_dir = Path(os.getenv("HF_HOME", str(DEFAULT_HF_CACHE_DIR)))
     cache_dir.mkdir(parents=True, exist_ok=True)
     _ = os.environ.setdefault("HF_HOME", str(cache_dir))
-    _ = os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_dir / "transformers"))
     _ = os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(cache_dir / "sentence-transformers"))
     return cache_dir
