@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from sqlalchemy import cast
+from sqlalchemy import and_, cast
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -129,7 +129,7 @@ class SemanticIndex:
 
     def similar_to_face(
         self,
-        face_id: int,
+        face_key: tuple[str, int],
         limit: int,
         db: Session,
         card_type: str | None = None,
@@ -139,15 +139,15 @@ class SemanticIndex:
         format: str | None = None,
         rarity: str | None = None,
         color_feature: str = "identity",
-    ) -> list[tuple[int, float]]:
-        seed = db.get(CardFaceSemanticEmbedding, face_id)
+    ) -> list[tuple[tuple[str, int], float]]:
+        seed = db.get(CardFaceSemanticEmbedding, face_key)
         if seed is None:
             return []
         return self._pgvector_query(
             seed.embedding,
             limit + 1,
             db,
-            exclude=face_id,
+            exclude=face_key,
             card_type=card_type,
             colors=colors,
             cmc_min=cmc_min,
@@ -169,7 +169,7 @@ class SemanticIndex:
         format: str | None = None,
         rarity: str | None = None,
         color_feature: str = "identity",
-    ) -> list[tuple[int, float]]:
+    ) -> list[tuple[tuple[str, int], float]]:
         return self._pgvector_query(
             self.encode_query(query),
             limit,
@@ -188,7 +188,7 @@ class SemanticIndex:
         query_vec,
         limit: int,
         db: Session,
-        exclude: int | None = None,
+        exclude: tuple[str, int] | None = None,
         card_type: str | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
@@ -196,16 +196,28 @@ class SemanticIndex:
         format: str | None = None,
         rarity: str | None = None,
         color_feature: str = "identity",
-    ) -> list[tuple[int, float]]:
+    ) -> list[tuple[tuple[str, int], float]]:
         distance = CardFaceSemanticEmbedding.embedding.cosine_distance(query_vec).label("distance")
-        query = db.query(CardFaceSemanticEmbedding.face_id, distance)
+        query = db.query(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix, distance)
 
         has_filters = any(value is not None for value in (card_type, colors, cmc_min, cmc_max, format, rarity))
         if has_filters:
-            query = query.join(CardFace, CardFace.id == CardFaceSemanticEmbedding.face_id).join(Card, Card.id == CardFace.card_id)
+            query = query.join(
+                CardFace,
+                and_(
+                    CardFace.oracle_id == CardFaceSemanticEmbedding.oracle_id,
+                    CardFace.face_ix == CardFaceSemanticEmbedding.face_ix,
+                ),
+            ).join(Card, Card.oracle_id == CardFace.oracle_id)
 
         if exclude is not None:
-            query = query.filter(CardFaceSemanticEmbedding.face_id != exclude)
+            oracle_id_ex, face_ix_ex = exclude
+            query = query.filter(
+                ~and_(
+                    CardFaceSemanticEmbedding.oracle_id == oracle_id_ex,
+                    CardFaceSemanticEmbedding.face_ix == face_ix_ex,
+                )
+            )
 
         if card_type is not None:
             query = query.filter(CardFace.type_line.ilike(f"%{card_type}%"))
@@ -234,7 +246,7 @@ class SemanticIndex:
             query = query.filter(Card.rarity == rarity)
 
         rows = query.order_by(distance).limit(limit).all()
-        return [(row.face_id, round(1.0 - row.distance, 6)) for row in rows]
+        return [((row.oracle_id, row.face_ix), round(1.0 - row.distance, 6)) for row in rows]
 
 
 def get_semantic_index() -> SemanticIndex | None:

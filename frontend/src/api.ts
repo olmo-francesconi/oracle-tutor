@@ -33,7 +33,7 @@ export const searchCards = async (
   signal?: AbortSignal
 ): Promise<CardMatch[]> => {
   if (!query || query.length < 2) return []
-  const response = await api.get<CardMatch[]>('/suggest-names', {
+  const response = await api.get<CardMatch[]>('/search', {
     params: { q: query, limit, offset },
     signal,
   })
@@ -63,8 +63,8 @@ export const getSimilarCards = async (
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
-  const response = await api.get<SimilarCard[]>(`/similar-cards/${id}`, {
-    params,
+  const response = await api.get<SimilarCard[]>('/similar-cards', {
+    params: { ...params, oracle_id: id, face_ix: 0 },
   })
   return response.data
 }
@@ -87,7 +87,7 @@ export const searchOracleText = async (
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
-  const response = await api.get<SimilarCard[]>('/search-oracle', {
+  const response = await api.get<SimilarCard[]>('/similar-cards', {
     params,
   })
   return response.data

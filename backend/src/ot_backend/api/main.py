@@ -1,34 +1,33 @@
 import importlib.metadata
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Final
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from sqlalchemy import and_, or_, tuple_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session, joinedload
 
 from ..core.config import SCHEMA_WAIT_INTERVAL_SECONDS, SCHEMA_WAIT_TIMEOUT_SECONDS
-from ..core.database import engine, get_db
+from ..core.database import get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
-from ..core.models import Card, CardFace, CardFaceSemanticEmbedding
+from ..core.models import Card, CardFace
 
 try:
     from ..embed.index import get_semantic_index
 except ImportError:
     get_semantic_index = None
 
-_IS_POSTGRES: bool = engine.dialect.name == "postgresql"
+from .schemas import CardMatch, SimilarCard
 
 setup_loggers()
 logger = logging.getLogger("ot_backend.api")
+
+
 def _get_api_version() -> str:
     try:
         return importlib.metadata.version("oracle-tutor-api")
@@ -38,40 +37,6 @@ def _get_api_version() -> str:
 
 API_VERSION: Final[str] = _get_api_version()
 _schema_ready: bool = False
-_card_cache: dict[str, tuple[float, dict[str, object]]] = {}
-CARD_CACHE_TTL: float = 3600.0
-
-
-class CardMatch(BaseModel):
-    name: str
-    similarity: float = 1.0
-    rank: int | None = None
-    oracle_id: str | None = None
-    scryfall_id: str | None = None
-
-
-class CardNameMatch(BaseModel):
-    name: str
-    oracle_id: str
-
-
-class SimilarCard(BaseModel):
-    oracle_id: str
-    scryfall_id: str
-    name: str
-    card_name: str
-    similarity: float
-    rank: int | None = None
-    type_line: str | None = None
-    mana_cost: str | None = None
-    oracle_text: str | None = None
-    power: str | None = None
-    toughness: str | None = None
-    colors: list[str] | None = None
-    layout: str | None = None
-    rarity: str | None = None
-    legalities: dict[str, str] | None = None
-    uniqueness: float | None = None
 
 
 def _ensure_schema_ready() -> None:
@@ -93,6 +58,8 @@ def _get_semantic_index():
 def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session) -> list[SimilarCard]:
     if not results:
         return []
+
+    from sqlalchemy import tuple_
 
     target_face_keys = [face_key for face_key, _ in results]
     key_to_score = {face_key: score for face_key, score in results}
@@ -221,105 +188,51 @@ def favicon():
 
 @app.get("/search", response_model=list[CardMatch])
 @log_performance(logger=logger)
-def search_cards(q: str, db: Session = Depends(get_db), limit: int = 5) -> list[CardMatch]:
+def search_cards(
+    q: str,
+    db: Session = Depends(get_db),
+    limit: Annotated[int, Query(ge=1, le=25)] = 10,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[CardMatch]:
     _ensure_schema_ready()
     if not q.strip():
         return []
-    limit = max(1, min(limit, 25))
-
-    if _IS_POSTGRES:
-        distance = Card.name.op("<->")(q)
-        results = (
-            db.query(Card, distance.label("dist"))
-            .filter(or_(Card.name.op("%")(q), Card.name.ilike(f"%{q}%")))
-            .order_by(distance, Card.edhrec_rank.asc().nulls_last())
-            .limit(limit)
-            .all()
-        )
-        return [
-            CardMatch(
-                name=card.name,
-                oracle_id=card.oracle_id,
-                scryfall_id=card.scryfall_id,
-                rank=card.edhrec_rank,
-                similarity=float(1.0 - dist),
-            )
-            for card, dist in results
-        ]
-
     cards = (
         db.query(Card)
         .filter(Card.name.ilike(f"%{q}%"))
         .order_by(Card.edhrec_rank.asc().nulls_last(), Card.name.asc())
+        .offset(offset)
         .limit(limit)
         .all()
     )
     return [
         CardMatch(
-            name=card.name,
-            oracle_id=card.oracle_id,
-            scryfall_id=card.scryfall_id,
-            rank=card.edhrec_rank,
-            similarity=1.0,
+            name=c.name,
+            oracle_id=c.oracle_id,
+            scryfall_id=c.scryfall_id,
+            rank=c.edhrec_rank,
         )
-        for card in cards
+        for c in cards
     ]
-
-
-@app.get("/suggest-names", response_model=list[CardNameMatch])
-@log_performance(logger=logger)
-def search_card_names(q: str, db: Session = Depends(get_db), limit: int = 5, offset: int = 0) -> list[CardNameMatch]:
-    _ensure_schema_ready()
-    if not q.strip():
-        return []
-    limit = max(1, min(limit, 25))
-    offset = max(0, offset)
-
-    if _IS_POSTGRES:
-        distance = Card.name.op("<->")(q)
-        cards = (
-            db.query(Card.name, Card.oracle_id)
-            .filter(or_(Card.name.op("%")(q), Card.name.ilike(f"%{q}%")))
-            .order_by(distance, Card.edhrec_rank.asc().nulls_last())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
-        return [CardNameMatch(name=name, oracle_id=oracle_id) for name, oracle_id in cards]
-
-    cards = (
-        db.query(Card.name, Card.oracle_id)
-        .filter(Card.name.ilike(f"%{q}%"))
-        .order_by(Card.name.asc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
-    return [CardNameMatch(name=name, oracle_id=oracle_id) for name, oracle_id in cards]
 
 
 @app.get("/card/{oracle_id}")
 @log_performance(logger=logger)
 def get_card_by_id(oracle_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     _ensure_schema_ready()
-    now = time.time()
-    cached = _card_cache.get(oracle_id)
-    if cached and now - cached[0] < CARD_CACHE_TTL:
-        return cached[1]
-
     card = db.query(Card).options(joinedload(Card.faces)).filter(Card.oracle_id == oracle_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
-    result = card.to_dict()
-    _card_cache[oracle_id] = (now, result)
-    return result
+    return card.to_dict()
 
 
-@app.get("/similar-cards/{oracle_id}", response_model=list[SimilarCard])
+@app.get("/similar-cards", response_model=list[SimilarCard])
 @log_performance(logger=logger)
 def get_similar_cards(
-    oracle_id: str,
     db: Session = Depends(get_db),
+    oracle_id: str | None = None,
+    face_ix: Annotated[int, Query(ge=0)] = 0,
+    q: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     card_type: str | None = None,
@@ -331,74 +244,39 @@ def get_similar_cards(
     color_feature: str = "identity",
 ) -> list[SimilarCard]:
     _ensure_schema_ready()
+    if oracle_id is None and not (q and q.strip()):
+        raise HTTPException(status_code=422, detail="Provide either oracle_id or q")
+
     index = _get_semantic_index()
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
 
-    face = (
-        db.query(CardFace)
-        .join(
-            CardFaceSemanticEmbedding,
-            and_(
-                CardFaceSemanticEmbedding.oracle_id == CardFace.oracle_id,
-                CardFaceSemanticEmbedding.face_ix == CardFace.face_ix,
-            ),
+    if oracle_id is not None:
+        results = index.similar_to_face(
+            (oracle_id, face_ix),
+            limit=limit + offset,
+            db=db,
+            card_type=card_type,
+            colors=colors,
+            cmc_min=cmc_min,
+            cmc_max=cmc_max,
+            format=format,
+            rarity=rarity,
+            color_feature=color_feature,
         )
-        .filter(CardFace.oracle_id == oracle_id)
-        .order_by(CardFace.face_ix.asc())
-        .first()
-    )
-    if face is None:
-        raise HTTPException(status_code=404, detail="Card not found")
+    else:
+        assert q is not None  # guarded by the 422 check above
+        results = index.search_oracle(
+            q,
+            limit=limit + offset,
+            db=db,
+            card_type=card_type,
+            colors=colors,
+            cmc_min=cmc_min,
+            cmc_max=cmc_max,
+            format=format,
+            rarity=rarity,
+            color_feature=color_feature,
+        )
 
-    results = index.similar_to_face(
-        (face.oracle_id, face.face_ix),
-        limit=limit + offset,
-        db=db,
-        card_type=card_type,
-        colors=colors,
-        cmc_min=cmc_min,
-        cmc_max=cmc_max,
-        format=format,
-        rarity=rarity,
-        color_feature=color_feature,
-    )
-    return _to_similar_cards(results[offset:], db)
-
-
-@app.get("/search-oracle", response_model=list[SimilarCard])
-@log_performance(logger=logger)
-def search_oracle_text(
-    q: str,
-    db: Session = Depends(get_db),
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    card_type: str | None = None,
-    colors: str | None = None,
-    cmc_min: float | None = None,
-    cmc_max: float | None = None,
-    format: str | None = None,
-    rarity: str | None = None,
-    color_feature: str = "identity",
-) -> list[SimilarCard]:
-    _ensure_schema_ready()
-    if not q.strip():
-        return []
-
-    index = _get_semantic_index()
-    if index is None:
-        raise HTTPException(status_code=503, detail="Semantic index not available")
-
-    results = index.search_oracle(
-        q,
-        limit=limit + offset,
-        db=db,
-        card_type=card_type,
-        colors=colors,
-        cmc_min=cmc_min,
-        cmc_max=cmc_max,
-        format=format,
-        rarity=rarity,
-        color_feature=color_feature,
-    )
     return _to_similar_cards(results[offset:], db)

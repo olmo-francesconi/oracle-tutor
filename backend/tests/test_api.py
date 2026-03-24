@@ -17,8 +17,8 @@ def test_openapi(client):
     assert data["info"]["title"] == "oracle-tutor api"
 
 
-def test_suggest_names(client):
-    res = client.get("/suggest-names", params={"q": "sho", "limit": 10})
+def test_search(client):
+    res = client.get("/search", params={"q": "sho", "limit": 10})
     assert res.status_code == 200
     names = [x["name"] for x in res.json()]
     assert "Shock" in names
