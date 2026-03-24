@@ -108,7 +108,14 @@ export function SearchCard() {
     const run = () => {
       if (cancelled) return
       for (const s of toPrefetch) {
-        const url = getCardImageUrl({ id: s.id, name: s.name }, 'small')
+        const url = getCardImageUrl(
+          {
+            id: s.id,
+            name: s.name,
+            image_side: s.image_side,
+          },
+          'small'
+        )
         const img = new Image()
         img.decoding = 'async'
         img.loading = 'lazy'
@@ -314,14 +321,15 @@ export function SearchCard() {
     // Tap: treat a short, near-stationary pointer as "open top card".
     if (dt <= 500 && absX <= 10 && absY <= 10) {
       if (bestMatch) {
-        handleNameSelect(bestMatch.id)
+        handleNameSelect(bestMatch)
       }
     }
   }
 
-  const handleNameSelect = (id: string) => {
+  const handleNameSelect = (card: CardMatch) => {
     setNameQuery('')
-    navigate(`/card/${id}`)
+    const faceQuery = card.face_ix > 0 ? `?face=${card.face_ix}` : ''
+    navigate(`/card/${card.oracle_id ?? ''}${faceQuery}`)
   }
 
   const handleOracleSearch = (e?: React.FormEvent) => {
@@ -362,7 +370,7 @@ export function SearchCard() {
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (bestMatch) {
-        handleNameSelect(bestMatch.id)
+        handleNameSelect(bestMatch)
       }
     }
   }
@@ -391,16 +399,24 @@ export function SearchCard() {
           {suggestions.slice(focusedIndex, focusedIndex + 5).map((card, i) => {
             const index = i // 0 is top
             const urlNormal = getCardImageUrl(
-              { id: card.id, name: card.name },
+              {
+                id: card.scryfall_id ?? '',
+                name: card.name,
+                image_side: card.image_side,
+              },
               'normal'
             )
             const urlLarge = getCardImageUrl(
-              { id: card.id, name: card.name },
+              {
+                id: card.scryfall_id ?? '',
+                name: card.name,
+                image_side: card.image_side,
+              },
               'large'
             )
 
             // Calculate random offsets based on card ID so they persist with the card
-            const offsets = getOffsets(card.id)
+            const offsets = getOffsets(card.oracle_id ?? card.name)
 
             // Top card (index 0) should be centered and stable
             const isTop = index === 0
@@ -410,7 +426,7 @@ export function SearchCard() {
 
             return (
               <motion.div
-                key={card.id}
+                key={`${card.oracle_id ?? card.name}:${card.face_ix}`}
                 initial={
                   isTop
                     ? { opacity: 0 }

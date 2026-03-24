@@ -39,13 +39,13 @@ export function CardOverlay({
   // Hide image when card changes; show when new image loads
   useEffect(() => {
     queueMicrotask(() => setIsImageLoaded(false))
-  }, [initialCard.id])
+  }, [initialCard.id, initialCard.face_ix])
 
   // Fetch the full card details to get faces and correct full name
   const { data: fullCard, isSuccess } = useQuery({
-    queryKey: ['card', initialCard.id],
-    queryFn: () => getCard(initialCard.id),
-    enabled: !!initialCard.id,
+    queryKey: ['card', initialCard.oracle_id],
+    queryFn: () => getCard(initialCard.oracle_id),
+    enabled: !!initialCard.oracle_id,
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
   })
 
@@ -113,6 +113,8 @@ export function CardOverlay({
       displayData = {
         ...fullCard.faces[0], // Base props from first face
         id: fullCard.id,
+        scryfall_id: fullCard.scryfall_id,
+        image_side: initialCard.image_side,
         name: fullCard.name, // Use full joined name
         type_line: fullCard.faces.map((f) => f.type_line).join(' // '),
         mana_cost: fullCard.faces.map((f) => f.mana_cost || '').join(' // '),
@@ -128,6 +130,8 @@ export function CardOverlay({
       displayData = {
         ...fullCard.faces[currentFaceIdx],
         id: fullCard.id,
+        scryfall_id: fullCard.scryfall_id,
+        image_side: currentFaceIdx === 0 ? 'front' : 'back',
         similarity: initialCard.similarity,
       }
     }
@@ -165,7 +169,7 @@ export function CardOverlay({
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
   const encodedName = encodeURIComponent(displayName)
-  const scryfallUrl = `https://scryfall.com/card/${initialCard.id}`
+  const scryfallUrl = `https://scryfall.com/card/${initialCard.scryfall_id}`
   const edhrecUrl = `https://edhrec.com/cards/${cardSlug}`
   const moxfieldUrl = `https://www.moxfield.com/search/cards?q=${encodedName}`
 
@@ -412,7 +416,11 @@ export function CardOverlay({
             {/* Action Button - Separator moved here */}
             <div className="border-t border-[#f5f5f5] pt-6">
               <Link
-                to={`/card/${initialCard.id}`}
+                to={
+                  initialCard.face_ix > 0
+                    ? `/card/${initialCard.oracle_id}?face=${initialCard.face_ix}`
+                    : `/card/${initialCard.oracle_id}`
+                }
                 onClick={onClose}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1c1c1c] px-6 py-3 font-semibold text-white shadow-lg transition-all hover:bg-[#333] hover:shadow-xl active:scale-[0.98]"
               >

@@ -7,47 +7,49 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secret_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-oracle} -d ${DB_NAME:-mtg_search}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   api:
-    build: ./api
+    build: ./backend
     ports:
       - "8000:8000"
     volumes:
-      - ./api/data:/app/data
-      - ./api/tests:/app/tests
-      - ./api/src:/app/src
+      - ./backend/data:/app/data
+      - ./backend/tests:/app/tests
+      - ./backend/src:/app/src
     environment:
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
-      # Best-effort: return freed heap pages to OS (Linux/glibc only)
-      - ORACLE_TUTOR_API_MALLOC_TRIM=${ORACLE_TUTOR_API_MALLOC_TRIM:-1}
-      # Build TF-IDF index in a subprocess so build memory is reclaimed when child exits
-      - ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS=${ORACLE_TUTOR_API_TFIDF_REBUILD_IN_SUBPROCESS:-1}
       # Database connection details
       - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-mtg_search}
       - DB_USER=${DB_USER:-oracle}
       - DB_PASSWORD=${DB_PASSWORD:-secret_password}
-      # Internal worker->API TF-IDF rebuild trigger auth
-      - ORACLE_TUTOR_API_WORKER_TOKEN=${ORACLE_TUTOR_API_WORKER_TOKEN:-dev-worker-token}
-      # Must match one of API-observed source candidates (Host/client/forwarded headers)
-      - ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST=${ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST:-api,worker,127.0.0.1,testclient}
-      - ORACLE_TUTOR_API_WORKER_REBUILD_PATH=${ORACLE_TUTOR_API_WORKER_REBUILD_PATH:-/internal/rebuild-tfidf}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
-  worker:
+  scryfall-sync:
     build:
-      context: ./api
-      dockerfile: Dockerfile.worker
+      context: ./backend
+      dockerfile: Dockerfile.scryfall-sync
     volumes:
       # Keep data directory available if you want to inspect bulk files/logs locally.
-      - ./api/data:/app/data
-      - ./api/src:/app/src
+      - ./backend/data:/app/data
+      - ./backend/src:/app/src
     environment:
       - ORACLE_TUTOR_API_ENV=${ORACLE_TUTOR_API_ENV:-development}
       # Connect to the same DB
@@ -56,15 +58,12 @@ services:
       - DB_NAME=${DB_NAME:-mtg_search}
       - DB_USER=${DB_USER:-oracle}
       - DB_PASSWORD=${DB_PASSWORD:-secret_password}
-      # Worker -> API internal TF-IDF rebuild trigger
-      - ORACLE_TUTOR_API_BASE_URL=${ORACLE_TUTOR_API_BASE_URL:-http://api:8000}
-      - ORACLE_TUTOR_API_WORKER_TOKEN=${ORACLE_TUTOR_API_WORKER_TOKEN:-dev-worker-token}
-      - ORACLE_TUTOR_API_WORKER_REBUILD_PATH=${ORACLE_TUTOR_API_WORKER_REBUILD_PATH:-/internal/rebuild-tfidf}
-      - ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS=${ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS:-10}
       - ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=${ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET:-true}
     depends_on:
-      - db
-      - api
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
     restart: "no"
 
   frontend:

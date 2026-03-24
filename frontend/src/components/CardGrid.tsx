@@ -434,7 +434,7 @@ export function CardGrid({
                       >
                         {sectionCards.map((card, index) => (
                         <div
-                          key={card.id}
+                          key={`${card.oracle_id}:${card.face_ix}`}
                           style={{
                             width: '100%',
                             aspectRatio: '5/7',

@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm AS builder
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock* ./
+
+RUN uv venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+ENV UV_CACHE_DIR=/root/.cache/uv
+
+RUN if [ -f uv.lock ]; then \
+      uv sync --active --frozen --no-install-project --extra scryfall-sync; \
+    else \
+      uv sync --active --no-install-project --extra scryfall-sync; \
+    fi
+
+COPY src/ot_backend/__init__.py ./src/ot_backend/
+COPY src/ot_backend/core ./src/ot_backend/core
+COPY src/ot_backend/ingest ./src/ot_backend/ingest
+COPY src/ot_backend/api ./src/ot_backend/api
+COPY src/ot_backend/embed ./src/ot_backend/embed
+COPY alembic ./alembic
+
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:${PATH}" \
+    PYTHONPATH=/app/src
+
+RUN set -eux; \
+    groupadd -r app && useradd -r -g app -d /app -s /usr/sbin/nologin app; \
+    mkdir -p /app/data; \
+    chown -R app:app /app/data
+
+COPY --from=builder --chown=app:app /opt/venv /opt/venv
+COPY --chown=app:app src/ot_backend/__init__.py ./src/ot_backend/
+COPY --chown=app:app src/ot_backend/core ./src/ot_backend/core
+COPY --chown=app:app src/ot_backend/ingest ./src/ot_backend/ingest
+COPY --chown=app:app src/ot_backend/api ./src/ot_backend/api
+COPY --chown=app:app src/ot_backend/embed ./src/ot_backend/embed
+COPY --from=builder --chown=app:app /app/alembic ./alembic
+
+USER app
+
+# One-shot cron-friendly entrypoint (runs once and exits).
+CMD ["python", "-m", "ot_backend.ingest.main", "--strict", "--trigger-type", "cron"]

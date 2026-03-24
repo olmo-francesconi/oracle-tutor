@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { getCard, getSimilarCards } from '../api'
 import { CardGrid } from '../components/CardGrid'
 import { CardImage } from '../components/CardImage'
@@ -15,10 +15,13 @@ import { PageSEO } from '../components/PageSEO'
 import { SymbolText } from '../components/SymbolText'
 import type { FilterState, SimilarCard } from '../types'
 import { getBaseUrl } from '../lib/seo'
-import { getCardImageUrl } from '../utils'
+import { getCardImageUrl, getImageSideForFace } from '../utils'
 
 export default function CardPage() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
+  const requestedFace = Number(searchParams.get('face') ?? '0')
+  const selectedFaceIx = Number.isInteger(requestedFace) && requestedFace >= 0 ? requestedFace : 0
   const [selected, setSelected] = useState<{
     routeId: string
     card: SimilarCard
@@ -44,9 +47,9 @@ export default function CardPage() {
     isFetchingNextPage,
     isLoading: similarLoading,
   } = useInfiniteQuery({
-    queryKey: ['similar', id, filters],
+    queryKey: ['similar', id, selectedFaceIx, filters],
     queryFn: ({ pageParam = 0 }) => {
-      return getSimilarCards(id!, pageParam, 60, filters)
+      return getSimilarCards(id!, selectedFaceIx, pageParam, 60, filters)
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
@@ -65,13 +68,23 @@ export default function CardPage() {
 
   const navigableCards = useMemo(() => {
     if (!card) return similarCards
-    const mainAsSimilar = { ...card, similarity: 1 } as SimilarCard
+    const imageSide = getImageSideForFace(card.layout, selectedFaceIx)
+    const mainAsSimilar = {
+      ...card,
+      face_ix: selectedFaceIx,
+      image_side: imageSide,
+      similarity: 1,
+    } as SimilarCard
     return [mainAsSimilar, ...similarCards]
-  }, [card, similarCards])
+  }, [card, selectedFaceIx, similarCards])
 
   const currentIndex =
     selectedCard != null
-      ? navigableCards.findIndex((c) => c.id === selectedCard.id)
+      ? navigableCards.findIndex(
+          (c) =>
+            c.oracle_id === selectedCard.oracle_id &&
+            c.face_ix === selectedCard.face_ix
+        )
       : -1
 
   const hasPrev = currentIndex > 0
@@ -120,14 +133,14 @@ export default function CardPage() {
       </div>
     )
 
-  // Resolve display properties for the main card
-  // If the card has faces (DFC), prefer the first face for the main view if flattened props are missing
-  const displayType = card.type_line || card.faces?.[0]?.type_line
-  const displayMana = card.mana_cost || card.faces?.[0]?.mana_cost
-  const displayOracle = card.oracle_text || card.faces?.[0]?.oracle_text
+  const selectedFace = card.faces?.[selectedFaceIx] ?? card.faces?.[0]
+  const selectedImageSide = getImageSideForFace(card.layout, selectedFaceIx)
+  const displayName = selectedFace?.name ?? card.name
+  const displayType = selectedFace?.type_line || card.type_line
+  const displayMana = selectedFace?.mana_cost || card.mana_cost
+  const displayOracle = selectedFace?.oracle_text || card.oracle_text
 
-  // Main card image usually defaults to front face
-  const mainCardImageUrl = getCardImageUrl(card)
+  const mainCardImageUrl = getCardImageUrl({ ...card, image_side: selectedImageSide })
   const cardDescription = [displayType, displayOracle]
     .filter(Boolean)
     .join('. ')
@@ -140,7 +153,7 @@ export default function CardPage() {
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'CreativeWork',
-    name: card.name,
+    name: displayName,
     description:
       truncatedDescription || `${card.name} — Magic: The Gathering card.`,
     image: mainCardImageUrl,
@@ -199,7 +212,12 @@ export default function CardPage() {
               onClick={() => {
                 setSelected({
                   routeId: id ?? '',
-                  card: { ...card, similarity: 1 } as SimilarCard,
+                  card: {
+                    ...card,
+                    face_ix: selectedFaceIx,
+                    image_side: selectedImageSide,
+                    similarity: 1,
+                  } as SimilarCard,
                 })
                 setIsDetailsOpen(false)
               }}
@@ -207,14 +225,14 @@ export default function CardPage() {
             >
               <CardImage
                 src={mainCardImageUrl}
-                alt={card.name}
+                alt={displayName}
                 className="h-full w-full object-contain"
               />
             </button>
 
             <div className="min-w-0 flex-1">
               <h2 className="text-xl leading-tight font-bold text-[#1c1c1c]">
-                {card.name}
+                {displayName}
               </h2>
 
               <p className="mt-2 text-sm leading-snug font-medium text-[#404040]">
@@ -277,19 +295,24 @@ export default function CardPage() {
             onClick={() =>
               setSelected({
                 routeId: id ?? '',
-                card: { ...card, similarity: 1 } as SimilarCard,
+                card: {
+                  ...card,
+                  face_ix: selectedFaceIx,
+                  image_side: selectedImageSide,
+                  similarity: 1,
+                } as SimilarCard,
               })
             }
           >
             <CardImage
               src={mainCardImageUrl}
-              alt={card.name}
+              alt={displayName}
               className="h-full w-full object-cover"
             />
           </div>
 
           <h1 className="mb-2 text-2xl leading-tight font-bold text-[#1c1c1c]">
-            {card.name}
+            {displayName}
           </h1>
 
           <div className="mb-4">

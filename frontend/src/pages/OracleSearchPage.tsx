@@ -55,7 +55,11 @@ export default function OracleSearchPage() {
 
   const currentIndex =
     selectedCard != null
-      ? similarCards.findIndex((c) => c.id === selectedCard.id)
+      ? similarCards.findIndex(
+          (c) =>
+            c.oracle_id === selectedCard.oracle_id &&
+            c.face_ix === selectedCard.face_ix
+        )
       : -1
   const hasPrev = currentIndex > 0
   const hasNext =
