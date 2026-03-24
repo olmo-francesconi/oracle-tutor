@@ -40,10 +40,15 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
         def __init__(self, name: str) -> None:
             self.name = name
 
+    class FakeSessionOptions:
+        def __init__(self) -> None:
+            self.log_severity_level = 0
+
     class FakeInferenceSession:
-        def __init__(self, path: str, providers: list[str]) -> None:
+        def __init__(self, path: str, *, sess_options: FakeSessionOptions, providers: list[str]) -> None:
             session_paths.append(path)
             assert providers == ["CPUExecutionProvider"]
+            assert sess_options.log_severity_level == 3
 
         def get_inputs(self) -> list[FakeSessionInput]:
             return [FakeSessionInput("input_ids"), FakeSessionInput("attention_mask")]
@@ -61,7 +66,7 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
     def fake_import_module(module_name: str) -> object:
         import_calls.append(module_name)
         if module_name == "onnxruntime":
-            return SimpleNamespace(InferenceSession=FakeInferenceSession)
+            return SimpleNamespace(InferenceSession=FakeInferenceSession, SessionOptions=FakeSessionOptions)
         if module_name == "transformers":
             return SimpleNamespace(AutoTokenizer=FakeTokenizer)
         raise AssertionError(f"Unexpected import: {module_name}")
