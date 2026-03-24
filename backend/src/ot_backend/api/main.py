@@ -2,7 +2,7 @@ import importlib.metadata
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,6 +55,23 @@ def _get_semantic_index():
     return get_semantic_index()
 
 
+DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
+    {
+        "transform",
+        "modal_dfc",
+        "meld",
+        "double_faced_token",
+        "art_series",
+    }
+)
+
+
+def _image_side_for_face(layout: str | None, face_ix: int) -> Literal["front", "back"]:
+    if layout in DOUBLE_SIDED_LAYOUTS and face_ix > 0:
+        return "back"
+    return "front"
+
+
 def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session) -> list[SimilarCard]:
     if not results:
         return []
@@ -81,6 +98,8 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
             SimilarCard(
                 oracle_id=card.oracle_id,
                 scryfall_id=card.scryfall_id,
+                face_ix=face.face_ix,
+                image_side=_image_side_for_face(card.layout, face.face_ix),
                 name=face.name,
                 card_name=card.name,
                 similarity=float(key_to_score.get(face_key, 0.0)),
@@ -197,22 +216,27 @@ def search_cards(
     _ensure_schema_ready()
     if not q.strip():
         return []
-    cards = (
-        db.query(Card)
-        .filter(Card.name.ilike(f"%{q}%"))
-        .order_by(Card.edhrec_rank.asc().nulls_last(), Card.name.asc())
+
+    q_like = f"%{q}%"
+    faces = (
+        db.query(CardFace)
+        .join(Card, Card.oracle_id == CardFace.oracle_id)
+        .filter((CardFace.name.ilike(q_like)) | (Card.name.ilike(q_like)))
+        .order_by(Card.edhrec_rank.asc().nulls_last(), Card.name.asc(), CardFace.face_ix.asc(), CardFace.name.asc())
         .offset(offset)
         .limit(limit)
         .all()
     )
     return [
         CardMatch(
-            name=c.name,
-            oracle_id=c.oracle_id,
-            scryfall_id=c.scryfall_id,
-            rank=c.edhrec_rank,
+            name=face.name,
+            oracle_id=face.card.oracle_id,
+            scryfall_id=face.card.scryfall_id,
+            face_ix=face.face_ix,
+            image_side=_image_side_for_face(face.card.layout, face.face_ix),
+            rank=face.card.edhrec_rank,
         )
-        for c in cards
+        for face in faces
     ]
 
 
@@ -242,6 +266,7 @@ def get_similar_cards(
     format: str | None = None,
     rarity: str | None = None,
     color_feature: str = "identity",
+    match_mode: str = "at_least",
 ) -> list[SimilarCard]:
     _ensure_schema_ready()
     if oracle_id is None and not (q and q.strip()):
@@ -263,6 +288,7 @@ def get_similar_cards(
             format=format,
             rarity=rarity,
             color_feature=color_feature,
+            match_mode=match_mode,
         )
     else:
         assert q is not None  # guarded by the 422 check above
@@ -277,6 +303,7 @@ def get_similar_cards(
             format=format,
             rarity=rarity,
             color_feature=color_feature,
+            match_mode=match_mode,
         )
 
     return _to_similar_cards(results[offset:], db)

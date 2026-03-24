@@ -19,13 +19,20 @@ from ot_backend.core.db_init import init_db  # noqa: E402
 from ot_backend.core.models import Card, CardFace, CardRaw  # noqa: E402
 
 
-def _make_card_raw(*, scryfall_id: str, oracle_id: str, name: str, collector_number: str) -> CardRaw:
+def _make_card_raw(
+    *,
+    scryfall_id: str,
+    oracle_id: str,
+    name: str,
+    collector_number: str,
+    layout: str = "normal",
+) -> CardRaw:
     return CardRaw(
         id=scryfall_id,
         oracle_id=oracle_id,
         name=name,
         lang="en",
-        layout="normal",
+        layout=layout,
         color_identity=[],
         keywords=[],
         legalities={},
@@ -56,6 +63,27 @@ def _seed_db() -> None:
                 _make_card_raw(scryfall_id="s3", oracle_id="o3", name="Giant Growth", collector_number="3"),
                 _make_card_raw(scryfall_id="s4", oracle_id="o4", name="Verbose Shock", collector_number="4"),
                 _make_card_raw(scryfall_id="s5", oracle_id="o5", name="Red Artifact", collector_number="5"),
+                _make_card_raw(
+                    scryfall_id="s6",
+                    oracle_id="o6",
+                    name="Fire // Ice",
+                    collector_number="6",
+                    layout="split",
+                ),
+                _make_card_raw(
+                    scryfall_id="s7",
+                    oracle_id="o7",
+                    name="Brutal Cathar // Moonrage Brute",
+                    collector_number="7",
+                    layout="transform",
+                ),
+                _make_card_raw(
+                    scryfall_id="s8",
+                    oracle_id="o8",
+                    name="Aang, at the Crossroads // Aang, Destined Savior",
+                    collector_number="8",
+                    layout="transform",
+                ),
             ]
         )
         bolt = Card(oracle_id="o1", scryfall_id="s1", name="Lightning Bolt", layout="normal", edhrec_rank=1, rarity="common", legalities={}, color_identity=["R"])
@@ -63,7 +91,10 @@ def _seed_db() -> None:
         growth = Card(oracle_id="o3", scryfall_id="s3", name="Giant Growth", layout="normal", edhrec_rank=3, rarity="common", legalities={}, color_identity=["G"])
         verbose_shock = Card(oracle_id="o4", scryfall_id="s4", name="Verbose Shock", layout="normal", edhrec_rank=4, rarity="common", legalities={}, color_identity=["R"])
         artifact = Card(oracle_id="o5", scryfall_id="s5", name="Red Artifact", layout="normal", edhrec_rank=5, rarity="common", legalities={}, color_identity=["R"])
-        db.add_all([bolt, shock, growth, verbose_shock, artifact])
+        split_card = Card(oracle_id="o6", scryfall_id="s6", name="Fire // Ice", layout="split", edhrec_rank=6, rarity="uncommon", legalities={}, color_identity=["R", "U"])
+        transform_card = Card(oracle_id="o7", scryfall_id="s7", name="Brutal Cathar // Moonrage Brute", layout="transform", edhrec_rank=7, rarity="rare", legalities={}, color_identity=["W"])
+        aang_card = Card(oracle_id="o8", scryfall_id="s8", name="Aang, at the Crossroads // Aang, Destined Savior", layout="transform", edhrec_rank=8, rarity="mythic", legalities={}, color_identity=["W", "U", "R"])
+        db.add_all([bolt, shock, growth, verbose_shock, artifact, split_card, transform_card, aang_card])
         db.flush()
 
         db.add_all(
@@ -111,6 +142,54 @@ def _seed_db() -> None:
                     type_line="Artifact",
                     oracle_text="{R}: Deal 1 damage.",
                     colors=[],
+                ),
+                CardFace(
+                    oracle_id="o6",
+                    face_ix=0,
+                    name="Fire",
+                    type_line="Instant",
+                    oracle_text="Fire deals 2 damage divided as you choose among one or two targets.",
+                    colors=["R"],
+                ),
+                CardFace(
+                    oracle_id="o6",
+                    face_ix=1,
+                    name="Ice",
+                    type_line="Instant",
+                    oracle_text="Tap target permanent. Draw a card.",
+                    colors=["U"],
+                ),
+                CardFace(
+                    oracle_id="o7",
+                    face_ix=0,
+                    name="Brutal Cathar",
+                    type_line="Creature — Human Soldier Werewolf",
+                    oracle_text="When this creature enters, exile target creature an opponent controls.",
+                    colors=["W"],
+                ),
+                CardFace(
+                    oracle_id="o7",
+                    face_ix=1,
+                    name="Moonrage Brute",
+                    type_line="Creature — Werewolf",
+                    oracle_text="At the beginning of each upkeep, if a player cast no spells last turn, transform Moonrage Brute.",
+                    colors=["W"],
+                ),
+                CardFace(
+                    oracle_id="o8",
+                    face_ix=0,
+                    name="Aang, at the Crossroads",
+                    type_line="Legendary Creature",
+                    oracle_text="Front face text.",
+                    colors=["W", "U", "R"],
+                ),
+                CardFace(
+                    oracle_id="o8",
+                    face_ix=1,
+                    name="Aang, Destined Savior",
+                    type_line="Legendary Creature",
+                    oracle_text="Back face text.",
+                    colors=["W", "U", "R"],
                 ),
             ]
         )

@@ -62,10 +62,11 @@ export function SearchBar() {
     return () => clearTimeout(timer)
   }, [query])
 
-  const handleSelect = (id: string) => {
+  const handleSelect = (card: CardMatch) => {
     setIsOpen(false)
     setQuery('')
-    navigate(`/card/${id}`)
+    const faceQuery = card.face_ix > 0 ? `?face=${card.face_ix}` : ''
+    navigate(`/card/${card.oracle_id ?? ''}${faceQuery}`)
   }
 
   const handleOracleSearch = (searchQuery: string) => {
@@ -102,7 +103,7 @@ export function SearchBar() {
         effectiveFocusedIndex < suggestions.length
       ) {
         // User selected a suggestion with keys
-        handleSelect(suggestions[effectiveFocusedIndex].id)
+        handleSelect(suggestions[effectiveFocusedIndex])
       } else {
         // Check for exact match
         const exactMatch = suggestions.find(
@@ -110,7 +111,7 @@ export function SearchBar() {
         )
 
         if (exactMatch) {
-          handleSelect(exactMatch.id)
+          handleSelect(exactMatch)
         } else if (query.trim().length > 0) {
           handleOracleSearch(query.trim())
         }
@@ -148,8 +149,8 @@ export function SearchBar() {
         >
           {suggestions.map((card, index) => (
             <li
-              key={card.id}
-              onClick={() => handleSelect(card.id)}
+              key={`${card.oracle_id ?? card.name}:${card.face_ix}`}
+              onClick={() => handleSelect(card)}
               onMouseMove={() => {
                 if (effectiveFocusedIndex !== index) {
                   setFocusedIndex(index)

@@ -26,6 +26,39 @@ type OracleSearchParams = SimilarCardsParams & {
   q: string
 }
 
+type ApiCardMatch = Omit<CardMatch, 'id'>
+type ApiCard = Omit<Card, 'id'>
+type ApiSimilarCard = Omit<SimilarCard, 'id'>
+
+function normalizeCardMatch(card: ApiCardMatch): CardMatch {
+  return {
+    ...card,
+    id: card.scryfall_id ?? '',
+  }
+}
+
+function normalizeCard(card: ApiCard): Card {
+  const primaryFace = card.faces?.[0]
+
+  return {
+    ...card,
+    id: card.scryfall_id,
+    mana_cost: card.mana_cost ?? primaryFace?.mana_cost,
+    type_line: card.type_line ?? primaryFace?.type_line,
+    oracle_text: card.oracle_text ?? primaryFace?.oracle_text,
+    power: card.power ?? primaryFace?.power,
+    toughness: card.toughness ?? primaryFace?.toughness,
+    colors: card.colors ?? primaryFace?.colors,
+  }
+}
+
+function normalizeSimilarCard(card: ApiSimilarCard): SimilarCard {
+  return {
+    ...card,
+    id: card.scryfall_id,
+  }
+}
+
 export const searchCards = async (
   query: string,
   limit: number = 10,
@@ -33,20 +66,21 @@ export const searchCards = async (
   signal?: AbortSignal
 ): Promise<CardMatch[]> => {
   if (!query || query.length < 2) return []
-  const response = await api.get<CardMatch[]>('/search', {
+  const response = await api.get<ApiCardMatch[]>('/search', {
     params: { q: query, limit, offset },
     signal,
   })
-  return response.data
+  return response.data.map(normalizeCardMatch)
 }
 
 export const getCard = async (id: string): Promise<Card> => {
-  const response = await api.get<Card>(`/card/${id}`)
-  return response.data
+  const response = await api.get<ApiCard>(`/card/${id}`)
+  return normalizeCard(response.data)
 }
 
 export const getSimilarCards = async (
   id: string,
+  faceIx: number = 0,
   offset: number = 0,
   limit: number = 24,
   filters?: FilterState
@@ -63,10 +97,10 @@ export const getSimilarCards = async (
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
-  const response = await api.get<SimilarCard[]>('/similar-cards', {
-    params: { ...params, oracle_id: id, face_ix: 0 },
+  const response = await api.get<ApiSimilarCard[]>('/similar-cards', {
+    params: { ...params, oracle_id: id, face_ix: faceIx },
   })
-  return response.data
+  return response.data.map(normalizeSimilarCard)
 }
 
 export const searchOracleText = async (
@@ -87,10 +121,10 @@ export const searchOracleText = async (
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
-  const response = await api.get<SimilarCard[]>('/similar-cards', {
+  const response = await api.get<ApiSimilarCard[]>('/similar-cards', {
     params,
   })
-  return response.data
+  return response.data.map(normalizeSimilarCard)
 }
 
 export const getApiHealth = async (): Promise<{ status: string }> => {

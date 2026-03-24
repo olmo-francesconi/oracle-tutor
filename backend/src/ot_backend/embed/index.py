@@ -151,6 +151,7 @@ class SemanticIndex:
         format: str | None = None,
         rarity: str | None = None,
         color_feature: str = "identity",
+        match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
         seed = db.get(CardFaceSemanticEmbedding, face_key)
         if seed is None:
@@ -167,6 +168,7 @@ class SemanticIndex:
             format=format,
             rarity=rarity,
             color_feature=color_feature,
+            match_mode=match_mode,
         )
 
     def search_oracle(
@@ -181,6 +183,7 @@ class SemanticIndex:
         format: str | None = None,
         rarity: str | None = None,
         color_feature: str = "identity",
+        match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
         return self._pgvector_query(
             self.encode_query(query),
@@ -193,6 +196,7 @@ class SemanticIndex:
             format=format,
             rarity=rarity,
             color_feature=color_feature,
+            match_mode=match_mode,
         )
 
     def _pgvector_query(
@@ -208,6 +212,7 @@ class SemanticIndex:
         format: str | None = None,
         rarity: str | None = None,
         color_feature: str = "identity",
+        match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
         distance = CardFaceSemanticEmbedding.embedding.cosine_distance(query_vec).label("distance")
         query = db.query(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix, distance)
@@ -240,10 +245,15 @@ class SemanticIndex:
                 if ch in {"W", "U", "B", "R", "G"} and ch not in color_values:
                     color_values.append(ch)
             if color_values:
-                if color_feature == "colors":
-                    query = query.filter(cast(CardFace.colors, JSONB).contains(color_values))
+                color_source = cast(CardFace.colors, JSONB) if color_feature == "colors" else cast(Card.color_identity, JSONB)
+
+                if match_mode == "exact":
+                    query = query.filter(color_source.contains(color_values))
+                    query = query.filter(color_source.contained_by(color_values))
+                elif match_mode == "at_most":
+                    query = query.filter(color_source.contained_by(color_values))
                 else:
-                    query = query.filter(cast(Card.color_identity, JSONB).contains(color_values))
+                    query = query.filter(color_source.contains(color_values))
 
         if cmc_min is not None:
             query = query.filter(Card.cmc >= cmc_min)

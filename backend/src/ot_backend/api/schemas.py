@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -9,11 +11,15 @@ class CardMatch(BaseModel):
     rank: int | None = None
     oracle_id: str | None = None
     scryfall_id: str | None = None
+    face_ix: int = 0
+    image_side: Literal["front", "back"] = "front"
 
 
 class SimilarCard(BaseModel):
     oracle_id: str
     scryfall_id: str
+    face_ix: int
+    image_side: Literal["front", "back"]
     name: str
     card_name: str
     similarity: float

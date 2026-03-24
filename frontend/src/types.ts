@@ -1,4 +1,6 @@
 export interface CardFace {
+  oracle_id: string
+  face_ix: number
   name: string
   mana_cost?: string
   type_line?: string
@@ -6,12 +8,16 @@ export interface CardFace {
   power?: string
   toughness?: string
   colors?: string[]
+  image_uris?: Record<string, string>
 }
 
 export interface Card {
   id: string
+  oracle_id: string
+  scryfall_id: string
   name: string
   layout?: string
+  cmc?: number
   mana_cost?: string
   type_line?: string
   oracle_text?: string
@@ -26,13 +32,19 @@ export interface Card {
 }
 
 export interface SimilarCard extends Card {
+  face_ix: number
+  image_side: 'front' | 'back'
   similarity: number
   card_name?: string
 }
 
 export interface CardMatch {
-  name: string
   id: string
+  name: string
+  oracle_id: string | null
+  scryfall_id: string | null
+  face_ix: number
+  image_side: 'front' | 'back'
   similarity?: number
   rank?: number
 }
