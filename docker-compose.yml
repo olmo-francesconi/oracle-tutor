@@ -53,7 +53,7 @@ services:
       - api
     restart: "no"
 
-  worker-embed:
+  worker-semantic:
     build:
       context: ./backend
       dockerfile: Dockerfile.semantic-worker
@@ -67,7 +67,6 @@ services:
       - DB_NAME=${DB_NAME:-mtg_search}
       - DB_USER=${DB_USER:-oracle}
       - DB_PASSWORD=${DB_PASSWORD:-secret_password}
-      - SEMANTIC_MODEL_PATH=/app/data/embed/model
     depends_on:
       - db
     restart: "no"

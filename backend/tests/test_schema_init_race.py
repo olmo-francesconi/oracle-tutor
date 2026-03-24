@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
 from sqlalchemy import text
 
 from ot_backend.core.config import DB_SCHEMA_VERSION
@@ -10,14 +9,12 @@ from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import (
     INIT_MODE_API,
     INIT_MODE_WORKER,
-    MIGRATION_STATE_FAILED,
     MIGRATION_STATE_KEY,
     MIGRATION_STATE_READY,
-    get_migration_state,
     init_db,
     wait_for_migration_ready,
 )
-from ot_backend.core.models import Card, CardFace, SystemMetadata
+from ot_backend.core.models import Card, CardFace, CardRaw, SystemMetadata
 
 
 def _utcnow_naive() -> datetime:
@@ -28,6 +25,7 @@ def _clean_db() -> None:
     with SessionLocal() as db:
         db.query(CardFace).delete()
         db.query(Card).delete()
+        db.query(CardRaw).delete()
         db.query(SystemMetadata).delete()
         db.commit()
 
@@ -35,8 +33,29 @@ def _clean_db() -> None:
 def _seed_card_and_old_schema() -> None:
     with SessionLocal() as db:
         db.add(
+            CardRaw(
+                id="scryfall-card-reset-check",
+                oracle_id="card-reset-check",
+                name="Reset Check Card",
+                lang="en",
+                layout="normal",
+                color_identity=["U"],
+                keywords=[],
+                legalities={},
+                rarity="common",
+                set_code="tst",
+                set_id="set-tst",
+                set_name="Test Set",
+                set_type="expansion",
+                collector_number="1",
+                games=["paper"],
+                finishes=["nonfoil"],
+            )
+        )
+        db.add(
             Card(
-                id="card-reset-check",
+                oracle_id="card-reset-check",
+                scryfall_id="scryfall-card-reset-check",
                 name="Reset Check Card",
                 layout="normal",
                 rarity="common",
@@ -67,29 +86,14 @@ def test_api_mode_does_not_drop_cards_when_schema_is_old() -> None:
         assert count == 1
 
 
-def test_worker_mode_refuses_destructive_reset_without_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_worker_mode_sets_schema_metadata_and_ready_state() -> None:
     init_db(mode=INIT_MODE_API)
     _clean_db()
     _seed_card_and_old_schema()
 
-    monkeypatch.setattr("ot_backend.core.db_init.ALLOW_SCHEMA_RESET", False)
-
-    with pytest.raises(RuntimeError, match="Schema reset required but disabled"):
-        init_db(mode=INIT_MODE_WORKER)
-
-    assert get_migration_state() == MIGRATION_STATE_FAILED
-
-
-def test_worker_mode_resets_cards_and_sets_ready_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    init_db(mode=INIT_MODE_API)
-    _clean_db()
-    _seed_card_and_old_schema()
-
-    monkeypatch.setattr("ot_backend.core.db_init.ALLOW_SCHEMA_RESET", True)
     init_db(mode=INIT_MODE_WORKER)
 
     with SessionLocal() as db:
-        assert db.query(Card).count() == 0
         meta = db.get(SystemMetadata, "scryfall_data")
         assert meta is not None
         assert meta.schema_version == DB_SCHEMA_VERSION

@@ -3,12 +3,15 @@ from __future__ import annotations
 import logging
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
+from alembic.config import Config
 from sqlalchemy import inspect, text
 
-from .config import ALLOW_SCHEMA_RESET, DB_SCHEMA_VERSION, parse_version
+from alembic import command
+
+from .config import DB_SCHEMA_VERSION
 from .database import engine
-from .models import Base
 
 logger = logging.getLogger("ot_backend.db")
 
@@ -110,99 +113,28 @@ def _upsert_schema_version(conn, schema_version: str) -> None:
     )
 
 
-def _ensure_postgres_features(conn, dialect: str) -> None:
-    if dialect == "postgresql":
-        # Ensure trigram extension for fuzzy search (name suggestions).
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+def _alembic_ini_path() -> Path:
+    return Path(__file__).resolve().parents[3] / "alembic" / "alembic.ini"
 
 
-def _ensure_indexes(conn, dialect: str) -> None:
-    if dialect == "postgresql":
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_cards_name_trgm ON cards USING gin (name gin_trgm_ops)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_card_faces_name_trgm ON card_faces USING gin (name gin_trgm_ops)"))
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw "
-                "ON card_face_semantic_embeddings USING hnsw (embedding vector_cosine_ops)"
-            )
-        )
+def _build_alembic_config() -> Config:
+    alembic_ini = _alembic_ini_path()
+    if not alembic_ini.exists():
+        raise FileNotFoundError(f"Alembic config not found: {alembic_ini}")
+    return Config(str(alembic_ini))
 
 
-def _should_reset_cards(conn) -> bool:
-    should_reset_cards = False
-    inspector = inspect(conn)
-
-    if inspector.has_table("cards"):
-        cols = {c["name"] for c in inspector.get_columns("cards")}
-        required_cols = {"scryfall_set", "collector_number"}
-        if not required_cols.issubset(cols):
-            logger.warning("Legacy schema detected (missing printing metadata columns).")
-            should_reset_cards = True
-
-    if inspector.has_table("card_faces"):
-        # Legacy check: if 'embedding' exists, it's definitely an old schema that needs reset
-        cols = {c["name"] for c in inspector.get_columns("card_faces")}
-        if "embedding" in cols:
-            logger.warning("Legacy schema detected (embedding column).")
-            should_reset_cards = True
-
-    if not should_reset_cards and inspector.has_table("system_metadata"):
-        try:
-            # Get current DB version
-            res = conn.execute(
-                text("SELECT schema_version FROM system_metadata WHERE key = 'scryfall_data'")
-            ).fetchone()
-            if res:
-                db_version = res[0]
-                # We only force a full table reset on Major or Minor version changes.
-                # Patches (the 3rd digit) should ideally be compatible or handled by Alembic/manual SQL.
-                # Since we don't have migrations yet, we'll reset on any Major/Minor change.
-                v_db = parse_version(db_version)
-                v_app = parse_version(DB_SCHEMA_VERSION)
-                if v_db[0] < v_app[0] or v_db[1] < v_app[1]:
-                    logger.warning(
-                        f"Schema version mismatch: DB={db_version}, App={DB_SCHEMA_VERSION}. "
-                        "Resetting card tables."
-                    )
-                    should_reset_cards = True
-        except Exception as e:
-            logger.warning(f"Could not check schema version: {e}. Defaulting to safe state.")
-
-    return should_reset_cards
-
-
-def _drop_card_tables(conn, dialect: str) -> None:
-    logger.info("Dropping card tables for rebuild...")
-    if dialect == "postgresql":
-        conn.execute(text("DROP TABLE IF EXISTS card_face_semantic_embeddings CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS card_relationships CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS tag_ancestor_map CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS card_taggings CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS card_tag_map CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS tags CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS card_tags CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS card_faces CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS cards CASCADE"))
-    else:
-        # SQLite doesn't support CASCADE in DROP TABLE, but we'll try to drop in order
-        conn.execute(text("DROP TABLE IF EXISTS card_face_semantic_embeddings"))
-        conn.execute(text("DROP TABLE IF EXISTS card_relationships"))
-        conn.execute(text("DROP TABLE IF EXISTS tag_ancestor_map"))
-        conn.execute(text("DROP TABLE IF EXISTS card_taggings"))
-        conn.execute(text("DROP TABLE IF EXISTS card_tag_map"))
-        conn.execute(text("DROP TABLE IF EXISTS tags"))
-        conn.execute(text("DROP TABLE IF EXISTS card_tags"))
-        conn.execute(text("DROP TABLE IF EXISTS card_faces"))
-        conn.execute(text("DROP TABLE IF EXISTS cards"))
+def _upgrade_schema_to_head() -> None:
+    alembic_cfg = _build_alembic_config()
+    command.upgrade(alembic_cfg, "head")
 
 
 def init_db(mode: str = INIT_MODE_API) -> None:
     """
     Initialize DB schema.
 
-    - Postgres: enable pg_trgm and create trigram indexes.
-    - Other DBs (tests): just create tables.
+    - Use Alembic migrations to reach schema head.
+    - Keep advisory lock for concurrency safety.
     """
     if mode not in (INIT_MODE_API, INIT_MODE_WORKER):
         raise ValueError(f"Unsupported init_db mode: {mode}")
@@ -212,25 +144,12 @@ def init_db(mode: str = INIT_MODE_API) -> None:
         with engine.begin() as conn:
             dialect = conn.dialect.name
             _acquire_schema_lock(conn, dialect)
-            _ensure_postgres_features(conn, dialect)
-
-            Base.metadata.create_all(conn)
-            _ensure_indexes(conn, dialect)
-
-            if mode == INIT_MODE_WORKER:
+            inspector = inspect(conn)
+            if mode == INIT_MODE_WORKER and inspector.has_table("system_metadata"):
                 _set_migration_state(conn, state=MIGRATION_STATE_MIGRATING, target_version=DB_SCHEMA_VERSION)
-                should_reset_cards = _should_reset_cards(conn)
-
-                if should_reset_cards:
-                    if not ALLOW_SCHEMA_RESET:
-                        raise RuntimeError(
-                            "Schema reset required but disabled. Set ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true "
-                            "to allow destructive card table reset."
-                        )
-                    _drop_card_tables(conn, dialect)
-
-                Base.metadata.create_all(conn)
-                _ensure_indexes(conn, dialect)
+        _upgrade_schema_to_head()
+        if mode == INIT_MODE_WORKER:
+            with engine.begin() as conn:
                 _upsert_schema_version(conn, DB_SCHEMA_VERSION)
                 _set_migration_state(conn, state=MIGRATION_STATE_READY, target_version=DB_SCHEMA_VERSION)
     except Exception:
@@ -239,12 +158,13 @@ def init_db(mode: str = INIT_MODE_API) -> None:
         if mode == INIT_MODE_WORKER:
             try:
                 with engine.begin() as fail_conn:
-                    Base.metadata.create_all(fail_conn)
-                    _set_migration_state(
-                        fail_conn,
-                        state=MIGRATION_STATE_FAILED,
-                        target_version=DB_SCHEMA_VERSION,
-                    )
+                    fail_inspector = inspect(fail_conn)
+                    if fail_inspector.has_table("system_metadata"):
+                        _set_migration_state(
+                            fail_conn,
+                            state=MIGRATION_STATE_FAILED,
+                            target_version=DB_SCHEMA_VERSION,
+                        )
             except Exception:
                 logger.exception("Failed to persist schema migration failed state.")
         raise

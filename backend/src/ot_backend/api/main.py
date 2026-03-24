@@ -8,7 +8,8 @@ from typing import Annotated, Final
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import or_
+from pydantic import BaseModel
+from sqlalchemy import and_, or_, tuple_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session, joinedload
@@ -17,8 +18,7 @@ from ..core.config import SCHEMA_WAIT_INTERVAL_SECONDS, SCHEMA_WAIT_TIMEOUT_SECO
 from ..core.database import engine, get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
-from ..core.models import Card, CardFace
-from .schemas import CardMatch, CardNameMatch, SimilarCard
+from ..core.models import Card, CardFace, CardFaceSemanticEmbedding
 
 try:
     from ..embed.index import get_semantic_index
@@ -42,6 +42,38 @@ _card_cache: dict[str, tuple[float, dict[str, object]]] = {}
 CARD_CACHE_TTL: float = 3600.0
 
 
+class CardMatch(BaseModel):
+    name: str
+    similarity: float = 1.0
+    rank: int | None = None
+    oracle_id: str | None = None
+    scryfall_id: str | None = None
+
+
+class CardNameMatch(BaseModel):
+    name: str
+    oracle_id: str
+
+
+class SimilarCard(BaseModel):
+    oracle_id: str
+    scryfall_id: str
+    name: str
+    card_name: str
+    similarity: float
+    rank: int | None = None
+    type_line: str | None = None
+    mana_cost: str | None = None
+    oracle_text: str | None = None
+    power: str | None = None
+    toughness: str | None = None
+    colors: list[str] | None = None
+    layout: str | None = None
+    rarity: str | None = None
+    legalities: dict[str, str] | None = None
+    uniqueness: float | None = None
+
+
 def _ensure_schema_ready() -> None:
     global _schema_ready
     if _schema_ready:
@@ -58,27 +90,33 @@ def _get_semantic_index():
     return get_semantic_index()
 
 
-def _to_similar_cards(results: list[tuple[int, float]], db: Session) -> list[SimilarCard]:
+def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session) -> list[SimilarCard]:
     if not results:
         return []
 
-    target_face_ids = [face_id for face_id, _ in results]
-    id_to_score = {face_id: score for face_id, score in results}
-    faces = db.query(CardFace).options(joinedload(CardFace.card)).filter(CardFace.id.in_(target_face_ids)).all()
-    faces_map = {face.id: face for face in faces}
+    target_face_keys = [face_key for face_key, _ in results]
+    key_to_score = {face_key: score for face_key, score in results}
+    faces = (
+        db.query(CardFace)
+        .options(joinedload(CardFace.card))
+        .filter(tuple_(CardFace.oracle_id, CardFace.face_ix).in_(target_face_keys))
+        .all()
+    )
+    faces_map = {(face.oracle_id, face.face_ix): face for face in faces}
 
     similar_cards: list[SimilarCard] = []
-    for face_id in target_face_ids:
-        face = faces_map.get(face_id)
+    for face_key in target_face_keys:
+        face = faces_map.get(face_key)
         if face is None:
             continue
         card = face.card
         similar_cards.append(
             SimilarCard(
-                id=card.id,
+                oracle_id=card.oracle_id,
+                scryfall_id=card.scryfall_id,
                 name=face.name,
                 card_name=card.name,
-                similarity=float(id_to_score.get(face_id, 0.0)),
+                similarity=float(key_to_score.get(face_key, 0.0)),
                 rank=card.edhrec_rank,
                 type_line=face.type_line,
                 mana_cost=face.mana_cost,
@@ -111,6 +149,16 @@ async def lifespan(app: FastAPI):
             )
     except Exception as exc:
         logger.error("DB init failed: %s", exc, exc_info=True)
+
+    logger.info("Loading semantic model...")
+    try:
+        index = _get_semantic_index()
+        if index is None:
+            logger.warning("Semantic model not available — semantic endpoints will return 503")
+        else:
+            logger.info("Semantic model loaded and ready")
+    except Exception as exc:
+        logger.error("Semantic model failed to load: %s", exc, exc_info=True)
 
     yield
 
@@ -189,7 +237,13 @@ def search_cards(q: str, db: Session = Depends(get_db), limit: int = 5) -> list[
             .all()
         )
         return [
-            CardMatch(name=card.name, id=card.id, rank=card.edhrec_rank, similarity=float(1.0 - dist))
+            CardMatch(
+                name=card.name,
+                oracle_id=card.oracle_id,
+                scryfall_id=card.scryfall_id,
+                rank=card.edhrec_rank,
+                similarity=float(1.0 - dist),
+            )
             for card, dist in results
         ]
 
@@ -200,7 +254,16 @@ def search_cards(q: str, db: Session = Depends(get_db), limit: int = 5) -> list[
         .limit(limit)
         .all()
     )
-    return [CardMatch(name=card.name, id=card.id, rank=card.edhrec_rank, similarity=1.0) for card in cards]
+    return [
+        CardMatch(
+            name=card.name,
+            oracle_id=card.oracle_id,
+            scryfall_id=card.scryfall_id,
+            rank=card.edhrec_rank,
+            similarity=1.0,
+        )
+        for card in cards
+    ]
 
 
 @app.get("/suggest-names", response_model=list[CardNameMatch])
@@ -215,47 +278,47 @@ def search_card_names(q: str, db: Session = Depends(get_db), limit: int = 5, off
     if _IS_POSTGRES:
         distance = Card.name.op("<->")(q)
         cards = (
-            db.query(Card.name, Card.id)
+            db.query(Card.name, Card.oracle_id)
             .filter(or_(Card.name.op("%")(q), Card.name.ilike(f"%{q}%")))
             .order_by(distance, Card.edhrec_rank.asc().nulls_last())
             .offset(offset)
             .limit(limit)
             .all()
         )
-        return [CardNameMatch(name=name, id=card_id) for name, card_id in cards]
+        return [CardNameMatch(name=name, oracle_id=oracle_id) for name, oracle_id in cards]
 
     cards = (
-        db.query(Card.name, Card.id)
+        db.query(Card.name, Card.oracle_id)
         .filter(Card.name.ilike(f"%{q}%"))
         .order_by(Card.name.asc())
         .offset(offset)
         .limit(limit)
         .all()
     )
-    return [CardNameMatch(name=name, id=card_id) for name, card_id in cards]
+    return [CardNameMatch(name=name, oracle_id=oracle_id) for name, oracle_id in cards]
 
 
-@app.get("/card/{card_id}")
+@app.get("/card/{oracle_id}")
 @log_performance(logger=logger)
-def get_card_by_id(card_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
+def get_card_by_id(oracle_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     _ensure_schema_ready()
     now = time.time()
-    cached = _card_cache.get(card_id)
+    cached = _card_cache.get(oracle_id)
     if cached and now - cached[0] < CARD_CACHE_TTL:
         return cached[1]
 
-    card = db.query(Card).options(joinedload(Card.faces)).filter(Card.id == card_id).first()
+    card = db.query(Card).options(joinedload(Card.faces)).filter(Card.oracle_id == oracle_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     result = card.to_dict()
-    _card_cache[card_id] = (now, result)
+    _card_cache[oracle_id] = (now, result)
     return result
 
 
-@app.get("/similar-cards/{card_id}", response_model=list[SimilarCard])
+@app.get("/similar-cards/{oracle_id}", response_model=list[SimilarCard])
 @log_performance(logger=logger)
 def get_similar_cards(
-    card_id: str,
+    oracle_id: str,
     db: Session = Depends(get_db),
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -272,12 +335,24 @@ def get_similar_cards(
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
 
-    face = db.query(CardFace).filter(CardFace.card_id == card_id).order_by(CardFace.id.asc()).first()
+    face = (
+        db.query(CardFace)
+        .join(
+            CardFaceSemanticEmbedding,
+            and_(
+                CardFaceSemanticEmbedding.oracle_id == CardFace.oracle_id,
+                CardFaceSemanticEmbedding.face_ix == CardFace.face_ix,
+            ),
+        )
+        .filter(CardFace.oracle_id == oracle_id)
+        .order_by(CardFace.face_ix.asc())
+        .first()
+    )
     if face is None:
         raise HTTPException(status_code=404, detail="Card not found")
 
     results = index.similar_to_face(
-        face.id,
+        (face.oracle_id, face.face_ix),
         limit=limit + offset,
         db=db,
         card_type=card_type,

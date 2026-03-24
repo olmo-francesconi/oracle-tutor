@@ -6,10 +6,10 @@ from enum import Enum
 from typing import Any, cast
 
 import requests
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..core.models import Card, CardRelationship, CardTagging, Tag, TagAncestorMap
+from ..core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
 
 logger = logging.getLogger("ot_backend.ingest")
 
@@ -264,12 +264,13 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
         db.add(TagAncestorMap(tag_id=edge["tag_id"], ancestor_tag_id=edge["ancestor_tag_id"]))
 
     for tagging_data in taggings:
+        foreign_key = tagging_data.get("foreign_key")
         db.merge(
             CardTagging(
                 id=tagging_data["id"],
                 card_id=card_id,
                 tag_id=tagging_data["tag_id"],
-                foreign_key=tagging_data.get("foreign_key"),
+                foreign_key=foreign_key,
                 status=tagging_data.get("status"),
                 tagging_type=tagging_data.get("tagging_type"),
                 weight=tagging_data.get("weight"),
@@ -361,16 +362,18 @@ def fetch_and_store_tags(
     return FetchOutcome.SUCCESS
 
 
-def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> list[Card]:
-    query = db.query(Card).order_by(Card.id.asc())
-    if refresh_tags:
-        return query.all()
-
-    return (
-        query.outerjoin(CardTagging, CardTagging.card_id == Card.id)
-        .filter(CardTagging.id.is_(None))
-        .all()
+def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> list[Any]:
+    query = (
+        select(Card.oracle_id, CardRaw.set_code, CardRaw.collector_number)
+        .join(CardRaw, CardRaw.id == Card.scryfall_id)
+        .order_by(Card.oracle_id.asc())
     )
+    if not refresh_tags:
+        query = (
+            query.outerjoin(CardTagging, CardTagging.card_id == Card.oracle_id)
+            .where(CardTagging.id.is_(None))
+        )
+    return db.execute(query).all()
 
 
 def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
@@ -396,16 +399,16 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
     LOG_INTERVAL = 100
 
     for i, card in enumerate(cards, start=1):
-        if not card.scryfall_set or not card.collector_number:
+        if not card.set_code or not card.collector_number:
             counts[FetchOutcome.FAILED] += 1
             continue
         outcome = fetch_and_store_tags(
             db,
             tagger_session,
             csrf_token,
-            card.scryfall_set,
+            card.set_code,
             card.collector_number,
-            card.id,
+            card.oracle_id,
         )
         counts[outcome] += 1
 
@@ -427,7 +430,7 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
             if session_resets >= MAX_SESSION_RESETS:
                 logger.error(
                     "Tagger rate limit: exceeded max session resets for card %s/%s, skipping.",
-                    card.scryfall_set,
+                    card.set_code,
                     card.collector_number,
                 )
                 break
@@ -448,9 +451,9 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
                 db,
                 tagger_session,
                 csrf_token,
-                card.scryfall_set,
+                card.set_code,
                 card.collector_number,
-                card.id,
+                card.oracle_id,
             )
             if outcome == FetchOutcome.RESET_SESSION:
                 counts[FetchOutcome.RESET_SESSION] += 1

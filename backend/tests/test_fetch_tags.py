@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 import requests
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
-from ot_backend.core.models import Card, CardRelationship, CardTagging, Tag, TagAncestorMap
-from ot_backend.ingest.fetch_tags import FetchOutcome, _cards_needing_tag_fetch, _extract_card_entities, _replace_card_entities, fetch_and_store_tags
-
+from ot_backend.core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
+from ot_backend.ingest.fetch_tags import (
+    FetchOutcome,
+    _cards_needing_tag_fetch,
+    _extract_card_entities,
+    _replace_card_entities,
+    fetch_and_store_tags,
+)
 
 SAMPLE_TAGGER_PAYLOAD = {
     "data": {
@@ -82,6 +87,27 @@ SAMPLE_TAGGER_PAYLOAD = {
 }
 
 
+def _make_card_raw(*, scryfall_id: str, oracle_id: str, name: str, collector_number: str) -> CardRaw:
+    return CardRaw(
+        id=scryfall_id,
+        oracle_id=oracle_id,
+        name=name,
+        lang="en",
+        layout="normal",
+        color_identity=["W", "U"],
+        keywords=[],
+        legalities={},
+        rarity="rare",
+        set_code="rvr",
+        set_id="set-rvr",
+        set_name="Ravnica Remastered",
+        set_type="expansion",
+        collector_number=collector_number,
+        games=["paper"],
+        finishes=["nonfoil"],
+    )
+
+
 def test_extract_card_entities_preserves_direct_tags_ancestors_and_relationships() -> None:
     extracted = _extract_card_entities(SAMPLE_TAGGER_PAYLOAD)
 
@@ -119,12 +145,20 @@ def test_replace_card_entities_persists_full_tagger_shape() -> None:
         db.query(TagAncestorMap).delete()
         db.query(Tag).delete()
         db.query(Card).delete()
+        db.query(CardRaw).delete()
+        db.add(
+            _make_card_raw(
+                scryfall_id="scryfall-card-1",
+                oracle_id="card-1",
+                name="Hallowed Fountain",
+                collector_number="404",
+            )
+        )
         db.add(
             Card(
-                id="card-1",
+                oracle_id="card-1",
+                scryfall_id="scryfall-card-1",
                 name="Hallowed Fountain",
-                scryfall_set="rvr",
-                collector_number="404",
                 layout="normal",
                 rarity="rare",
                 legalities={},
@@ -165,18 +199,21 @@ def test_cards_needing_tag_fetch_only_returns_cards_without_taggings() -> None:
         db.query(TagAncestorMap).delete()
         db.query(Tag).delete()
         db.query(Card).delete()
+        db.query(CardRaw).delete()
         db.add_all(
             [
-                Card(id="card-1", name="Tagged Card", scryfall_set="rvr", collector_number="404", layout="normal", rarity="rare", legalities={}, color_identity=["W", "U"]),
-                Card(id="card-2", name="Untagged Card", scryfall_set="rvr", collector_number="405", layout="normal", rarity="rare", legalities={}, color_identity=["W", "U"]),
+                _make_card_raw(scryfall_id="scryfall-card-1", oracle_id="card-1", name="Tagged Card", collector_number="404"),
+                _make_card_raw(scryfall_id="scryfall-card-2", oracle_id="card-2", name="Untagged Card", collector_number="405"),
+                Card(oracle_id="card-1", scryfall_id="scryfall-card-1", name="Tagged Card", layout="normal", rarity="rare", legalities={}, color_identity=["W", "U"]),
+                Card(oracle_id="card-2", scryfall_id="scryfall-card-2", name="Untagged Card", layout="normal", rarity="rare", legalities={}, color_identity=["W", "U"]),
             ]
         )
         db.add(Tag(id="tag-card-1", tag_name="shockland", tag_namespace="card"))
         db.add(CardTagging(id="tagging-card-1", card_id="card-1", tag_id="tag-card-1", foreign_key="oracleId"))
         db.commit()
 
-        assert [card.id for card in _cards_needing_tag_fetch(db, refresh_tags=False)] == ["card-2"]
-        assert [card.id for card in _cards_needing_tag_fetch(db, refresh_tags=True)] == ["card-1", "card-2"]
+        assert [card.oracle_id for card in _cards_needing_tag_fetch(db, refresh_tags=False)] == ["card-2"]
+        assert [card.oracle_id for card in _cards_needing_tag_fetch(db, refresh_tags=True)] == ["card-1", "card-2"]
 
 
 def test_fetch_and_store_tags_requests_session_reset_on_retryable_status() -> None:

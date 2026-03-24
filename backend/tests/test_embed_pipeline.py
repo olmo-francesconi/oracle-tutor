@@ -10,7 +10,7 @@ import pytest
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
-from ot_backend.core.models import Card, CardFace, CardTagging, Tag
+from ot_backend.core.models import Card, CardFace, CardRaw, CardTagging, Tag
 from ot_backend.embed.pipeline import (
     LazyInputExampleDataset,
     PipelineConfig,
@@ -42,7 +42,29 @@ def _reset_tables() -> None:
         db.query(Tag).delete()
         db.query(CardFace).delete()
         db.query(Card).delete()
+        db.query(CardRaw).delete()
         db.commit()
+
+
+def _make_card_raw(*, scryfall_id: str, oracle_id: str, name: str, collector_number: str) -> CardRaw:
+    return CardRaw(
+        id=scryfall_id,
+        oracle_id=oracle_id,
+        name=name,
+        lang="en",
+        layout="normal",
+        color_identity=[],
+        keywords=[],
+        legalities={},
+        rarity="common",
+        set_code="tst",
+        set_id="set-tst",
+        set_name="Test Set",
+        set_type="expansion",
+        collector_number=collector_number,
+        games=["paper"],
+        finishes=["nonfoil"],
+    )
 
 
 def _seed_records() -> None:
@@ -50,9 +72,13 @@ def _seed_records() -> None:
     with SessionLocal() as db:
         db.add_all(
             [
-                Card(id="card-1", name="Shock", layout="normal", rarity="common", legalities={}, color_identity=["R"]),
+                _make_card_raw(scryfall_id="scryfall-1", oracle_id="oracle-1", name="Shock", collector_number="1"),
+                _make_card_raw(scryfall_id="scryfall-2", oracle_id="oracle-2", name="Lightning Bolt", collector_number="2"),
+                _make_card_raw(scryfall_id="scryfall-3", oracle_id="oracle-3", name="Llanowar Elves", collector_number="3"),
+                Card(oracle_id="oracle-1", scryfall_id="scryfall-1", name="Shock", layout="normal", rarity="common", legalities={}, color_identity=["R"]),
                 Card(
-                    id="card-2",
+                    oracle_id="oracle-2",
+                    scryfall_id="scryfall-2",
                     name="Lightning Bolt",
                     layout="normal",
                     rarity="common",
@@ -60,7 +86,8 @@ def _seed_records() -> None:
                     color_identity=["R"],
                 ),
                 Card(
-                    id="card-3",
+                    oracle_id="oracle-3",
+                    scryfall_id="scryfall-3",
                     name="Llanowar Elves",
                     layout="normal",
                     rarity="common",
@@ -73,21 +100,24 @@ def _seed_records() -> None:
         db.add_all(
             [
                 CardFace(
-                    card_id="card-1",
+                    oracle_id="oracle-1",
+                    face_ix=0,
                     name="Shock",
                     type_line="Instant",
                     oracle_text="Shock deals 2 damage to any target.",
                     colors=["R"],
                 ),
                 CardFace(
-                    card_id="card-2",
+                    oracle_id="oracle-2",
+                    face_ix=0,
                     name="Lightning Bolt",
                     type_line="Instant",
                     oracle_text="Lightning Bolt deals 3 damage to any target.",
                     colors=["R"],
                 ),
                 CardFace(
-                    card_id="card-3",
+                    oracle_id="oracle-3",
+                    face_ix=0,
                     name="Llanowar Elves",
                     type_line="Creature — Elf Druid",
                     oracle_text="{T}: Add {G}.",
@@ -100,8 +130,8 @@ def _seed_records() -> None:
         db.flush()
         db.add_all(
             [
-                CardTagging(id="tagging-1", card_id="card-1", tag_id="tag-1", foreign_key="oracleId"),
-                CardTagging(id="tagging-2", card_id="card-2", tag_id="tag-1", foreign_key="oracleId"),
+                CardTagging(id="tagging-1", card_id="oracle-1", tag_id="tag-1", foreign_key="oracleId"),
+                CardTagging(id="tagging-2", card_id="oracle-2", tag_id="tag-1", foreign_key="oracleId"),
             ]
         )
         db.commit()
@@ -157,7 +187,7 @@ def test_build_dataset_uses_face_ids_and_lazy_text_resolution(monkeypatch: pytes
 
     with SessionLocal() as db:
         state = build_training_dataset_state(db)
-        face_rows = db.query(CardFace).order_by(CardFace.id).all()
+        face_rows = db.query(CardFace).order_by(CardFace.oracle_id, CardFace.face_ix).all()
 
     assert len(state.face_texts) == 3
     assert state.simcse_examples == 3
@@ -186,8 +216,8 @@ def test_build_dataset_ignores_non_card_or_non_oracle_tags(monkeypatch: pytest.M
         )
         db.add_all(
             [
-                CardTagging(id="tagging-3", card_id="card-1", tag_id="tag-2", foreign_key="oracleId"),
-                CardTagging(id="tagging-4", card_id="card-2", tag_id="tag-3", foreign_key="illustrationId"),
+                CardTagging(id="tagging-3", card_id="oracle-1", tag_id="tag-2", foreign_key="oracleId"),
+                CardTagging(id="tagging-4", card_id="oracle-2", tag_id="tag-3", foreign_key="illustrationId"),
             ]
         )
         db.commit()
@@ -599,7 +629,7 @@ def test_pipeline_creates_versioned_run_dir_and_latest_symlink(
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._prepare_and_save_dataset",
         lambda path, config: path.write_text(
-            '{"version":1,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
+            '{"version":2,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
             encoding="utf-8",
         ),
     )
@@ -642,7 +672,7 @@ def test_pipeline_no_embeddings_skips_compute(
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._prepare_and_save_dataset",
         lambda path, config: path.write_text(
-            '{"version":1,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
+            '{"version":2,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
             encoding="utf-8",
         ),
     )

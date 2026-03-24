@@ -21,6 +21,9 @@ _index: SemanticIndex | None = None
 
 
 def _load_onnx_dependencies() -> tuple[Any, Any]:
+    import os
+
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
     try:
         onnxruntime = import_module("onnxruntime")
         transformers = import_module("transformers")
@@ -90,9 +93,11 @@ class OnnxTextEncoder:
         _validate_pooling_strategy(model_root)
         InferenceSession, AutoTokenizer = _load_onnx_dependencies()
         huggingface_cache_dir()
+        logger.info("Loading ONNX model from %s", onnx_model_path)
         self._tokenizer = AutoTokenizer.from_pretrained(str(model_root), local_files_only=True)
         self._session = InferenceSession(str(onnx_model_path), providers=["CPUExecutionProvider"])
         self._session_input_names = {session_input.name for session_input in self._session.get_inputs()}
+        logger.info("Semantic model ready")
 
     def encode(self, text: str) -> list[float]:
         normalized = normalize_oracle_text(text)

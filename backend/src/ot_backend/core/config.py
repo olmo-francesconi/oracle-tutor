@@ -18,15 +18,6 @@ DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH = Path("onnx/model.onnx")
 # Increment Major for breaking DB changes requiring full rebuild.
 DB_SCHEMA_VERSION = "2.5.0"
 
-# Dangerous operation guard:
-# Full table resets are disabled by default and must be explicitly enabled.
-ALLOW_SCHEMA_RESET = os.getenv("ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-
 # API startup migration wait behavior
 SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS", "30"))
 SCHEMA_WAIT_INTERVAL_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS", "1"))
