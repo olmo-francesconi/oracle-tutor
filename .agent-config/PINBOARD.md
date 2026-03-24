@@ -53,6 +53,12 @@ Update `api/main.py` queries to use `oracle_id`. Update test fixtures and tests 
 
 <!-- Workers append their status here on start and completion -->
 
+### TASK-001 — Codex
+- **Status**: complete
+- **Started**: 2026-03-24
+- **Files touched**: `.agent-config/PINBOARD.md`, `backend/pyproject.toml`, `backend/alembic/alembic.ini`, `backend/alembic/env.py`, `backend/alembic/versions/0001_initial_schema.py`
+- **Result**: Added `alembic` to backend dependencies, initialized Alembic under `backend/alembic/`, wired `env.py` to `ot_backend.core.database.Base` with a `DATABASE_URL`/SQLite fallback, and added the initial dialect-aware migration for the new schema, Postgres trigram indexes, and pgvector HNSW index.
+
 ---
 
 ## Completed Work
