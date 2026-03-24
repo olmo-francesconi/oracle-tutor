@@ -9,12 +9,12 @@ This folder contains a minimal FastAPI service managed by **uv**.
 
 - **Create venv + install deps**:
   - `cd backend`
-  - `uv sync --extra api --extra worker`
+  - `uv sync --extra api --extra scryfall-sync`
 
 - **Run the API**:
   - `uv run hypercorn ot_backend.api.main:app --reload --bind 0.0.0.0:8000`
 
-- **Ingest/update data (one-shot worker)**:
+- **Sync Scryfall data (scryfall-sync)**:
   - `uv run python -m ot_backend.ingest.main --strict --trigger-type manual`
 
 ### Production / Railway env vars
@@ -25,20 +25,20 @@ This folder contains a minimal FastAPI service managed by **uv**.
 - **ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET**: defaults to `false`. Must be explicitly set to `true` for destructive table resets when schema major/minor changes.
 - **ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS**: API startup wait budget for schema migration state (default: `30`).
 - **ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS**: polling interval while waiting for migration readiness (default: `1`).
-- **ORACLE_TUTOR_API_WORKER_TOKEN**: shared secret required for worker-only internal TF-IDF rebuild endpoint.
-- **ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST**: comma-separated internal hosts/IPs/domains allowed to call worker internal endpoint. Hostnames (e.g. `worker.railway.internal`) are DNS-resolved at request time to compare against the client IP, so you can allowlist by hostname even when requests arrive as IPs.
+- **ORACLE_TUTOR_API_WORKER_TOKEN**: shared secret required for scryfall-sync-only internal TF-IDF rebuild endpoint.
+- **ORACLE_TUTOR_API_WORKER_TRIGGER_ALLOWLIST**: comma-separated internal hosts/IPs/domains allowed to call scryfall-sync internal endpoint. Hostnames (e.g. `scryfall-sync.railway.internal`) are DNS-resolved at request time to compare against the client IP, so you can allowlist by hostname even when requests arrive as IPs.
 - **ORACLE_TUTOR_API_WORKER_REBUILD_PATH**: internal rebuild endpoint path (default: `/internal/rebuild-tfidf`).
-- **ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS**: worker HTTP timeout for rebuild trigger call (default: `10`).
-- **ORACLE_TUTOR_API_BASE_URL**: API base URL used by worker to call internal rebuild endpoint (e.g. `http://api:8000`).
+- **ORACLE_TUTOR_API_WORKER_REBUILD_TIMEOUT_SECONDS**: scryfall-sync HTTP timeout for rebuild trigger call (default: `10`).
+- **ORACLE_TUTOR_API_BASE_URL**: API base URL used by scryfall-sync to call internal rebuild endpoint (e.g. `http://api:8000`).
 
 ### Database configuration precedence
 
 - **Production / Railway**: set `DATABASE_URL` (required; the API refuses to start without it in production).
 - **Local/dev**: you can either set `DATABASE_URL`, or set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` (see `src/ot_backend/core/database.py`).
 
-### One-shot worker (Railway Cron)
+### scryfall-sync (Railway Cron)
 
-The worker is designed to be run as a **one-time command** (cron-friendly): it runs the stale-aware update once and exits.
+Designed to run as a **one-time command** (cron-friendly): runs the stale-aware update once and exits.
 
 - **Command**:
   - `python -m ot_backend.ingest.main --strict --trigger-type cron`
@@ -58,11 +58,11 @@ The worker is designed to be run as a **one-time command** (cron-friendly): it r
 - API startup is non-destructive and waits for schema migration readiness.
 - Worker owns destructive schema resets and guards them behind `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true`.
 - For schema major/minor bumps:
-  1. Temporarily enable `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` on worker.
-  2. Run worker once and confirm successful completion.
+  1. Temporarily enable `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` on scryfall-sync.
+  2. Run scryfall-sync once and confirm successful completion.
   3. Disable the reset flag again.
   4. Start/restart API after migration state is `ready`.
-- If migration state becomes `failed`, do not restart API repeatedly until worker logs are fixed and migration rerun.
+- If migration state becomes `failed`, do not restart API repeatedly until scryfall-sync logs are fixed and migration rerun.
 - Worker-triggered TF-IDF rebuild is additive; API still has metadata-based periodic refresh as fallback.
 
 ### Tests

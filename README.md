@@ -11,7 +11,7 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 - **Name autocomplete** — fast trigram-based name suggestions
 - **Full card data** — 3-layer schema: raw Scryfall printings, oracle-deduplicated canonical cards, and per-face data with image URIs
 - **Community tags** — Scryfall Tagger integration for semantic categories (shocklands, cantrips, etc.)
-- **Daily sync** — Railway Cron worker pulls Scryfall bulk data and re-ingests changes automatically
+- **Daily sync** — Railway Cron `scryfall-sync` pulls Scryfall bulk data and re-ingests changes automatically
 
 ## Tech stack
 
@@ -43,11 +43,11 @@ This starts Postgres, the API (`:8000`), and the React frontend (`:5173`). Worke
 
 ```bash
 cd backend
-uv sync --all-extras --group test   # first time only
+uv sync --all-extras --group dev    # first time only
 
 uv run ruff check src/ --fix        # lint
-uv run basedpyright                 # type check (0 errors expected)
-uv run pytest tests/ -x -q         # tests
+uv run basedpyright src/            # type check (0 errors expected)
+uv run pytest -x -q                 # tests
 ```
 
 ### Frontend (without Docker)
@@ -60,7 +60,7 @@ npm run lint
 npm run build
 ```
 
-### Run the ingest worker locally
+### Run scryfall-sync locally
 
 ```bash
 # From backend/
@@ -69,7 +69,7 @@ uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 
 Downloads Scryfall bulk data, populates `cards_raw` (~300k rows), derives `cards` and `card_faces` (~30k oracle-unique cards).
 
-### Run the semantic worker locally
+### Run oracle-embed locally
 
 ```bash
 # From backend/ — requires a GPU or patience
@@ -115,25 +115,26 @@ The repo is designed to deploy as **three Railway services** + Railway Postgres.
 | Service | Dockerfile | Purpose |
 |---|---|---|
 | API | `backend/Dockerfile` | Web process |
-| Worker | `backend/Dockerfile.worker` | Daily ingest cron |
-| Semantic worker | `backend/Dockerfile.semantic-worker` | Periodic re-embedding |
+| scryfall-sync | `backend/Dockerfile.scryfall-sync` | Daily ingest cron |
 | Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
+
+`oracle-embed` (model training + embedding) is a plain Python CLI script — run locally or as a one-off Railway job, no dedicated Docker service.
 
 ### Required environment variables
 
-**API + Worker:**
+**API + scryfall-sync:**
 - `DATABASE_URL` — Railway Postgres connection string (injected automatically)
 - `ORACLE_TUTOR_API_ENV=production`
 
-**Semantic worker:**
+**API (runtime inference):**
 - `SEMANTIC_MODEL_PATH` — path to directory with `onnx/model.onnx` and tokenizer assets
 
 **Frontend:**
 - `API_PROXY_TARGET` — internal URL of the API service
 
-### Worker cron schedule
+### scryfall-sync cron schedule
 
-Set a **Railway Cron** on the Worker service, e.g. `0 2 * * *` (daily at 02:00 UTC). The worker is a one-shot process — it runs the stale-aware update and exits.
+Set a **Railway Cron** on the `scryfall-sync` service, e.g. `0 2 * * *` (daily at 02:00 UTC). It runs the stale-aware update once and exits.
 
 ## License
 

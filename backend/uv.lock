@@ -1354,18 +1354,18 @@ api = [
     { name = "transformers" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-semantic-worker = [
+oracle-embed = [
     { name = "accelerate" },
     { name = "datasets" },
     { name = "sentence-transformers", extra = ["onnx"] },
 ]
-worker = [
+scryfall-sync = [
     { name = "ijson" },
     { name = "requests" },
 ]
 
 [package.dev-dependencies]
-test = [
+dev = [
     { name = "basedpyright" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -1374,29 +1374,36 @@ test = [
     { name = "requests" },
     { name = "ruff" },
 ]
+test = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "ijson" },
+    { name = "pytest" },
+    { name = "requests" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", marker = "extra == 'semantic-worker'", specifier = ">=1.1.0" },
+    { name = "accelerate", marker = "extra == 'oracle-embed'", specifier = ">=1.1.0" },
     { name = "alembic", specifier = ">=1.14.0" },
-    { name = "datasets", marker = "extra == 'semantic-worker'", specifier = ">=3.0.0" },
+    { name = "datasets", marker = "extra == 'oracle-embed'", specifier = ">=3.0.0" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115.0" },
     { name = "hypercorn", marker = "extra == 'api'", specifier = ">=0.17.0" },
-    { name = "ijson", marker = "extra == 'worker'", specifier = ">=3.3.0" },
+    { name = "ijson", marker = "extra == 'scryfall-sync'", specifier = ">=3.3.0" },
     { name = "numpy", marker = "extra == 'api'", specifier = ">=1.26.0" },
     { name = "onnxruntime", marker = "extra == 'api'", specifier = ">=1.20.0" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
-    { name = "requests", marker = "extra == 'worker'", specifier = ">=2.32.0" },
-    { name = "sentence-transformers", extras = ["onnx"], marker = "extra == 'semantic-worker'", specifier = ">=3.0" },
+    { name = "requests", marker = "extra == 'scryfall-sync'", specifier = ">=2.32.0" },
+    { name = "sentence-transformers", extras = ["onnx"], marker = "extra == 'oracle-embed'", specifier = ">=3.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "transformers", marker = "extra == 'api'", specifier = ">=4.48.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.32.0" },
 ]
-provides-extras = ["api", "semantic-worker", "worker"]
+provides-extras = ["api", "scryfall-sync", "oracle-embed"]
 
 [package.metadata.requires-dev]
-test = [
+dev = [
     { name = "basedpyright", specifier = ">=1.38.3" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.27.0" },
@@ -1404,6 +1411,13 @@ test = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "ruff", specifier = ">=0.15.7" },
+]
+test = [
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "ijson", specifier = ">=3.3.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "requests", specifier = ">=2.32.0" },
 ]
 
 [[package]]

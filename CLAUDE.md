@@ -21,8 +21,7 @@ backend/                FastAPI service + Pytest suite
   alembic/              DB migrations (versions/0001_initial_schema.py)
   scripts/              Local utility/profiling scripts
   Dockerfile            API image
-  Dockerfile.worker     Ingest worker image
-  Dockerfile.semantic-worker  Training + embedding worker image
+  Dockerfile.scryfall-sync    Scryfall ingest image
 frontend/               React + Vite SPA
   src/
     components/         UI components (grid, filters, overlays, mobile)
@@ -32,7 +31,7 @@ frontend/               React + Vite SPA
   nginx/                Nginx config/template for production
   Dockerfile            Multi-stage build (Vite dev + nginx runtime)
 .github/workflows/      ci.yml (frontend + workers), api-ci.yml (pytest + API build)
-docker-compose.yml      Local dev: db + api + ingest worker + embed worker + frontend
+docker-compose.yml      Local dev: db + api + scryfall-sync + frontend
 ```
 
 ## Architecture
@@ -87,7 +86,7 @@ Branch: `semantic-api`
 - [ ] Server-side filtering in semantic endpoints (color identity, CMC, type, format legality)
 - [ ] Wire `cards_raw` data into card detail API response (set info, prices, image URIs per printing)
 - [ ] Add `.env.example` for local dev onboarding
-- [ ] Confirm Railway Cron schedule and worker token rotation process
+- [ ] Confirm Railway Cron schedule and scryfall-sync token rotation process
 
 ## Roadmap
 
@@ -104,7 +103,7 @@ Branch: `semantic-api`
 - Semantic Oracle-text search with pgvector embeddings (v1.1)
 - Similar-cards endpoint (v1.1)
 - Mobile-optimized UI with bottom bar, drawers, overlay navigation (v1.2)
-- Railway production deployment with daily ingest worker cron (v1.3)
+- Railway production deployment with daily scryfall-sync cron (v1.3)
 - API performance: HNSW index, schema-ready cache, N+1 fix, TTL cache, pool tuning (v1.4)
 - Switch inference from sentence-transformers to ONNX Runtime (v1.4)
 - Scryfall schema refactor: `cards_raw`, oracle_id PK, composite card_faces, Alembic migrations (v2.0)
@@ -148,16 +147,16 @@ Branch: `semantic-api`
 
 ### Local dev
 ```bash
-docker compose up --build   # db + api + frontend (workers are one-shot)
+docker compose up --build   # db + api + frontend (scryfall-sync is one-shot, run manually)
 ```
 
 ### Backend (run in `backend/`)
 ```bash
-uv sync --all-extras --group test   # once
+uv sync --all-extras --group dev    # once
 
 uv run ruff check src/ --fix        # lint
-uv run basedpyright                 # type check (errors only; ~720 reportAny warnings are noise)
-uv run pytest tests/ -x -q         # tests
+uv run basedpyright src/            # type check (errors only; ~546 reportAny warnings are noise)
+uv run pytest -x -q                 # tests
 ```
 
 ### Frontend (run in `frontend/`)

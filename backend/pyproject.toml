@@ -23,14 +23,14 @@ api = [
   "transformers>=4.48.0",
   "uvicorn[standard]>=0.32.0",
 ]
-semantic-worker = [
+scryfall-sync = [
+  "requests>=2.32.0",
+  "ijson>=3.3.0",
+]
+oracle-embed = [
   "accelerate>=1.1.0",
   "datasets>=3.0.0",
   "sentence-transformers[onnx]>=3.0",
-]
-worker = [
-  "requests>=2.32.0",
-  "ijson>=3.3.0",
 ]
 
 [dependency-groups]
@@ -40,6 +40,9 @@ test = [
   "fastapi>=0.115.0",
   "requests>=2.32.0",
   "ijson>=3.3.0",
+]
+dev = [
+  {include-group = "test"},
   "ruff>=0.15.7",
   "basedpyright>=1.38.3",
 ]
@@ -54,3 +57,6 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "I"]  # pycodestyle errors, pyflakes, isort
 ignore = ["E501"]          # line length handled by formatter
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

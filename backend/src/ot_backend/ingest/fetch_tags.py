@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import time
 from enum import Enum
+from collections.abc import Sequence
 from typing import Any, cast
 
 import requests
-from sqlalchemy import delete, select
+from sqlalchemy import Row, delete, select
 from sqlalchemy.orm import Session
 
 from ..core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
@@ -362,7 +363,7 @@ def fetch_and_store_tags(
     return FetchOutcome.SUCCESS
 
 
-def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> list[Any]:
+def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str]]]:
     query = (
         select(Card.oracle_id, CardRaw.set_code, CardRaw.collector_number)
         .join(CardRaw, CardRaw.id == Card.scryfall_id)
