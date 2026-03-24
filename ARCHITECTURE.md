@@ -1,99 +1,103 @@
 # Architecture: Oracle Tutor
 
 ## Overview
-Oracle Tutor is a Magic: The Gathering card search application with a FastAPI backend, a React SPA frontend, and PostgreSQL storage. The backend serves fuzzy card-name lookup via Postgres trigram search plus semantic Oracle-text search backed by pgvector embeddings and ONNX Runtime inference.
+Oracle Tutor is a Magic: The Gathering search application with a FastAPI backend, a React SPA frontend, and PostgreSQL storage. It combines trigram-based card-name lookup with semantic Oracle-text search backed by pgvector embeddings and ONNX Runtime inference over Scryfall bulk data.
 
 ## Stack
 - Language: Python 3.12+, TypeScript 5.9
 - Framework: FastAPI + Hypercorn, React 19 + Vite 7
-- Key dependencies: SQLAlchemy 2, psycopg 3, pgvector, ONNX Runtime (inference), sentence-transformers (training only), requests, ijson, TanStack Query, React Router 7, Axios, Framer Motion, TailwindCSS 4
-- Test runner: Pytest for backend; frontend has lint/build checks but no committed test suite
+- Key dependencies: SQLAlchemy 2, psycopg 3, pgvector, requests, ijson, ONNX Runtime, transformers, sentence-transformers, TanStack Query, React Router 7, Axios, Framer Motion, TailwindCSS 4, react-helmet-async
+- Test runner: Pytest (backend); frontend uses ESLint + TypeScript/Vite build checks, no committed UI test suite
 
 ## Project structure
 ```text
 backend/
   src/ot_backend/
-    api/                FastAPI app, route handlers, response schemas
-    core/               config, DB engine/session, schema init, ORM models, logging
-    embed/              model training, embedding computation, runtime semantic search
-    ingest/             one-shot Scryfall ingestion and Tagger sync
-  tests/                backend pytest suite (SQLite in-memory)
-  scripts/              local profiling / stress scripts
-  Dockerfile*           API, ingestion worker, semantic worker images
+    api/                FastAPI app, routes, Pydantic response schemas
+    core/               config, DB engine/session, ORM models, schema init, logging
+    embed/              semantic training pipeline, ONNX export/inference, text prep
+    ingest/             one-shot Scryfall + Tagger ingestion worker
+  tests/                pytest suite against SQLite in-memory DB
+  scripts/              local utility/profiling scripts
 frontend/
   src/
-    components/         reusable UI pieces, filters, overlays, grids
-    pages/              routed screens (`/`, `/search`, `/card/:id`)
-    lib/                small frontend helpers
-  nginx/                runtime nginx config/template
-  Dockerfile            Vite dev image + nginx runtime image
-.github/workflows/      API CI, frontend CI, worker/frontend docker builds
-docker-compose*.yml     local, prod, and worker-only compose definitions
+    components/         reusable UI, overlays, filters, mobile chrome
+    pages/              home/search detail routes
+    lib/                small helpers (`cn`, SEO helpers)
+  nginx/                production nginx config/template
+.github/workflows/      backend test/build workflow and path-filtered CI builds
+docker-compose.yml      local db + api + ingest worker + semantic worker + frontend
 ```
 
 ## Components
-- `backend/src/ot_backend/api/main.py`: single FastAPI app with lifespan-driven DB init and routes for `/search`, `/suggest-names`, `/card/{id}`, `/search-oracle`, `/similar-cards/{id}`, `/health`, `/version`.
-- `backend/src/ot_backend/api/schemas.py`: Pydantic response models; `SimilarCard` is the shared payload for semantic search and similarity results.
-- `backend/src/ot_backend/core/database.py`: builds SQLAlchemy engine from `DATABASE_URL` or local `DB_*` vars, treats Railway as production, uses `StaticPool` for in-memory SQLite tests.
-- `backend/src/ot_backend/core/db_init.py`: owns schema bootstrap, Postgres extension/index creation, migration-state coordination via `system_metadata`, and destructive reset gating for ingest mode.
-- `backend/src/ot_backend/core/models.py`: ORM schema for cards, faces, ingestion logs, tags, relationships, and `card_face_semantic_embeddings`; embeddings are face-level with dimension 384.
-- `backend/src/ot_backend/ingest/main.py`: cron-friendly one-shot entry point; runs ingestion once and exits.
-- `backend/src/ot_backend/ingest/data_builder.py`: downloads Scryfall bulk data, filters non-playable/digital-only records, chooses a preferred printing per `oracle_id`, upserts cards/faces, cleans stale rows, and optionally triggers tag sync.
-- `backend/src/ot_backend/ingest/fetch_tags.py`: pulls GraphQL data from `tagger.scryfall.com` and stores tags, ancestor links, and card relationships.
-- `backend/src/ot_backend/embed/train.py`: trains a sentence-transformer model from self-pairs plus tag-derived positive pairs, saves checkpoint to `data/embed/model`, and exports to ONNX.
-- `backend/src/ot_backend/embed/compute.py`: recomputes all face embeddings offline using the ONNX model and stores them in Postgres.
-- `backend/src/ot_backend/embed/index.py`: lazy-loads the ONNX model at runtime and executes pgvector cosine-distance queries.
-- `frontend/src/api.ts`: Axios wrapper around same-origin `/api`; all frontend data access is centralized here.
-- `frontend/src/App.tsx`: browser-router shell with lazy-loaded `CardPage` and `OracleSearchPage`.
-- `frontend/src/pages/CardPage.tsx`: fetches one card plus paginated similar cards; manages overlay navigation and mobile details drawer.
-- `frontend/src/pages/OracleSearchPage.tsx`: fetches paginated semantic search results from query-string state.
-- `frontend/src/components/CardGrid.tsx`: main results surface; groups cards by similarity bands and handles incremental loading UX.
-- `frontend/src/components/FilterBar.tsx`: shared filter UI; emits `FilterState` used in both card similarity and Oracle search flows.
+- `backend/src/ot_backend/api/main.py`: single FastAPI app. Lifespan bootstraps DB readiness and eagerly probes semantic model availability. Routes: `/`, `/health`, `/version`, `/search`, `/suggest-names`, `/card/{id}`, `/search-oracle`, `/similar-cards/{id}`.
+- `backend/src/ot_backend/api/schemas.py`: response models for fuzzy matches and semantic results.
+- `backend/src/ot_backend/core/database.py`: central SQLAlchemy engine/session setup. Uses `DATABASE_URL` when present, otherwise composes a local Postgres URL from `DB_*`; treats Railway env vars as production; uses `StaticPool` for in-memory SQLite tests.
+- `backend/src/ot_backend/core/models.py`: ORM schema for cards, faces, semantic embeddings, tags, taggings, relationships, ingestion logs, and `system_metadata`. Semantic vectors are stored at face granularity with dimension 384. SQLite falls back to JSON for embeddings when pgvector is unavailable.
+- `backend/src/ot_backend/core/db_init.py`: schema bootstrap and migration-state coordination. There is no Alembic yet; schema is created from models, Postgres extensions/indexes are created manually, and worker mode can destructively reset card tables when schema version or legacy-shape checks require it.
+- `backend/src/ot_backend/core/config.py`: canonical paths for data/model artifacts plus schema versioning and semantic model path resolution.
+- `backend/src/ot_backend/core/logging_config.py`: named logger setup for API/ingest/embed flows and a `log_performance` decorator used on endpoints.
+- `backend/src/ot_backend/ingest/main.py`: cron-friendly worker entry point; runs one ingestion pass and exits.
+- `backend/src/ot_backend/ingest/data_builder.py`: fetches Scryfall bulk metadata/file, filters unsupported records, diffs against the previous local cards snapshot, upserts cards/faces, deletes stale rows, computes uniqueness, writes ingestion metadata, and can trigger Tagger sync.
+- `backend/src/ot_backend/ingest/fetch_tags.py`: calls `tagger.scryfall.com` GraphQL, upserts tags, direct taggings, ancestor edges, and card relationships.
+- `backend/src/ot_backend/embed/pipeline.py`: offline semantic pipeline. Builds a training dataset from face text plus selected Tagger-derived positive pairs, optionally fine-tunes a sentence-transformer, exports ONNX artifacts, and computes/stores embeddings.
+- `backend/src/ot_backend/embed/index.py`: runtime semantic index. Lazily loads tokenizer + ONNX model from local files, encodes queries, and performs pgvector cosine-distance queries with optional server-side filters.
+- `frontend/src/main.tsx`: SPA bootstrap with `QueryClientProvider` and `HelmetProvider`.
+- `frontend/src/App.tsx`: browser-router shell with routes for `/`, `/search`, `/card/:id`; search/card pages are lazy-loaded.
+- `frontend/src/api.ts`: all HTTP access is centralized here via an Axios instance rooted at same-origin `/api`.
+- `frontend/src/pages/OracleSearchPage.tsx`: query-string-driven semantic search page using `useInfiniteQuery`, overlay navigation, and filter state.
+- `frontend/src/pages/CardPage.tsx`: card detail page plus paginated similar-card browsing; treats the current card as the first item in overlay navigation.
+- `frontend/src/components/CardGrid.tsx`: primary results surface. Groups results into similarity bands, auto-loads additional pages until low-similarity groups unless the user explicitly expands them, and hosts the desktop filter bar.
+- `frontend/src/components/FilterBar.tsx`: local UI model for filters (`FilterState`) including color mode, rarity, CMC, type, and format.
 
 ## Data flow
-1. The ingestion worker initializes schema in ingest mode, acquiring a Postgres advisory lock and marking migration state in `system_metadata`.
-2. `ingest/data_builder.py` fetches Scryfall bulk metadata and the default-cards file, filters out unsupported records, reduces multiple printings to one preferred printing per `oracle_id`, and upserts `cards` plus `card_faces`.
-3. The same worker can enrich cards with Scryfall Tagger data, populating `tags`, `card_taggings`, `tag_ancestor_map`, and `card_relationships`.
-4. Semantic model training and embedding computation are offline jobs. Training writes model assets to `backend/data/embed/model`; compute writes vectors to `card_face_semantic_embeddings`.
-5. API startup calls `init_db(mode="api")`, ensures extensions/tables/indexes exist, and waits for schema readiness before serving data endpoints.
-6. `/search` and `/suggest-names` use Postgres trigram operators when available, with SQLite fallbacks for tests.
-7. `/search-oracle` and `/similar-cards/{id}` call `get_semantic_index()`, which lazy-loads the ONNX model from disk on first use, then queries pgvector for nearest neighbors.
-8. The frontend talks only to `/api` through Vite dev proxy locally and nginx reverse proxy in production, then renders infinite-scroll result sets with React Query caching.
+1. `docker compose` or Railway brings up Postgres plus the API; worker containers are separate one-shot processes.
+2. API startup calls `init_db(mode="api")`, which creates tables/extensions/indexes if needed and checks a migration-state flag in `system_metadata`; data endpoints return `503` while schema migration is marked in progress.
+3. The ingest worker runs `update_scryfall_data()`, which initializes the DB in worker mode, optionally resets card tables when the schema is incompatible, downloads Scryfall bulk data, filters out tokens/digital-only/theme-card records, and writes `cards` plus `card_faces`.
+4. The same ingest flow can call Tagger sync, storing `tags`, `card_taggings`, `tag_ancestor_map`, and `card_relationships`.
+5. The semantic worker runs `python -m ot_backend.embed.pipeline`, which derives training pairs from card faces and selected Tagger links, exports ONNX artifacts under `backend/data/semantic/runs/...`, and writes embeddings into `card_face_semantic_embeddings`.
+6. Runtime semantic endpoints call `get_semantic_index()`, which loads tokenizer/model files from `SEMANTIC_MODEL_PATH` on first use and queries pgvector in Postgres for nearest faces.
+7. `/search` and `/suggest-names` are still name-search endpoints: Postgres uses trigram similarity plus `ILIKE`; SQLite tests use the fallback `ILIKE` path only.
+8. The frontend talks only to `/api`; Vite proxies `/api` to the backend in local dev, and nginx serves the built SPA with same-origin API proxying in production.
 
 ## Key conventions
-- Python code uses a `src/` layout rooted at `backend/src/ot_backend`; tests add that path manually instead of relying on editable installs.
-- Database schema is owned directly in SQLAlchemy models plus `core/db_init.py`; there is no Alembic migration layer.
-- `init_db()` has two modes: API mode must never perform destructive resets, ingest mode may reset card tables only when `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true`.
-- Schema readiness is coordinated through `system_metadata` rows rather than external migration tooling.
-- Semantic search is face-centric: embeddings, similarity queries, and semantic ranking operate on `CardFace`, not whole-card aggregates.
-- Semantic assets live under `backend/data/embed/model`; request-time inference assumes those files already exist.
-- Frontend server state is handled with TanStack Query; route state lives in React Router query params/path params; local UI state stays in component state.
-- Frontend requests are centralized in `frontend/src/api.ts`; component code should not hand-roll fetch calls.
-- Filters are modeled in the frontend as `FilterState`, but the current backend semantic endpoints ignore the filter arguments they accept in the route signature and do not accept `match_mode` at all. The UI sends more filter state than the backend currently applies.
-- Backend and frontend are versioned independently: `backend/pyproject.toml` is `2.0.0` (semantic API milestone), `frontend/package.json` is `1.4.0`.
+- Backend uses a Python `src/` layout rooted at `backend/src/ot_backend`; tests manually add `backend/src` to `sys.path` instead of relying on editable installs.
+- The backend has three dependency shapes in `backend/pyproject.toml`: `api`, `worker`, and `semantic-worker`; Dockerfiles install only the extra each image needs.
+- Database ownership is model-first. Schema evolution is currently coordinated by `DB_SCHEMA_VERSION`, legacy-shape detection, and `system_metadata`; there is no migration framework yet.
+- `init_db()` is mode-sensitive: API mode must be non-destructive; worker mode may drop and rebuild card tables only when `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true`.
+- Semantic search is face-centric. Query vectors target `CardFaceSemanticEmbedding.face_id`, then results are hydrated back through `CardFace -> Card`.
+- Semantic artifacts are expected to be local files, not remote model pulls at request time. Runtime inference uses CPU ONNX only.
+- Frontend server state uses TanStack Query; routing state lives in React Router params/query string; transient UI state stays in component state.
+- Frontend network calls should go through `frontend/src/api.ts`; UI components do not fetch directly.
+- Frontend filters are richer than the backend contract: the UI sends `match_mode`, but current semantic endpoints do not accept or apply it. `color_feature`, rarity, CMC, type, format, and color filters are implemented server-side in `embed/index.py`.
+- The current API surface is hybrid: fuzzy/name endpoints still exist even though the roadmap/TODO describe an ongoing semantic-only migration.
 
 ## How to run
 - Dev: `docker compose up --build`
 - Backend setup: `cd backend && uv sync --all-extras --group test`
-- Backend checks: `cd backend && uv run ruff check src/ --fix && uv run basedpyright && uv run pytest tests/ -x -q`
+- Backend checks: `cd backend && uv run ruff check src/ --fix`, then `uv run basedpyright`, then `uv run pytest tests/ -x -q`
+- Backend CI parity: `cd backend && uv sync --frozen --group test && uv run pytest`
+- Frontend setup: `cd frontend && npm install`
 - Frontend dev: `cd frontend && npm run dev`
 - Frontend checks: `cd frontend && npm run lint && npm run build`
-- Build: `docker compose build`
+- Semantic worker: `cd backend && python -m ot_backend.embed.pipeline`
+- Ingest worker: `cd backend && python -m ot_backend.ingest.main --strict --trigger-type cron`
 
 ## Key decisions
-- Postgres is the system of record for both relational card data and semantic vectors; the API does not maintain a separate in-memory search index.
-- Fuzzy name search and semantic Oracle-text search currently coexist: trigram search covers name lookup, pgvector covers meaning-based retrieval.
-- Heavy operations are pushed out of the request path: ingestion, model training, and embedding recomputation are batch jobs.
-- The API and worker share ORM models and DB-init logic to keep schema assumptions aligned.
-- The frontend is a thin SPA over a stable HTTP contract and uses same-origin `/api` proxying to avoid CORS complexity in normal deployments.
-- The codebase prefers direct, explicit modules over deep abstraction layers; most behavior is concentrated in a few large files (`backend/src/ot_backend/api/main.py`, `backend/src/ot_backend/ingest/data_builder.py`, `frontend/src/components/CardGrid.tsx`, `frontend/src/components/FilterBar.tsx`).
+- Postgres is the system of record for both relational card data and semantic vectors; request handlers do not maintain a separate in-memory search index.
+- Heavy work stays off the request path: Scryfall ingestion, Tagger sync, semantic training, ONNX export, and embedding recomputation are all batch jobs.
+- Runtime inference uses locally stored ONNX artifacts plus `transformers` tokenization so the API image can serve semantic search without shipping sentence-transformers training dependencies.
+- API and workers share the same ORM models and DB bootstrap code so ingestion/search stay aligned on schema assumptions.
+- The frontend is a thin SPA over a same-origin HTTP API, which keeps deployment simple and avoids normal CORS requirements.
+- The codebase favors direct modules over deep service layers; most behavior is concentrated in a small set of large files (`api/main.py`, `ingest/data_builder.py`, `embed/pipeline.py`, `pages/CardPage.tsx`, `components/CardGrid.tsx`).
 
 ## Critical constraints
-- `DATABASE_URL` is mandatory in production; local development instead uses `DB_*` vars from compose.
-- `DB_PASSWORD` must be set for non-`DATABASE_URL` local runs; the backend will refuse to start without it.
-- ONNX model files must exist at `SEMANTIC_MODEL_PATH/onnx/model.onnx` for semantic endpoints to work; otherwise `/search-oracle` and `/similar-cards/{id}` return 503. Run the `worker-embed` container to (re)generate them.
-- Backend tests run against in-memory SQLite, so Postgres-only behavior such as pgvector distance queries and trigram operators is only partially covered in automated tests.
-- CI is split: `.github/workflows/api-ci.yml` runs backend tests and API image build, while `.github/workflows/ci.yml` conditionally builds frontend assets/images and worker images based on changed paths.
+- `DATABASE_URL` is required in production. Local development can fall back to `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`; `DB_PASSWORD` is mandatory when `DATABASE_URL` is absent.
+- `SEMANTIC_MODEL_PATH` must point to a directory containing `onnx/model.onnx` (or legacy `model.onnx`) plus tokenizer assets. If the artifact is missing, semantic endpoints return `503`.
+- Backend tests run against in-memory SQLite, so Postgres-only behavior such as pgvector distance queries, trigram operators, JSONB containment, and extension/index DDL is only partially covered in automated tests.
+- Worker-mode schema init may drop card tables when it detects a major/minor schema mismatch or legacy table shape; never enable `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` in production casually.
+- The repo may contain unrelated in-progress changes on feature branches. For architecture updates, treat the checked-in source as canonical unless a worktree diff clearly reflects an already-adopted structural change.
+- Backend and frontend are versioned independently: `backend/pyproject.toml` is `2.0.0`, `frontend/package.json` is `1.4.0`.
 
 ## Last updated
-2026-03-23
+2026-03-24
