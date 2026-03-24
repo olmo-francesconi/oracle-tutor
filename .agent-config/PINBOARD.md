@@ -53,6 +53,12 @@ Update `api/main.py` queries to use `oracle_id`. Update test fixtures and tests 
 
 <!-- Workers append their status here on start and completion -->
 
+### TASK-002 — Codex
+- **Status**: complete
+- **Started**: 2026-03-24
+- **Files touched**: `.agent-config/PINBOARD.md`, `backend/src/ot_backend/core/models.py`
+- **Result**: Rewrote `models.py` to match the new Alembic schema: added `CardRaw`, moved `Card` to `oracle_id` primary key with `scryfall_id` foreign key, converted `CardFace` and `CardFaceSemanticEmbedding` to composite `(oracle_id, face_ix)` keys, updated downstream `card_id` foreign keys to `cards.oracle_id`, and refreshed `to_dict()` payloads for `Card` and `CardFace`.
+
 ### TASK-001 — Codex
 - **Status**: complete
 - **Started**: 2026-03-24

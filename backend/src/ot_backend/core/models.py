@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, ForeignKeyConstraint, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -50,28 +50,94 @@ class IngestionLog(Base):
     trigger_type: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class CardRaw(Base):
+    __tablename__ = "cards_raw"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    oracle_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String)
+    lang: Mapped[str] = mapped_column(String)
+    layout: Mapped[str] = mapped_column(String)
+    cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mana_cost: Mapped[str | None] = mapped_column(String, nullable=True)
+    type_line: Mapped[str | None] = mapped_column(String, nullable=True)
+    oracle_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    color_identity: Mapped[list[str]] = mapped_column(JSON)
+    color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    keywords: Mapped[list[str]] = mapped_column(JSON)
+    legalities: Mapped[dict[str, str]] = mapped_column(JSON)
+    power: Mapped[str | None] = mapped_column(String, nullable=True)
+    toughness: Mapped[str | None] = mapped_column(String, nullable=True)
+    loyalty: Mapped[str | None] = mapped_column(String, nullable=True)
+    defense: Mapped[str | None] = mapped_column(String, nullable=True)
+    rarity: Mapped[str] = mapped_column(String)
+    set_code: Mapped[str] = mapped_column(String, index=True)
+    set_id: Mapped[str] = mapped_column(String)
+    set_name: Mapped[str] = mapped_column(String)
+    set_type: Mapped[str] = mapped_column(String)
+    collector_number: Mapped[str] = mapped_column(String)
+    released_at: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    artist: Mapped[str | None] = mapped_column(String, nullable=True)
+    illustration_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_uris: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    card_faces_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
+    all_parts: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
+    games: Mapped[list[str]] = mapped_column(JSON)
+    finishes: Mapped[list[str]] = mapped_column(JSON)
+    digital: Mapped[bool] = mapped_column(Boolean, default=False)
+    booster: Mapped[bool] = mapped_column(Boolean, default=False)
+    promo: Mapped[bool] = mapped_column(Boolean, default=False)
+    promo_types: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    reprint: Mapped[bool] = mapped_column(Boolean, default=False)
+    variation: Mapped[bool] = mapped_column(Boolean, default=False)
+    variation_of: Mapped[str | None] = mapped_column(String, nullable=True)
+    full_art: Mapped[bool] = mapped_column(Boolean, default=False)
+    textless: Mapped[bool] = mapped_column(Boolean, default=False)
+    story_spotlight: Mapped[bool] = mapped_column(Boolean, default=False)
+    border_color: Mapped[str | None] = mapped_column(String, nullable=True)
+    frame: Mapped[str | None] = mapped_column(String, nullable=True)
+    frame_effects: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    watermark: Mapped[str | None] = mapped_column(String, nullable=True)
+    edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prices: Mapped[dict[str, str | None] | None] = mapped_column(JSON, nullable=True)
+    arena_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mtgo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tcgplayer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cardmarket_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    multiverse_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    flavor_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flavor_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    content_warning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    ingested_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive)
+
+    card: Mapped["Card | None"] = relationship(back_populates="raw_printing")
+
+
 class Card(Base):
     __tablename__ = "cards"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True)
+    oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
+    scryfall_id: Mapped[str] = mapped_column(ForeignKey("cards_raw.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, index=True)
-    scryfall_set: Mapped[str | None] = mapped_column(String, nullable=True)
-    collector_number: Mapped[str | None] = mapped_column(String, nullable=True)
     layout: Mapped[str | None] = mapped_column(String, nullable=True)
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
-    edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    rarity: Mapped[str | None] = mapped_column(String, nullable=True)
     color_identity: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     legalities: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rarity: Mapped[str | None] = mapped_column(String, nullable=True)
     uniqueness: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    raw_printing: Mapped["CardRaw"] = relationship(back_populates="card")
     faces: Mapped[list["CardFace"]] = relationship(back_populates="card", cascade="all, delete-orphan")
     taggings: Mapped[list["CardTagging"]] = relationship(back_populates="card", cascade="all, delete-orphan")
     relationships: Mapped[list["CardRelationship"]] = relationship(back_populates="card", cascade="all, delete-orphan")
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "id": self.id,
+            "oracle_id": self.oracle_id,
+            "scryfall_id": self.scryfall_id,
             "name": self.name,
             "layout": self.layout,
             "cmc": self.cmc,
@@ -85,18 +151,27 @@ class Card(Base):
 
 class CardFace(Base):
     __tablename__ = "card_faces"
+    __table_args__ = (
+        ForeignKeyConstraint(["oracle_id"], ["cards.oracle_id"], ondelete="CASCADE"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"))
-
+    oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
+    face_ix: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scryfall_face_oracle_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     mana_cost: Mapped[str | None] = mapped_column(String, nullable=True)
     type_line: Mapped[str | None] = mapped_column(String, nullable=True)
     oracle_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     power: Mapped[str | None] = mapped_column(String, nullable=True)
     toughness: Mapped[str | None] = mapped_column(String, nullable=True)
+    loyalty: Mapped[str | None] = mapped_column(String, nullable=True)
+    defense: Mapped[str | None] = mapped_column(String, nullable=True)
     colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    image_uris: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    artist: Mapped[str | None] = mapped_column(String, nullable=True)
+    flavor_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     card: Mapped["Card"] = relationship(back_populates="faces")
     semantic_embedding: Mapped["CardFaceSemanticEmbedding"] = relationship(
@@ -108,13 +183,22 @@ class CardFace(Base):
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "oracle_id": self.oracle_id,
+            "face_ix": self.face_ix,
             "name": self.name,
             "mana_cost": self.mana_cost,
             "type_line": self.type_line,
             "oracle_text": self.oracle_text,
             "power": self.power,
             "toughness": self.toughness,
+            "loyalty": self.loyalty,
+            "defense": self.defense,
             "colors": self.colors,
+            "color_indicator": self.color_indicator,
+            "image_uris": self.image_uris,
+            "artist": self.artist,
+            "flavor_text": self.flavor_text,
+            "cmc": self.cmc,
         }
 
 
@@ -138,7 +222,7 @@ class CardTagging(Base):
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True, nullable=False)
+    card_id: Mapped[str] = mapped_column(ForeignKey("cards.oracle_id", ondelete="CASCADE"), index=True, nullable=False)
     tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), index=True, nullable=False)
     foreign_key: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -166,7 +250,7 @@ class CardRelationship(Base):
     __tablename__ = "card_relationships"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True, nullable=False)
+    card_id: Mapped[str] = mapped_column(ForeignKey("cards.oracle_id", ondelete="CASCADE"), index=True, nullable=False)
     foreign_key: Mapped[str | None] = mapped_column(String, nullable=True)
     classifier: Mapped[str | None] = mapped_column(String, nullable=True)
     classifier_inverse: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -184,8 +268,16 @@ class CardRelationship(Base):
 
 class CardFaceSemanticEmbedding(Base):
     __tablename__ = "card_face_semantic_embeddings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["oracle_id", "face_ix"],
+            ["card_faces.oracle_id", "card_faces.face_ix"],
+            ondelete="CASCADE",
+        ),
+    )
 
-    face_id: Mapped[int] = mapped_column(ForeignKey("card_faces.id", ondelete="CASCADE"), primary_key=True)
+    oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
+    face_ix: Mapped[int] = mapped_column(Integer, primary_key=True)
     embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
 
     face: Mapped["CardFace"] = relationship(back_populates="semantic_embedding")
