@@ -30,6 +30,7 @@ COPY src/ot_backend/__init__.py ./src/ot_backend/
 COPY src/ot_backend/core ./src/ot_backend/core
 COPY src/ot_backend/api ./src/ot_backend/api
 COPY src/ot_backend/embed ./src/ot_backend/embed
+COPY alembic ./alembic
 
 
 FROM python:3.12-slim AS runtime
@@ -56,6 +57,7 @@ COPY --chown=app:app src/ot_backend/__init__.py ./src/ot_backend/
 COPY --chown=app:app src/ot_backend/core ./src/ot_backend/core
 COPY --chown=app:app src/ot_backend/api ./src/ot_backend/api
 COPY --chown=app:app src/ot_backend/embed ./src/ot_backend/embed
+COPY --from=builder --chown=app:app /app/alembic ./alembic
 
 EXPOSE 8000
 

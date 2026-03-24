@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,11 @@ logger = logging.getLogger("ot_backend.embed.index")
 _index: SemanticIndex | None = None
 
 
-def _load_onnx_dependencies() -> tuple[Any, Any]:
+def _load_onnx_dependencies() -> tuple[Any, Any, Any]:
     import os
 
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
     try:
         onnxruntime = import_module("onnxruntime")
         transformers = import_module("transformers")
@@ -32,7 +34,11 @@ def _load_onnx_dependencies() -> tuple[Any, Any]:
             "onnxruntime and transformers are required for semantic inference. "
             "Install the API dependencies before using this module."
         ) from exc
-    return getattr(onnxruntime, "InferenceSession"), getattr(transformers, "AutoTokenizer")
+    return (
+        getattr(onnxruntime, "InferenceSession"),
+        getattr(onnxruntime, "SessionOptions"),
+        getattr(transformers, "AutoTokenizer"),
+    )
 
 
 def _pooling_config_path(model_root: Path) -> Path:
@@ -91,11 +97,17 @@ class OnnxTextEncoder:
             raise RuntimeError(f"Semantic ONNX artifact not found at {onnx_model_path}")
 
         _validate_pooling_strategy(model_root)
-        InferenceSession, AutoTokenizer = _load_onnx_dependencies()
+        InferenceSession, SessionOptions, AutoTokenizer = _load_onnx_dependencies()
+        sess_options = SessionOptions()
+        sess_options.log_severity_level = 3  # suppress ORT INFO/WARNING (errors only)
         huggingface_cache_dir()
         logger.info("Loading ONNX model from %s", onnx_model_path)
         self._tokenizer = AutoTokenizer.from_pretrained(str(model_root), local_files_only=True)
-        self._session = InferenceSession(str(onnx_model_path), providers=["CPUExecutionProvider"])
+        self._session = InferenceSession(
+            str(onnx_model_path),
+            sess_options=sess_options,
+            providers=["CPUExecutionProvider"],
+        )
         self._session_input_names = {session_input.name for session_input in self._session.get_inputs()}
         logger.info("Semantic model ready")
 
