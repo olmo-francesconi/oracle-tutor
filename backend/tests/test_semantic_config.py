@@ -21,7 +21,7 @@ def test_huggingface_cache_dir_defaults_to_writable_data_path(monkeypatch, tmp_p
 
     assert cache_dir == tmp_path / "huggingface"
     assert cache_dir.exists()
-    assert Path(cache_dir, "transformers") == Path(os.environ["TRANSFORMERS_CACHE"])
+    assert "TRANSFORMERS_CACHE" not in os.environ
     assert Path(cache_dir, "sentence-transformers") == Path(os.environ["SENTENCE_TRANSFORMERS_HOME"])
 
 

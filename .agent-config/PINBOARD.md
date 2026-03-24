@@ -53,6 +53,12 @@ Update `api/main.py` queries to use `oracle_id`. Update test fixtures and tests 
 
 <!-- Workers append their status here on start and completion -->
 
+### TASK-005 — Codex
+- **Status**: complete
+- **Started**: 2026-03-24
+- **Files touched**: `.agent-config/PINBOARD.md`, `backend/src/ot_backend/api/main.py`, `backend/tests/`
+- **Result**: Updated API routes and response models to use `oracle_id`/composite face keys, switched semantic seed-face lookup to the `(oracle_id, face_ix)` embedding join, and updated backend test fixtures to seed `CardRaw`, `Card`, and `CardFace` rows against the new schema.
+
 ### TASK-004 — Codex
 - **Status**: complete
 - **Started**: 2026-03-24

@@ -17,7 +17,7 @@ from ot_backend.core.db_init import (
     init_db,
     wait_for_migration_ready,
 )
-from ot_backend.core.models import Card, CardFace, SystemMetadata
+from ot_backend.core.models import Card, CardFace, CardRaw, SystemMetadata
 
 
 def _utcnow_naive() -> datetime:
@@ -28,6 +28,7 @@ def _clean_db() -> None:
     with SessionLocal() as db:
         db.query(CardFace).delete()
         db.query(Card).delete()
+        db.query(CardRaw).delete()
         db.query(SystemMetadata).delete()
         db.commit()
 
@@ -35,8 +36,29 @@ def _clean_db() -> None:
 def _seed_card_and_old_schema() -> None:
     with SessionLocal() as db:
         db.add(
+            CardRaw(
+                id="scryfall-card-reset-check",
+                oracle_id="card-reset-check",
+                name="Reset Check Card",
+                lang="en",
+                layout="normal",
+                color_identity=["U"],
+                keywords=[],
+                legalities={},
+                rarity="common",
+                set_code="tst",
+                set_id="set-tst",
+                set_name="Test Set",
+                set_type="expansion",
+                collector_number="1",
+                games=["paper"],
+                finishes=["nonfoil"],
+            )
+        )
+        db.add(
             Card(
-                id="card-reset-check",
+                oracle_id="card-reset-check",
+                scryfall_id="scryfall-card-reset-check",
                 name="Reset Check Card",
                 layout="normal",
                 rarity="common",
