@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -25,6 +25,7 @@ from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
+    CardRaw,
     CardFace,
     CardFaceSemanticEmbedding,
     CardRelationship,
@@ -47,19 +48,26 @@ def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _delete_card_related_rows(session, card_ids: list[str]) -> None:
-    if not card_ids:
+def _parse_released_at(value: Any) -> date | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _delete_card_related_rows(session, oracle_ids: list[str]) -> None:
+    if not oracle_ids:
         return
 
     chunk_size = 1000
-    for i in range(0, len(card_ids), chunk_size):
-        chunk = card_ids[i : i + chunk_size]
-        face_ids = session.scalars(select(CardFace.id).where(CardFace.card_id.in_(chunk))).all()
-        if face_ids:
-            session.execute(delete(CardFaceSemanticEmbedding).where(CardFaceSemanticEmbedding.face_id.in_(face_ids)))
+    for i in range(0, len(oracle_ids), chunk_size):
+        chunk = oracle_ids[i : i + chunk_size]
+        session.execute(delete(CardFaceSemanticEmbedding).where(CardFaceSemanticEmbedding.oracle_id.in_(chunk)))
         session.execute(delete(CardRelationship).where(CardRelationship.card_id.in_(chunk)))
         session.execute(delete(CardTagging).where(CardTagging.card_id.in_(chunk)))
-        session.execute(delete(CardFace).where(CardFace.card_id.in_(chunk)))
+        session.execute(delete(CardFace).where(CardFace.oracle_id.in_(chunk)))
 
 
 # Removed local ensure_data_dir, now in core.config
@@ -222,28 +230,90 @@ def cleanup_unplayable_cards(session) -> dict[str, int]:
     stats = {"deleted_cards_by_layout": 0, "deleted_cards_by_type_line_card": 0}
 
     # Delete by skipped layouts (delete dependents explicitly for sqlite / non-cascading FKs).
-    ids_by_layout = session.scalars(select(Card.id).where(Card.layout.in_(skip_layouts))).all()
+    ids_by_layout = session.scalars(select(Card.oracle_id).where(Card.layout.in_(skip_layouts))).all()
     _delete_card_related_rows(session, ids_by_layout)
-    res = session.execute(delete(Card).where(Card.id.in_(ids_by_layout)))
+    res = session.execute(delete(Card).where(Card.oracle_id.in_(ids_by_layout)))
     stats["deleted_cards_by_layout"] = int(getattr(res, "rowcount", 0) or len(ids_by_layout))
 
     # Delete Theme Cards (type_line == "Card") (again: delete faces first for safety).
     ids_by_face_card = session.scalars(
-        select(CardFace.card_id).where(CardFace.type_line == "Card").distinct()
+        select(CardFace.oracle_id).where(CardFace.type_line == "Card").distinct()
     ).all()
     _delete_card_related_rows(session, ids_by_face_card)
-    res = session.execute(delete(Card).where(Card.id.in_(ids_by_face_card)))
+    res = session.execute(delete(Card).where(Card.oracle_id.in_(ids_by_face_card)))
     stats["deleted_cards_by_type_line_card"] = int(getattr(res, "rowcount", 0) or len(ids_by_face_card))
 
     return stats
 
 
-def prepare_parent_card(card_data: dict[str, Any]) -> dict[str, Any]:
+def prepare_raw_card(card_data: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": card_data.get("id"),
+        "oracle_id": card_data.get("oracle_id"),
         "name": card_data.get("name"),
-        "scryfall_set": card_data.get("set"),
+        "lang": card_data.get("lang"),
+        "layout": card_data.get("layout"),
+        "cmc": card_data.get("cmc"),
+        "mana_cost": card_data.get("mana_cost"),
+        "type_line": card_data.get("type_line"),
+        "oracle_text": card_data.get("oracle_text"),
+        "colors": card_data.get("colors"),
+        "color_identity": card_data.get("color_identity"),
+        "color_indicator": card_data.get("color_indicator"),
+        "keywords": card_data.get("keywords"),
+        "legalities": card_data.get("legalities"),
+        "power": card_data.get("power"),
+        "toughness": card_data.get("toughness"),
+        "loyalty": card_data.get("loyalty"),
+        "defense": card_data.get("defense"),
+        "rarity": card_data.get("rarity"),
+        "set_code": card_data.get("set"),
+        "set_id": card_data.get("set_id"),
+        "set_name": card_data.get("set_name"),
+        "set_type": card_data.get("set_type"),
         "collector_number": card_data.get("collector_number"),
+        "released_at": _parse_released_at(card_data.get("released_at")),
+        "artist": card_data.get("artist"),
+        "illustration_id": card_data.get("illustration_id"),
+        "image_status": card_data.get("image_status"),
+        "image_uris": card_data.get("image_uris"),
+        "card_faces_json": card_data.get("card_faces"),
+        "all_parts": card_data.get("all_parts"),
+        "games": card_data.get("games"),
+        "finishes": card_data.get("finishes"),
+        "digital": card_data.get("digital"),
+        "booster": card_data.get("booster"),
+        "promo": card_data.get("promo"),
+        "promo_types": card_data.get("promo_types"),
+        "reprint": card_data.get("reprint"),
+        "variation": card_data.get("variation"),
+        "variation_of": card_data.get("variation_of"),
+        "full_art": card_data.get("full_art"),
+        "textless": card_data.get("textless"),
+        "story_spotlight": card_data.get("story_spotlight"),
+        "border_color": card_data.get("border_color"),
+        "frame": card_data.get("frame"),
+        "frame_effects": card_data.get("frame_effects"),
+        "watermark": card_data.get("watermark"),
+        "edhrec_rank": card_data.get("edhrec_rank"),
+        "prices": card_data.get("prices"),
+        "arena_id": card_data.get("arena_id"),
+        "mtgo_id": card_data.get("mtgo_id"),
+        "tcgplayer_id": card_data.get("tcgplayer_id"),
+        "cardmarket_id": card_data.get("cardmarket_id"),
+        "multiverse_ids": card_data.get("multiverse_ids"),
+        "flavor_text": card_data.get("flavor_text"),
+        "flavor_name": card_data.get("flavor_name"),
+        "content_warning": card_data.get("content_warning"),
+        "ingested_at": _utcnow_naive(),
+    }
+
+
+def prepare_parent_card(card_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "oracle_id": card_data.get("oracle_id"),
+        "scryfall_id": card_data.get("id"),
+        "name": card_data.get("name"),
         "layout": card_data.get("layout"),
         "cmc": card_data.get("cmc"),
         "edhrec_rank": card_data.get("edhrec_rank"),
@@ -253,22 +323,32 @@ def prepare_parent_card(card_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def prepare_card_face(card_id: str, face_data: dict[str, Any]) -> dict[str, Any]:
+def prepare_card_face(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -> dict[str, Any]:
     return {
-        "card_id": card_id,
+        "oracle_id": oracle_id,
+        "face_ix": face_ix,
+        "scryfall_face_oracle_id": face_data.get("oracle_id"),
         "name": face_data.get("name"),
         "mana_cost": face_data.get("mana_cost"),
         "type_line": face_data.get("type_line"),
         "oracle_text": face_data.get("oracle_text"),
         "power": face_data.get("power"),
         "toughness": face_data.get("toughness"),
+        "loyalty": face_data.get("loyalty"),
+        "defense": face_data.get("defense"),
         "colors": face_data.get("colors"),
+        "color_indicator": face_data.get("color_indicator"),
+        "image_uris": face_data.get("image_uris"),
+        "artist": face_data.get("artist"),
+        "flavor_text": face_data.get("flavor_text"),
+        "cmc": face_data.get("cmc"),
     }
 
 
 def normalize_card_data(card: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = {
         "id": card.get("id"),
+        "oracle_id": card.get("oracle_id"),
         "name": card.get("name"),
         "scryfall_set": card.get("set"),
         "collector_number": card.get("collector_number"),
@@ -322,43 +402,61 @@ def ingest_batch(session, batch_cards: list[dict[str, Any]]) -> None:
     if not batch_cards:
         return
 
+    raw_cards: list[dict[str, Any]] = []
     parents: list[dict[str, Any]] = []
     faces_to_insert: list[dict[str, Any]] = []
+    face_oracle_ids: set[str] = set()
 
     for card in batch_cards:
         card_id = card.get("id")
         if not isinstance(card_id, str) or not card_id:
-            # Defensive guard: Scryfall records should always have an id, but skip if malformed.
+            continue
+        raw_cards.append(prepare_raw_card(card))
+        oracle_id = card.get("oracle_id")
+        if not isinstance(oracle_id, str) or not oracle_id:
             continue
         parents.append(prepare_parent_card(card))
+        face_oracle_ids.add(oracle_id)
         faces = card.get("card_faces") or [card]
-        for face in faces:
-            faces_to_insert.append(prepare_card_face(card_id, face))
+        for face_ix, face in enumerate(faces):
+            faces_to_insert.append(prepare_card_face(oracle_id, face_ix, face))
 
-    # Upsert parents (Postgres only). For other DBs, do a slower path.
     if engine.dialect.name == "postgresql":
-        stmt = insert(Card).values(parents)
-        stmt = stmt.on_conflict_do_update(
+        raw_stmt = insert(CardRaw).values(raw_cards)
+        raw_stmt = raw_stmt.on_conflict_do_update(
             index_elements=["id"],
             set_={
-                "name": stmt.excluded.name,
-                "scryfall_set": stmt.excluded.scryfall_set,
-                "collector_number": stmt.excluded.collector_number,
-                "layout": stmt.excluded.layout,
-                "cmc": stmt.excluded.cmc,
-                "edhrec_rank": stmt.excluded.edhrec_rank,
-                "rarity": stmt.excluded.rarity,
-                "legalities": stmt.excluded.legalities,
-                "color_identity": stmt.excluded.color_identity,
+                column.name: getattr(raw_stmt.excluded, column.name)
+                for column in CardRaw.__table__.columns
+                if column.name != "id"
             },
         )
-        session.execute(stmt)
+        session.execute(raw_stmt)
+
+        if parents:
+            parent_stmt = insert(Card).values(parents)
+            parent_stmt = parent_stmt.on_conflict_do_update(
+                index_elements=["oracle_id"],
+                set_={
+                    "scryfall_id": parent_stmt.excluded.scryfall_id,
+                    "name": parent_stmt.excluded.name,
+                    "layout": parent_stmt.excluded.layout,
+                    "cmc": parent_stmt.excluded.cmc,
+                    "edhrec_rank": parent_stmt.excluded.edhrec_rank,
+                    "rarity": parent_stmt.excluded.rarity,
+                    "legalities": parent_stmt.excluded.legalities,
+                    "color_identity": parent_stmt.excluded.color_identity,
+                },
+            )
+            session.execute(parent_stmt)
     else:
+        for raw_card in raw_cards:
+            session.merge(CardRaw(**raw_card))
         for p in parents:
             session.merge(Card(**p))
 
-    parent_ids = [p["id"] for p in parents]
-    _delete_card_related_rows(session, parent_ids)
+    parent_oracle_ids = list(face_oracle_ids)
+    _delete_card_related_rows(session, parent_oracle_ids)
 
     if faces_to_insert:
         if engine.dialect.name == "postgresql":
@@ -450,12 +548,16 @@ def ingest_data_diff(
 
         logger.info("Reading and reducing new bulk data...")
         best_printings: dict[str, dict[str, Any]] = {}
+        seen_scryfall_ids: set[str] = set()
         stats = {"seen": 0, "kept": 0, "skipped": 0}
 
         with new_path.open("rb") as f:
             stream = ijson.items(f, "item")
             for card in stream:
                 stats["seen"] += 1
+                scryfall_id = card.get("id")
+                if isinstance(scryfall_id, str) and scryfall_id:
+                    seen_scryfall_ids.add(scryfall_id)
                 if should_skip_card(card):
                     stats["skipped"] += 1
                     continue
@@ -473,47 +575,19 @@ def ingest_data_diff(
         stats["kept"] = len(best_printings)
         logger.info("Reduction complete. Stats: %s", stats)
 
-        # Now we have the list of cards we WANT to be in the DB.
-        # We need to see what to add/update/delete.
-        # Since we might be switching from one printing ID to another for the same oracle_id,
-        # "modified" is tricky.
-        #
-        # Simplification:
-        # We will iterate over our `best_printings` values.
-        # For each card, we check if its specific UUID is in the DB.
-        # If yes -> check for updates.
-        # If no -> check if we have another card with same oracle_id?
-        # Actually, our `load_existing_cards_map` loads by ID.
-        #
-        # Let's load existing IDs from DB to know what to delete.
-        # (We can't easily use the old JSON file for diffing because we are changing the selection logic
-        # on the fly, and the old JSON might be the raw file, not our reduced set).
-
-        # Fetch all existing IDs from DB
-        existing_ids = set(session.scalars(select(Card.id)).all())
-        logger.info("Found %d existing cards in DB.", len(existing_ids))
+        existing_oracle_ids = set(session.scalars(select(Card.oracle_id)).all())
+        logger.info("Found %d existing cards in DB.", len(existing_oracle_ids))
 
         ingest_stats = {"added": 0, "modified": 0, "deleted": 0, "unchanged": 0}
         batch: list[dict[str, Any]] = []
 
-        # We need to handle the case where we swap printing A for printing B.
-        # We should insert B and delete A.
-        # Since we are iterating over the NEW set (B), we will insert B.
-        # A will be left in `existing_ids` and deleted at the end.
-
-        # Optimization: To detect "modified" (same ID, content changed), we need the old data.
-        # But for now, `merge` (upsert) handles added/modified/unchanged safely for Postgres.
-        # We just need to count them.
-
         for card in best_printings.values():
-            card_id = card.get("id")
-            if card_id in existing_ids:
-                existing_ids.remove(card_id)
-                # Ideally we'd check if content changed to inc 'modified' vs 'unchanged'
-                # For now, we'll just count as "processed" or assume unchanged if we don't check.
-                # Let's assume unchanged for stats unless we actually check.
-                # (To do it right, we'd need to fetch the row or have the old map).
-                ingest_stats["unchanged"] += 1 # Approximation
+            oracle_id = card.get("oracle_id")
+            if not isinstance(oracle_id, str) or not oracle_id:
+                continue
+            if oracle_id in existing_oracle_ids:
+                existing_oracle_ids.remove(oracle_id)
+                ingest_stats["unchanged"] += 1
             else:
                 ingest_stats["added"] += 1
 
@@ -527,17 +601,25 @@ def ingest_data_diff(
             ingest_batch(session, batch)
             session.commit()
 
-        # Remaining existing_ids are cards that are no longer the "best printing"
-        # (or were removed entirely).
-        ingest_stats["deleted"] = len(existing_ids)
-        if existing_ids:
-            logger.info("Deleting %d obsolete cards/printings...", len(existing_ids))
+        ingest_stats["deleted"] = len(existing_oracle_ids)
+        if existing_oracle_ids:
+            logger.info("Deleting %d obsolete cards/printings...", len(existing_oracle_ids))
             chunk_size = 1000
-            existing_ids_list = list(existing_ids)
-            for i in range(0, len(existing_ids_list), chunk_size):
-                chunk = existing_ids_list[i : i + chunk_size]
+            existing_oracle_ids_list = list(existing_oracle_ids)
+            for i in range(0, len(existing_oracle_ids_list), chunk_size):
+                chunk = existing_oracle_ids_list[i : i + chunk_size]
                 _delete_card_related_rows(session, chunk)
-                session.execute(delete(Card).where(Card.id.in_(chunk)))
+                session.execute(delete(Card).where(Card.oracle_id.in_(chunk)))
+                session.commit()
+
+        chunk_size = 1000
+        raw_ids = session.scalars(select(CardRaw.id)).all()
+        obsolete_raw_ids = [raw_id for raw_id in raw_ids if raw_id not in seen_scryfall_ids]
+        if obsolete_raw_ids:
+            logger.info("Deleting %d obsolete raw printings...", len(obsolete_raw_ids))
+            for i in range(0, len(obsolete_raw_ids), chunk_size):
+                chunk = obsolete_raw_ids[i : i + chunk_size]
+                session.execute(delete(CardRaw).where(CardRaw.id.in_(chunk)))
                 session.commit()
 
         sys_meta = SystemMetadata(
@@ -602,16 +684,24 @@ def compute_and_store_uniqueness_scores(session) -> None:
     t0 = time.perf_counter()
 
     embedding_rows = session.execute(
-        select(CardFaceSemanticEmbedding.face_id, CardFace.card_id, CardFaceSemanticEmbedding.embedding)
-        .join(CardFace, CardFace.id == CardFaceSemanticEmbedding.face_id)
-        .order_by(CardFaceSemanticEmbedding.face_id)
+        select(
+            CardFaceSemanticEmbedding.oracle_id,
+            CardFaceSemanticEmbedding.face_ix,
+            CardFaceSemanticEmbedding.embedding,
+        )
+        .join(
+            CardFace,
+            (CardFaceSemanticEmbedding.oracle_id == CardFace.oracle_id)
+            & (CardFaceSemanticEmbedding.face_ix == CardFace.face_ix),
+        )
+        .order_by(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix)
     ).all()
     n = len(embedding_rows)
     if n == 0:
         logger.warning("No semantic embeddings found; skipping uniqueness computation because semantic-worker has not run.")
         return
 
-    face_card_ids = [row[1] for row in embedding_rows]
+    face_card_ids = [row[0] for row in embedding_rows]
     matrix = np.asarray([row[2] for row in embedding_rows], dtype=np.float32)
 
     card_face_map: dict[str, list[int]] = {}
@@ -657,11 +747,11 @@ def compute_and_store_uniqueness_scores(session) -> None:
     cards_table = cast(Table, CardTable.__table__)
     stmt = (
         update(cards_table)
-        .where(cards_table.c.id == bindparam("_id"))
+        .where(cards_table.c.oracle_id == bindparam("_oracle_id"))
         .values(uniqueness=bindparam("_score"))
     )
     conn = session.connection()
-    mappings = [{"_id": cid, "_score": score} for cid, score in card_uniqueness.items()]
+    mappings = [{"_oracle_id": cid, "_score": score} for cid, score in card_uniqueness.items()]
     chunk_size = 1000
     for i in range(0, len(mappings), chunk_size):
         conn.execute(stmt, mappings[i : i + chunk_size])
@@ -718,7 +808,7 @@ def update_scryfall_data(
             db_updated_at = db_meta.data_updated_at
             db_schema_version = db_meta.schema_version or "0.0"
 
-        card_count = session.query(func.count(Card.id)).scalar()
+        card_count = session.query(func.count(Card.oracle_id)).scalar()
         db_is_empty = (card_count == 0)
     finally:
         session.close()

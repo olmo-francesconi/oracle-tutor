@@ -53,6 +53,12 @@ Update `api/main.py` queries to use `oracle_id`. Update test fixtures and tests 
 
 <!-- Workers append their status here on start and completion -->
 
+### TASK-004 — Codex
+- **Status**: complete
+- **Started**: 2026-03-24
+- **Files touched**: `.agent-config/PINBOARD.md`, `backend/src/ot_backend/ingest/data_builder.py`, `backend/src/ot_backend/ingest/fetch_tags.py`
+- **Result**: Updated ingestion to mirror all printings into `cards_raw`, upsert best-printing parents into `cards` keyed by `oracle_id`, rebuild `card_faces` on `(oracle_id, face_ix)`, diff/delete by `oracle_id`, remove obsolete `cards_raw` rows by Scryfall UUID, and updated Tagger sync to join `cards.scryfall_id -> cards.oracle_id` in bulk before writing `card_taggings`.
+
 ### TASK-002 — Codex
 - **Status**: complete
 - **Started**: 2026-03-24
