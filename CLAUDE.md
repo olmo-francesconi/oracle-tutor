@@ -88,26 +88,6 @@ Branch: `semantic-api`
 - [ ] Add `.env.example` for local dev onboarding
 - [ ] Confirm Railway Cron schedule and scryfall-sync token rotation process
 
-## Roadmap
-
-### Up next
-- Semantic-only API (remove name-search fallback, unify search surface)
-- Public API with rate limiting and docs
-
-### Future
-- Expose `cards_raw` print data via API (reprint browsing, set filtering)
-- Saved searches / collections (user accounts)
-
-### Completed
-- Basic card search over Scryfall bulk data (v1.0)
-- Semantic Oracle-text search with pgvector embeddings (v1.1)
-- Similar-cards endpoint (v1.1)
-- Mobile-optimized UI with bottom bar, drawers, overlay navigation (v1.2)
-- Railway production deployment with daily scryfall-sync cron (v1.3)
-- API performance: HNSW index, schema-ready cache, N+1 fix, TTL cache, pool tuning (v1.4)
-- Switch inference from sentence-transformers to ONNX Runtime (v1.4)
-- Scryfall schema refactor: `cards_raw`, oracle_id PK, composite card_faces, Alembic migrations (v2.0)
-
 ## Branch conventions
 
 - `main` — production releases (protected)
@@ -157,6 +137,12 @@ uv sync --all-extras --group dev    # once
 uv run ruff check src/ --fix        # lint
 uv run basedpyright src/            # type check (errors only; ~546 reportAny warnings are noise)
 uv run pytest -x -q                 # tests
+
+# Run scryfall-sync manually (one-shot, needs DB running):
+docker compose run --rm scryfall-sync
+
+# Apply migrations standalone:
+uv run alembic upgrade head
 ```
 
 ### Frontend (run in `frontend/`)
