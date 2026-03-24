@@ -60,7 +60,7 @@ Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationsh
 | `/card/{oracle_id}` | GET | Card detail with faces |
 | `/similar-cards` | GET | Semantic search (params: `oracle_id` or `q`, `face_ix`, `limit`, `offset`, filters) |
 
-Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`)
+Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`)
 
 Current state: `/search` uses name ILIKE. Migration to semantic-only is in progress on `semantic-api`.
 
@@ -83,7 +83,7 @@ Current state: `/search` uses name ILIKE. Migration to semantic-only is in progr
 Branch: `semantic-api`
 
 - [ ] Remove name-search fallback; route `/search` entirely through semantic index
-- [ ] Server-side filtering in semantic endpoints (color identity, CMC, type, format legality)
+- [x] Server-side filtering in semantic endpoints — `card_type`, `colors`, `cmc_min/max`, `format`, `rarity`, `color_feature`, `match_mode` all implemented in `embed/index.py`
 - [ ] Wire `cards_raw` data into card detail API response (set info, prices, image URIs per printing)
 - [ ] Add `.env.example` for local dev onboarding
 - [ ] Confirm Railway Cron schedule and scryfall-sync token rotation process
