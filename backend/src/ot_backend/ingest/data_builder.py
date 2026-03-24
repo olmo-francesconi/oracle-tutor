@@ -21,7 +21,7 @@ from ..core.config import (
     parse_version,
 )
 from ..core.database import SessionLocal, engine
-from ..core.db_init import INIT_MODE_WORKER, init_db
+from ..core.db_init import MIGRATION_STATE_READY, get_migration_state
 from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
@@ -779,7 +779,13 @@ def update_scryfall_data(
     """
     setup_loggers()
     ensure_data_dir()
-    init_db(mode=INIT_MODE_WORKER)
+
+    state = get_migration_state()
+    if state != MIGRATION_STATE_READY:
+        raise RuntimeError(
+            f"DB schema is not ready (state={state!r}). "
+            "Ensure the API has run migrations before starting the worker."
+        )
 
     remote_meta: dict[str, Any] | None = None
     remote_updated_at: str | None = None
