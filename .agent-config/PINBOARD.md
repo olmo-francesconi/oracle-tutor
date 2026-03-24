@@ -84,3 +84,9 @@ Update `api/main.py` queries to use `oracle_id`. Update test fixtures and tests 
 - **Alembic**: replaces `create_all` + manual schema-version drop; initial migration does full drop+create
 - **SQLite fallback for tests**: pgvector JSON fallback must be preserved; Alembic env.py must handle SQLite (skip Postgres-specific DDL like `CREATE EXTENSION pgvector`)
 - **Tag association**: Tagger foreign_key is Scryfall UUID — fetch_tags must join through cards_raw to resolve oracle_id for card_taggings.card_id
+
+### TASK-003 — Codex
+- **Status**: complete
+- **Started**: 2026-03-24
+- **Files touched**: `.agent-config/PINBOARD.md`, `backend/src/ot_backend/core/db_init.py`, `backend/src/ot_backend/core/config.py`
+- **Result**: Replaced `Base.metadata.create_all()` calls with programmatic Alembic `command.upgrade(Config(<backend>/alembic/alembic.ini), "head")`, removed manual schema-version bump/drop-reset logic, preserved PostgreSQL advisory lock behavior in `init_db()`, and removed the now-unused `ALLOW_SCHEMA_RESET` config flag while keeping `DB_SCHEMA_VERSION` for ingestion/version tracking.
