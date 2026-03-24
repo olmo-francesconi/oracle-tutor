@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -39,6 +40,7 @@ logger = logging.getLogger("ot_backend.ingest")
 
 BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
 BATCH_SIZE = 500
+REDUCTION_LOG_INTERVAL = 10_000
 
 META_JSON = DATA_DIR / "scryfall_meta.json"
 TEMP_CARDS_JSON = DATA_DIR / "scryfall-cards-temp.json"
@@ -55,6 +57,28 @@ def _parse_released_at(value: Any) -> date | None:
         return date.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _format_stage_progress(*, current: int, total: int) -> str:
+    width = len(str(total)) if total > 0 else 1
+    percent = (current / total) * 100 if total else 0.0
+    return f"{current:>{width}}/{total} [{percent:5.1f}%]"
+
+
+def _log_batch_progress(*, stage: str, current: int, total: int, items_in_batch: int) -> None:
+    logger.info("%s %s batch_items=%d", stage, _format_stage_progress(current=current, total=total), items_in_batch)
+
+
+def _write_inline_progress(*, stage: str, current: int, total: int, items_in_batch: int) -> None:
+    if not sys.stdout.isatty():
+        _log_batch_progress(stage=stage, current=current, total=total, items_in_batch=items_in_batch)
+        return
+
+    message = f"\r{stage} {_format_stage_progress(current=current, total=total)} batch_items={items_in_batch}"
+    sys.stdout.write(message)
+    if current == total:
+        sys.stdout.write("\n")
+    sys.stdout.flush()
 
 
 def _delete_card_related_rows(session, oracle_ids: list[str]) -> None:
@@ -520,7 +544,7 @@ def ingest_data_diff(
     *,
     trigger_type: str = "scheduled",
 ) -> None:
-    logger.info("Starting smart database ingestion (with printing selection)...")
+    logger.info("Stage: start database ingestion")
     session = SessionLocal()
 
     log_entry = IngestionLog(status="started", schema_version=DB_SCHEMA_VERSION, trigger_type=trigger_type)
@@ -546,7 +570,7 @@ def ingest_data_diff(
         # 2. Build map of oracle_id -> best_printing_card_object.
         # 3. Compare this map against DB state.
 
-        logger.info("Reading and reducing new bulk data...")
+        logger.info("Stage: read and reduce bulk data")
         best_printings: dict[str, dict[str, Any]] = {}
         seen_scryfall_ids: set[str] = set()
         stats = {"seen": 0, "kept": 0, "skipped": 0}
@@ -555,6 +579,13 @@ def ingest_data_diff(
             stream = ijson.items(f, "item")
             for card in stream:
                 stats["seen"] += 1
+                if stats["seen"] % REDUCTION_LOG_INTERVAL == 0:
+                    logger.info(
+                        "Reduce progress seen=%d kept=%d skipped=%d",
+                        stats["seen"],
+                        len(best_printings),
+                        stats["skipped"],
+                    )
                 scryfall_id = card.get("id")
                 if isinstance(scryfall_id, str) and scryfall_id:
                     seen_scryfall_ids.add(scryfall_id)
@@ -580,6 +611,18 @@ def ingest_data_diff(
 
         ingest_stats = {"added": 0, "modified": 0, "deleted": 0, "unchanged": 0}
         batch: list[dict[str, Any]] = []
+        total_kept = len(best_printings)
+        total_upsert_batches = max((total_kept + BATCH_SIZE - 1) // BATCH_SIZE, 1) if total_kept else 0
+        processed_cards = 0
+        completed_upsert_batches = 0
+
+        if total_kept:
+            logger.info(
+                "Stage: upsert cards total_cards=%d batches=%d batch_size=%d",
+                total_kept,
+                total_upsert_batches,
+                BATCH_SIZE,
+            )
 
         for card in best_printings.values():
             oracle_id = card.get("oracle_id")
@@ -593,34 +636,69 @@ def ingest_data_diff(
 
             batch.append(card)
             if len(batch) >= BATCH_SIZE:
+                batch_size = len(batch)
                 ingest_batch(session, batch)
                 session.commit()
+                processed_cards += batch_size
+                completed_upsert_batches += 1
+                _write_inline_progress(
+                    stage="Upsert progress",
+                    current=completed_upsert_batches,
+                    total=total_upsert_batches,
+                    items_in_batch=batch_size,
+                )
                 batch = []
 
         if batch:
+            batch_size = len(batch)
             ingest_batch(session, batch)
             session.commit()
+            processed_cards += batch_size
+            completed_upsert_batches += 1
+            _write_inline_progress(
+                stage="Upsert progress",
+                current=completed_upsert_batches,
+                total=total_upsert_batches,
+                items_in_batch=batch_size,
+            )
+
+        if total_kept:
+            logger.info("Stage: upsert cards complete processed=%d", processed_cards)
 
         ingest_stats["deleted"] = len(existing_oracle_ids)
         if existing_oracle_ids:
-            logger.info("Deleting %d obsolete cards/printings...", len(existing_oracle_ids))
+            logger.info("Stage: delete obsolete cards total=%d", len(existing_oracle_ids))
             chunk_size = 1000
             existing_oracle_ids_list = list(existing_oracle_ids)
-            for i in range(0, len(existing_oracle_ids_list), chunk_size):
+            total_delete_batches = (len(existing_oracle_ids_list) + chunk_size - 1) // chunk_size
+            for batch_ix, i in enumerate(range(0, len(existing_oracle_ids_list), chunk_size), start=1):
                 chunk = existing_oracle_ids_list[i : i + chunk_size]
                 _delete_card_related_rows(session, chunk)
                 session.execute(delete(Card).where(Card.oracle_id.in_(chunk)))
                 session.commit()
+                _log_batch_progress(
+                    stage="Delete cards",
+                    current=batch_ix,
+                    total=total_delete_batches,
+                    items_in_batch=len(chunk),
+                )
 
         chunk_size = 1000
         raw_ids = session.scalars(select(CardRaw.id)).all()
         obsolete_raw_ids = [raw_id for raw_id in raw_ids if raw_id not in seen_scryfall_ids]
         if obsolete_raw_ids:
-            logger.info("Deleting %d obsolete raw printings...", len(obsolete_raw_ids))
-            for i in range(0, len(obsolete_raw_ids), chunk_size):
+            logger.info("Stage: delete obsolete raw printings total=%d", len(obsolete_raw_ids))
+            total_raw_delete_batches = (len(obsolete_raw_ids) + chunk_size - 1) // chunk_size
+            for batch_ix, i in enumerate(range(0, len(obsolete_raw_ids), chunk_size), start=1):
                 chunk = obsolete_raw_ids[i : i + chunk_size]
                 session.execute(delete(CardRaw).where(CardRaw.id.in_(chunk)))
                 session.commit()
+                _log_batch_progress(
+                    stage="Delete raw",
+                    current=batch_ix,
+                    total=total_raw_delete_batches,
+                    items_in_batch=len(chunk),
+                )
 
         sys_meta = SystemMetadata(
             key="scryfall_data",
@@ -639,7 +717,7 @@ def ingest_data_diff(
             log_entry.error_message = json.dumps(ingest_stats)
 
         session.commit()
-        logger.info("Ingestion complete. Stats: %s", ingest_stats)
+        logger.info("Stage: database ingestion complete stats=%s", ingest_stats)
     except Exception as e:
         logger.error("Ingestion failed: %s", e, exc_info=True)
         session.rollback()
@@ -909,13 +987,14 @@ def update_scryfall_data(
             )
 
             if ingestion_source == TEMP_CARDS_JSON:
-                logger.info("Promoting temp file to active file.")
+                logger.info("Stage: promote downloaded bulk file")
                 shutil.move(str(TEMP_CARDS_JSON), str(CARDS_JSON))
                 if remote_meta:
                     save_local_metadata(remote_meta)
 
             # Compute uniqueness scores now that all cards are in the DB.
             try:
+                logger.info("Stage: compute uniqueness scores")
                 with SessionLocal() as uniqueness_session:
                     compute_and_store_uniqueness_scores(uniqueness_session)
             except Exception as e:
@@ -934,6 +1013,7 @@ def update_scryfall_data(
 
     if not skip_tags:
         try:
+            logger.info("Stage: ingest community tags")
             with SessionLocal() as tags_session:
                 run_fetch_tags(tags_session, refresh_tags=refresh_tags)
         except Exception as e:

@@ -68,6 +68,20 @@ SAMPLE_TAGGER_PAYLOAD = {
             ],
             "relationships": [
                 {
+                    "id": "rel-art-1",
+                    "annotation": None,
+                    "classifier": "SAME_ART",
+                    "classifierInverse": "SAME_ART",
+                    "foreignKey": "illustrationId",
+                    "relatedId": "other-printing-1",
+                    "relatedName": "Hallowed Fountain Showcase",
+                    "subjectId": "printing-card-1",
+                    "subjectName": "Hallowed Fountain",
+                    "status": "GOOD_STANDING",
+                    "type": "RELATIONSHIP",
+                    "weight": "MEDIAN",
+                },
+                {
                     "id": "rel-1",
                     "annotation": None,
                     "classifier": "BETTER_THAN",
@@ -111,9 +125,8 @@ def _make_card_raw(*, scryfall_id: str, oracle_id: str, name: str, collector_num
 def test_extract_card_entities_preserves_direct_tags_ancestors_and_relationships() -> None:
     extracted = _extract_card_entities(SAMPLE_TAGGER_PAYLOAD)
 
-    assert {tag["id"] for tag in extracted["tags"]} == {"tag-art-1", "tag-card-1", "tag-card-parent-1"}
+    assert {tag["id"] for tag in extracted["tags"]} == {"tag-card-1", "tag-card-parent-1"}
     assert {(tagging["id"], tagging["foreign_key"]) for tagging in extracted["taggings"]} == {
-        ("tagging-art-1", "illustrationId"),
         ("tagging-card-1", "oracleId"),
     }
     assert extracted["ancestor_edges"] == [{"tag_id": "tag-card-1", "ancestor_tag_id": "tag-card-parent-1"}]
@@ -135,7 +148,7 @@ def test_extract_card_entities_preserves_direct_tags_ancestors_and_relationships
     ]
 
 
-def test_replace_card_entities_persists_full_tagger_shape() -> None:
+def test_replace_card_entities_persists_only_oracle_scoped_rows() -> None:
     init_db()
     extracted = _extract_card_entities(SAMPLE_TAGGER_PAYLOAD)
 
@@ -170,14 +183,12 @@ def test_replace_card_entities_persists_full_tagger_shape() -> None:
         _replace_card_entities(db, "card-1", extracted)
 
         tags = {tag.id: tag for tag in db.query(Tag).all()}
-        assert set(tags) == {"tag-art-1", "tag-card-1", "tag-card-parent-1"}
+        assert set(tags) == {"tag-card-1", "tag-card-parent-1"}
         assert tags["tag-card-1"].tag_namespace == "card"
-        assert tags["tag-art-1"].tag_namespace == "artwork"
 
         taggings = {tagging.id: tagging for tagging in db.query(CardTagging).all()}
-        assert set(taggings) == {"tagging-art-1", "tagging-card-1"}
+        assert set(taggings) == {"tagging-card-1"}
         assert taggings["tagging-card-1"].foreign_key == "oracleId"
-        assert taggings["tagging-art-1"].foreign_key == "illustrationId"
 
         ancestor_edges = {
             (edge.tag_id, edge.ancestor_tag_id)
@@ -189,6 +200,64 @@ def test_replace_card_entities_persists_full_tagger_shape() -> None:
         assert len(relationships) == 1
         assert relationships[0].classifier == "BETTER_THAN"
         assert relationships[0].related_name == "Coastal Tower"
+
+
+def test_replace_card_entities_removes_existing_artwork_rows_on_refresh() -> None:
+    init_db()
+    extracted = _extract_card_entities(SAMPLE_TAGGER_PAYLOAD)
+
+    with SessionLocal() as db:
+        db.query(CardRelationship).delete()
+        db.query(CardTagging).delete()
+        db.query(TagAncestorMap).delete()
+        db.query(Tag).delete()
+        db.query(Card).delete()
+        db.query(CardRaw).delete()
+        db.add(
+            _make_card_raw(
+                scryfall_id="scryfall-card-1",
+                oracle_id="card-1",
+                name="Hallowed Fountain",
+                collector_number="404",
+            )
+        )
+        db.add(
+            Card(
+                oracle_id="card-1",
+                scryfall_id="scryfall-card-1",
+                name="Hallowed Fountain",
+                layout="normal",
+                rarity="rare",
+                legalities={},
+                color_identity=["W", "U"],
+            )
+        )
+        db.add_all(
+            [
+                Tag(id="tag-art-1", tag_name="cityscape", tag_namespace="artwork"),
+                Tag(id="tag-card-1", tag_name="shockland", tag_namespace="card"),
+                CardTagging(id="tagging-art-1", card_id="card-1", tag_id="tag-art-1", foreign_key="illustrationId"),
+                CardRelationship(
+                    id="rel-art-1",
+                    card_id="card-1",
+                    foreign_key="illustrationId",
+                    classifier="SAME_ART",
+                    classifier_inverse="SAME_ART",
+                    relationship_type="RELATIONSHIP",
+                    related_remote_id="other-printing-1",
+                    related_name="Hallowed Fountain Showcase",
+                ),
+            ]
+        )
+        db.commit()
+
+        _replace_card_entities(db, "card-1", extracted)
+
+        taggings = {(tagging.id, tagging.foreign_key) for tagging in db.query(CardTagging).all()}
+        assert taggings == {("tagging-card-1", "oracleId")}
+
+        relationships = {(relationship.id, relationship.foreign_key) for relationship in db.query(CardRelationship).all()}
+        assert relationships == {("rel-1", "oracleId")}
 
 
 def test_cards_needing_tag_fetch_only_returns_cards_without_taggings() -> None:
@@ -230,7 +299,7 @@ def test_fetch_and_store_tags_requests_session_reset_on_retryable_status() -> No
             return DummyResponse()
 
     with SessionLocal() as db:
-        outcome = fetch_and_store_tags(
+        result = fetch_and_store_tags(
             db,
             cast(requests.Session, cast(object, DummySession())),
             "csrf-token",
@@ -239,4 +308,6 @@ def test_fetch_and_store_tags_requests_session_reset_on_retryable_status() -> No
             "card-1",
         )
 
-    assert outcome == FetchOutcome.RESET_SESSION
+    assert result.outcome == FetchOutcome.RESET_SESSION
+    assert result.oracle_tag_count == 0
+    assert result.relationship_count == 0

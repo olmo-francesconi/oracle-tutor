@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from enum import Enum
 from collections.abc import Sequence
 from typing import Any, cast
@@ -20,6 +21,7 @@ RATE_LIMIT_SLEEP = 0.1
 SESSION_RESET_BACKOFF_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_SESSION_RESETS: int = 5
+ORACLE_FOREIGN_KEY = "oracleId"
 
 FETCH_CARD_QUERY = """
 query FetchCard(
@@ -86,6 +88,13 @@ class FetchOutcome(str, Enum):
     RESET_SESSION = "reset_session"
 
 
+@dataclass(frozen=True)
+class FetchResult:
+    outcome: FetchOutcome
+    oracle_tag_count: int = 0
+    relationship_count: int = 0
+
+
 def _normalize_tag_value(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -98,6 +107,26 @@ def _normalize_optional_text(value: Any) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _format_progress_line(
+    *,
+    current: int,
+    total: int,
+    name: str,
+    oracle_id: str,
+    oracle_tag_count: int,
+    relationship_count: int,
+) -> str:
+    counter_width = len(str(total))
+    progress = f"{current:>{counter_width}}/{total}"
+    percentage = (current / total) * 100 if total else 0.0
+    card_name = name[:20].ljust(20)
+    return (
+        f"{progress} [{percentage:5.1f}%] : "
+        f"{card_name} - {oracle_id} - "
+        f"ot:{oracle_tag_count:03d}, rel:{relationship_count:03d}"
+    )
 
 
 def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]]]:
@@ -139,6 +168,9 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
     for tagging in taggings:
         if not isinstance(tagging, dict):
             continue
+        foreign_key = _normalize_optional_text(tagging.get("foreignKey"))
+        if foreign_key != ORACLE_FOREIGN_KEY:
+            continue
         raw_tag = tagging.get("tag")
         if not isinstance(raw_tag, dict):
             continue
@@ -151,7 +183,7 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
             {
                 "id": tagging_id,
                 "tag_id": tag_id,
-                "foreign_key": _normalize_optional_text(tagging.get("foreignKey")),
+                "foreign_key": foreign_key,
                 "status": _normalize_optional_text(tagging.get("status")),
                 "tagging_type": _normalize_optional_text(tagging.get("type")),
                 "weight": _normalize_optional_text(tagging.get("weight")),
@@ -167,13 +199,16 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
     for relationship in relationships:
         if not isinstance(relationship, dict):
             continue
+        foreign_key = _normalize_optional_text(relationship.get("foreignKey"))
+        if foreign_key != ORACLE_FOREIGN_KEY:
+            continue
         relationship_id = _normalize_tag_value(relationship.get("id"))
         if not relationship_id:
             continue
         extracted_relationships.append(
             {
                 "id": relationship_id,
-                "foreign_key": _normalize_optional_text(relationship.get("foreignKey")),
+                "foreign_key": foreign_key,
                 "classifier": _normalize_optional_text(relationship.get("classifier")),
                 "classifier_inverse": _normalize_optional_text(relationship.get("classifierInverse")),
                 "status": _normalize_optional_text(relationship.get("status")),
@@ -308,9 +343,9 @@ def fetch_and_store_tags(
     scryfall_set: str,
     collector_number: str,
     card_id: str,
-) -> FetchOutcome:
+) -> FetchResult:
     if not scryfall_set or not collector_number:
-        return FetchOutcome.FAILED
+        return FetchResult(FetchOutcome.FAILED)
 
     try:
         resp = session.post(
@@ -333,7 +368,7 @@ def fetch_and_store_tags(
         )
     except Exception as e:
         logger.info("Tagger GraphQL request failed for %s: %s", card_id, e)
-        return FetchOutcome.FAILED
+        return FetchResult(FetchOutcome.FAILED)
 
     if resp.status_code == 429 or resp.status_code >= 500:
         logger.warning(
@@ -341,31 +376,35 @@ def fetch_and_store_tags(
             resp.status_code,
             card_id,
         )
-        return FetchOutcome.RESET_SESSION
+        return FetchResult(FetchOutcome.RESET_SESSION)
 
     if resp.status_code != 200:
         logger.info("Tagger returned HTTP %s for %s", resp.status_code, card_id)
-        return FetchOutcome.FAILED
+        return FetchResult(FetchOutcome.FAILED)
 
     try:
         payload = resp.json()
     except Exception as e:
         logger.info("Tagger JSON parse failed for %s: %s", card_id, e)
-        return FetchOutcome.FAILED
+        return FetchResult(FetchOutcome.FAILED)
 
     if payload.get("errors"):
         logger.info("Tagger GraphQL errors for %s: %s", card_id, payload["errors"])
-        return FetchOutcome.FAILED
+        return FetchResult(FetchOutcome.FAILED)
 
     extracted = _extract_card_entities(payload)
     _replace_card_entities(db, card_id, extracted)
     time.sleep(RATE_LIMIT_SLEEP)
-    return FetchOutcome.SUCCESS
+    return FetchResult(
+        FetchOutcome.SUCCESS,
+        oracle_tag_count=len(extracted["taggings"]),
+        relationship_count=len(extracted["relationships"]),
+    )
 
 
-def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str]]]:
+def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str, str]]]:
     query = (
-        select(Card.oracle_id, CardRaw.set_code, CardRaw.collector_number)
+        select(Card.oracle_id, Card.name, CardRaw.set_code, CardRaw.collector_number)
         .join(CardRaw, CardRaw.id == Card.scryfall_id)
         .order_by(Card.oracle_id.asc())
     )
@@ -397,13 +436,28 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
     )
 
     counts = {FetchOutcome.SUCCESS: 0, FetchOutcome.FAILED: 0, FetchOutcome.RESET_SESSION: 0}
-    LOG_INTERVAL = 100
+    inserted_oracle_taggings = 0
+    inserted_relationships = 0
 
     for i, card in enumerate(cards, start=1):
+        oracle_tag_count = 0
+        relationship_count = 0
+
         if not card.set_code or not card.collector_number:
             counts[FetchOutcome.FAILED] += 1
+            logger.info(
+                _format_progress_line(
+                    current=i,
+                    total=total,
+                    name=card.name,
+                    oracle_id=card.oracle_id,
+                    oracle_tag_count=oracle_tag_count,
+                    relationship_count=relationship_count,
+                )
+            )
             continue
-        outcome = fetch_and_store_tags(
+
+        result = fetch_and_store_tags(
             db,
             tagger_session,
             csrf_token,
@@ -411,22 +465,10 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
             card.collector_number,
             card.oracle_id,
         )
-        counts[outcome] += 1
-
-        if i % LOG_INTERVAL == 0 or i == total:
-            logger.info(
-                "Tag ingestion progress: %d/%d  success=%d failed=%d session_resets=%d",
-                i, total,
-                counts[FetchOutcome.SUCCESS],
-                counts[FetchOutcome.FAILED],
-                counts[FetchOutcome.RESET_SESSION],
-            )
-
-        if outcome != FetchOutcome.RESET_SESSION:
-            continue
 
         session_resets = 0
-        while outcome == FetchOutcome.RESET_SESSION:
+        while result.outcome == FetchOutcome.RESET_SESSION:
+            counts[FetchOutcome.RESET_SESSION] += 1
             session_resets += 1
             if session_resets >= MAX_SESSION_RESETS:
                 logger.error(
@@ -434,6 +476,7 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
                     card.set_code,
                     card.collector_number,
                 )
+                result = FetchResult(FetchOutcome.FAILED)
                 break
 
             try:
@@ -446,9 +489,10 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
                 tagger_session, csrf_token = _create_tagger_session()
             except Exception as e:
                 logger.warning("Tagger session re-bootstrap failed after retryable response: %s", e)
+                result = FetchResult(FetchOutcome.FAILED)
                 break
 
-            outcome = fetch_and_store_tags(
+            result = fetch_and_store_tags(
                 db,
                 tagger_session,
                 csrf_token,
@@ -456,22 +500,32 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
                 card.collector_number,
                 card.oracle_id,
             )
-            if outcome == FetchOutcome.RESET_SESSION:
-                counts[FetchOutcome.RESET_SESSION] += 1
+
+        counts[result.outcome] += 1
+        oracle_tag_count = result.oracle_tag_count
+        relationship_count = result.relationship_count
+        inserted_oracle_taggings += oracle_tag_count
+        inserted_relationships += relationship_count
+        logger.info(
+            _format_progress_line(
+                current=i,
+                total=total,
+                name=card.name,
+                oracle_id=card.oracle_id,
+                oracle_tag_count=oracle_tag_count,
+                relationship_count=relationship_count,
+            )
+        )
 
     try:
         tagger_session.close()
     except Exception:
         logger.debug("Failed to close Tagger session cleanly at end of run.", exc_info=True)
 
-    tag_count = db.query(Tag).count()
-    tagging_count = db.query(CardTagging).count()
-    relationship_count = db.query(CardRelationship).count()
     logger.info(
-        "Tag ingestion complete. success=%d failed=%d  db: tags=%d taggings=%d relationships=%d",
+        "Tag ingestion complete. success=%d failed=%d inserted: ot=%d rel=%d",
         counts[FetchOutcome.SUCCESS],
         counts[FetchOutcome.FAILED],
-        tag_count,
-        tagging_count,
-        relationship_count,
+        inserted_oracle_taggings,
+        inserted_relationships,
     )
