@@ -3,8 +3,9 @@ from __future__ import annotations
 import importlib.metadata
 import logging
 import os
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, Protocol, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,8 +27,39 @@ except ImportError:
 
 from .schemas import CardMatch, SimilarCard
 
-setup_loggers()
 logger = logging.getLogger("ot_backend.api")
+
+
+class SemanticIndexProtocol(Protocol):
+    def similar_to_face(
+        self,
+        face_key: tuple[str, int],
+        limit: int,
+        db: Session,
+        card_type: str | None = None,
+        colors: str | None = None,
+        cmc_min: float | None = None,
+        cmc_max: float | None = None,
+        format: str | None = None,
+        rarity: list[str] | None = None,
+        color_feature: str = "identity",
+        match_mode: str = "at_least",
+    ) -> list[tuple[tuple[str, int], float]]: ...
+
+    def search_oracle(
+        self,
+        query: str,
+        limit: int,
+        db: Session,
+        card_type: str | None = None,
+        colors: str | None = None,
+        cmc_min: float | None = None,
+        cmc_max: float | None = None,
+        format: str | None = None,
+        rarity: list[str] | None = None,
+        color_feature: str = "identity",
+        match_mode: str = "at_least",
+    ) -> list[tuple[tuple[str, int], float]]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -74,10 +106,10 @@ def _ensure_schema_ready() -> None:
     raise HTTPException(status_code=503, detail="Schema migration in progress. Please retry shortly.")
 
 
-def _get_semantic_index():
+def _get_semantic_index() -> SemanticIndexProtocol | None:
     if get_semantic_index is None:
         return None
-    return get_semantic_index()
+    return cast(Callable[[], SemanticIndexProtocol | None], get_semantic_index)()
 
 
 def _image_side_for_face(layout: str | None, face_ix: int) -> Literal["front", "back"]:
@@ -139,7 +171,8 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    setup_loggers()
     logger.info("API starting...")
 
     try:
@@ -233,7 +266,7 @@ def version() -> dict[str, str]:
 
 
 @app.get("/favicon.ico")
-def favicon():
+def favicon() -> Response:
     return Response(status_code=204)
 
 

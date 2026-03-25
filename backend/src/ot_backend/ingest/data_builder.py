@@ -43,6 +43,15 @@ BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
 BATCH_SIZE = 500
 CHUNK_SIZE = 1_000
 REDUCTION_LOG_INTERVAL = 10_000
+SKIPPED_LAYOUTS = (
+    "token",
+    "double_faced_token",
+    "art_series",
+    "emblem",
+    "planar",
+    "scheme",
+    "vanguard",
+)
 
 META_JSON = DATA_DIR / "scryfall_meta.json"
 TEMP_CARDS_JSON = DATA_DIR / "scryfall-cards-temp.json"
@@ -164,15 +173,7 @@ def should_skip_card(card: dict[str, Any]) -> bool:
       `type_line == "Card"` and oracle text like "(Theme color: {R})".
     """
 
-    if card.get("layout") in [
-        "token",
-        "double_faced_token",
-        "art_series",
-        "emblem",
-        "planar",
-        "scheme",
-        "vanguard",
-    ]:
+    if card.get("layout") in SKIPPED_LAYOUTS:
         return True
 
     # Digital-only cards (Arena/Alchemy/etc).
@@ -244,20 +245,10 @@ def cleanup_unplayable_cards(session) -> dict[str, int]:
     Returns lightweight stats for logging.
     """
 
-    skip_layouts = [
-        "token",
-        "double_faced_token",
-        "art_series",
-        "emblem",
-        "planar",
-        "scheme",
-        "vanguard",
-    ]
-
     stats = {"deleted_cards_by_layout": 0, "deleted_cards_by_type_line_card": 0}
 
     # Delete by skipped layouts (delete dependents explicitly for sqlite / non-cascading FKs).
-    ids_by_layout = session.scalars(select(Card.oracle_id).where(Card.layout.in_(skip_layouts))).all()
+    ids_by_layout = session.scalars(select(Card.oracle_id).where(Card.layout.in_(SKIPPED_LAYOUTS))).all()
     _delete_card_related_rows(session, ids_by_layout)
     res = session.execute(delete(Card).where(Card.oracle_id.in_(ids_by_layout)))
     stats["deleted_cards_by_layout"] = int(getattr(res, "rowcount", 0) or len(ids_by_layout))

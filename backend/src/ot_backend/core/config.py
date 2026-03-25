@@ -23,6 +23,25 @@ SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_TIME
 SCHEMA_WAIT_INTERVAL_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS", "1"))
 
 
+def oracle_tutor_env() -> str:
+    return os.getenv("ORACLE_TUTOR_API_ENV", "development").lower()
+
+
+def is_production_env() -> bool:
+    env = oracle_tutor_env()
+    if env in ("prod", "production"):
+        return True
+    return any(
+        os.getenv(key)
+        for key in (
+            "RAILWAY_ENVIRONMENT",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_PUBLIC_DOMAIN",
+        )
+    )
+
+
 def parse_version(version_str: str | None) -> tuple[int, int, int]:
     if not version_str:
         return (0, 0, 0)
@@ -32,7 +51,7 @@ def parse_version(version_str: str | None) -> tuple[int, int, int]:
         while len(parts) < 3:
             parts.append("0")
         return (int(parts[0]), int(parts[1]), int(parts[2]))
-    except Exception:
+    except ValueError:
         return (0, 0, 0)
 
 

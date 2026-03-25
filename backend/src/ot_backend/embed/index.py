@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import warnings
+from collections.abc import Sequence
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+from typing import cast as type_cast
 
 import numpy as np
+import numpy.typing as npt
 from sqlalchemy import and_, cast
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -20,6 +23,7 @@ logger = logging.getLogger("ot_backend.embed.index")
 
 _index: SemanticIndex | None = None
 _ORT_LOG_SEVERITY_ERRORS_ONLY = 3
+FloatArray = npt.NDArray[np.float32]
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +34,7 @@ _ORT_LOG_SEVERITY_ERRORS_ONLY = 3
 def _load_onnx_dependencies() -> tuple[Any, Any, Any]:
     import os
 
-    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    _ = os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
     warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
     try:
         onnxruntime = import_module("onnxruntime")
@@ -70,7 +74,7 @@ def _validate_pooling_strategy(model_root: Path) -> None:
     if not pooling_config_path.exists():
         return
 
-    config = json.loads(pooling_config_path.read_text(encoding="utf-8"))
+    config = type_cast(dict[str, bool], json.loads(pooling_config_path.read_text(encoding="utf-8")))
     if not config.get("pooling_mode_mean_tokens", True):
         raise RuntimeError("Semantic API supports only mean-token pooling for ONNX inference.")
     unsupported_modes = (
@@ -88,16 +92,16 @@ def _validate_pooling_strategy(model_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _mean_pool(token_embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
+def _mean_pool(token_embeddings: FloatArray, attention_mask: FloatArray) -> FloatArray:
     expanded_attention_mask = np.expand_dims(attention_mask, axis=-1).astype(np.float32)
     weighted_sum = np.sum(token_embeddings * expanded_attention_mask, axis=1)
     mask_sum = np.clip(np.sum(expanded_attention_mask, axis=1), a_min=1e-9, a_max=None)
-    return weighted_sum / mask_sum
+    return np.asarray(weighted_sum / mask_sum, dtype=np.float32)
 
 
-def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
+def _normalize_embeddings(embeddings: FloatArray) -> FloatArray:
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-    return embeddings / np.clip(norms, a_min=1e-12, a_max=None)
+    return np.asarray(embeddings / np.clip(norms, a_min=1e-12, a_max=None), dtype=np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +110,10 @@ def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
 
 
 class OnnxTextEncoder:
+    _tokenizer: Any
+    _session: Any
+    _session_input_names: set[str]
+
     def __init__(self, model_root: Path | None = None):
         model_root = semantic_model_path() if model_root is None else model_root
         onnx_model_path = _resolve_onnx_model_path(model_root)
@@ -116,7 +124,7 @@ class OnnxTextEncoder:
         InferenceSession, SessionOptions, AutoTokenizer = _load_onnx_dependencies()
         sess_options = SessionOptions()
         sess_options.log_severity_level = _ORT_LOG_SEVERITY_ERRORS_ONLY
-        huggingface_cache_dir()
+        _ = huggingface_cache_dir()
         logger.info("Loading ONNX model from %s", onnx_model_path)
         self._tokenizer = AutoTokenizer.from_pretrained(str(model_root), local_files_only=True)
         self._session = InferenceSession(
@@ -145,7 +153,7 @@ class OnnxTextEncoder:
         attention_mask = np.asarray(encoded["attention_mask"], dtype=np.float32)
         pooled = _mean_pool(token_embeddings, attention_mask)
         normalized_embeddings = _normalize_embeddings(pooled)
-        return normalized_embeddings[0].tolist()
+        return [float(value) for value in normalized_embeddings[0]]
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +162,8 @@ class OnnxTextEncoder:
 
 
 class SemanticIndex:
+    model: OnnxTextEncoder
+
     def __init__(self, model_root: Path | None = None):
         self.model = OnnxTextEncoder(model_root=model_root)
 
@@ -222,7 +232,7 @@ class SemanticIndex:
 
     def _pgvector_query(
         self,
-        query_vec,
+        query_vec: Sequence[float],
         limit: int,
         db: Session,
         exclude: tuple[str, int] | None = None,

@@ -15,12 +15,14 @@ if str(SRC_PATH) not in sys.path:
 if not os.getenv("DATABASE_URL"):
     os.environ["DATABASE_URL"] = "sqlite:///./alembic.db"
 
-from ot_backend.core.database import Base
-import ot_backend.core.models  # noqa: F401
+import ot_backend.core.models  # noqa: E402,F401
+from ot_backend.core.database import Base  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Alembic runs in-process during API startup, so it must not disable the
+    # application loggers that were already configured.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

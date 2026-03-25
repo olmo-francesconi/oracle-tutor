@@ -7,11 +7,11 @@ import time
 from functools import wraps
 from typing import Callable, ParamSpec, TypeVar
 
-from .config import DATA_DIR
-from .database import _is_production
+from .config import DATA_DIR, is_production_env
 
 P = ParamSpec("P")
 R = TypeVar("R")
+_loggers_configured = False
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ def _log_to_files() -> bool:
     explicit = os.getenv("ORACLE_TUTOR_LOG_TO_FILES")
     if explicit is not None:
         return explicit.lower() in ("1", "true", "yes")
-    return not _is_production()
+    return not is_production_env()
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +54,10 @@ def _log_to_files() -> bool:
 
 def setup_loggers() -> None:
     """Configure a small set of named loggers used across API, ingest, and embed flows."""
+    global _loggers_configured
+    if _loggers_configured:
+        return
+
     console = _console_handler()
     write_files = _log_to_files()
     api_file = _file_handler("api.log") if write_files else None
@@ -64,8 +68,6 @@ def setup_loggers() -> None:
         logger = logging.getLogger(name)
         logger.setLevel(level)
         logger.propagate = False
-        if logger.handlers:
-            logger.handlers.clear()
         if file_handler is not None:
             logger.addHandler(file_handler)
         logger.addHandler(console)
@@ -78,6 +80,7 @@ def setup_loggers() -> None:
     configure("ot_backend.embed.train", logging.INFO, embed_file)
     configure("ot_backend.embed.compute", logging.INFO, embed_file)
     configure("ot_backend.embed.index", logging.INFO, embed_file)
+    _loggers_configured = True
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +105,9 @@ def log_performance(
 
             query = kwargs.get("q") or kwargs.get("card_id") or (args[0] if args else "")
             limit = kwargs.get("limit") or (args[1] if len(args) > 1 else None)
-            result_count = len(result) if isinstance(result, (list, tuple)) else 1
+            result_count = 1
+            if isinstance(result, (list, tuple)):
+                result_count = len(result)
 
             parts = [f"Found {result_count} matches in {elapsed_ms:.2f} ms"]
             if query:

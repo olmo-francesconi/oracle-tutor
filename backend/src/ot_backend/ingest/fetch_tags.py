@@ -5,7 +5,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, cast
+from typing import TypedDict, cast
 
 import requests
 from sqlalchemy import Row, delete, select
@@ -105,19 +105,66 @@ class FetchResult:
     relationship_count: int = 0
 
 
+class TagRecord(TypedDict):
+    id: str
+    tag_name: str
+    tag_description: str | None
+    tag_type: str | None
+    tag_namespace: str | None
+    tag_slug: str | None
+
+
+class TaggingRecord(TypedDict):
+    id: str
+    tag_id: str
+    foreign_key: str | None
+    status: str | None
+    tagging_type: str | None
+    weight: str | None
+    annotation: str | None
+    related_id: str | None
+
+
+class AncestorEdgeRecord(TypedDict):
+    tag_id: str
+    ancestor_tag_id: str
+
+
+class RelationshipRecord(TypedDict):
+    id: str
+    foreign_key: str | None
+    classifier: str | None
+    classifier_inverse: str | None
+    status: str | None
+    relationship_type: str | None
+    weight: str | None
+    annotation: str | None
+    subject_remote_id: str | None
+    subject_name: str | None
+    related_remote_id: str | None
+    related_name: str | None
+
+
+class ExtractedCardEntities(TypedDict):
+    tags: list[TagRecord]
+    taggings: list[TaggingRecord]
+    ancestor_edges: list[AncestorEdgeRecord]
+    relationships: list[RelationshipRecord]
+
+
 # ---------------------------------------------------------------------------
 # Extraction helpers
 # ---------------------------------------------------------------------------
 
 
-def _normalize_tag_value(value: Any) -> str | None:
+def _normalize_tag_value(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     tag = value.strip()
     return tag or None
 
 
-def _normalize_optional_text(value: Any) -> str | None:
+def _normalize_optional_text(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     normalized = value.strip()
@@ -144,7 +191,7 @@ def _format_progress_line(
     )
 
 
-def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]]]:
+def _extract_card_entities(payload: object) -> ExtractedCardEntities:
     if not isinstance(payload, dict):
         return {
             "tags": [],
@@ -157,26 +204,28 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
     taggings = card.get("taggings") or []
     relationships = card.get("relationships") or []
 
-    tags_by_id: dict[str, dict[str, str | None]] = {}
-    direct_taggings: list[dict[str, str | None]] = []
+    tags_by_id: dict[str, TagRecord] = {}
+    direct_taggings: list[TaggingRecord] = []
     ancestor_edges: set[tuple[str, str]] = set()
-    extracted_relationships: list[dict[str, str | None]] = []
+    extracted_relationships: list[RelationshipRecord] = []
 
-    def upsert_tag(raw_tag: Any) -> str | None:
+    def upsert_tag(raw_tag: object) -> str | None:
         if not isinstance(raw_tag, dict):
             return None
         tag_id = _normalize_tag_value(raw_tag.get("id"))
         tag_name = _normalize_tag_value(raw_tag.get("name"))
         if not tag_id or not tag_name:
             return None
-        existing = tags_by_id.get(tag_id, {})
+        existing = tags_by_id.get(tag_id)
         tags_by_id[tag_id] = {
             "id": tag_id,
             "tag_name": tag_name,
-            "tag_description": _normalize_optional_text(raw_tag.get("description")) or existing.get("tag_description"),
-            "tag_type": _normalize_optional_text(raw_tag.get("type")) or existing.get("tag_type"),
-            "tag_namespace": _normalize_optional_text(raw_tag.get("namespace")) or existing.get("tag_namespace"),
-            "tag_slug": _normalize_optional_text(raw_tag.get("slug")) or existing.get("tag_slug"),
+            "tag_description": _normalize_optional_text(raw_tag.get("description"))
+            or (existing["tag_description"] if existing else None),
+            "tag_type": _normalize_optional_text(raw_tag.get("type")) or (existing["tag_type"] if existing else None),
+            "tag_namespace": _normalize_optional_text(raw_tag.get("namespace"))
+            or (existing["tag_namespace"] if existing else None),
+            "tag_slug": _normalize_optional_text(raw_tag.get("slug")) or (existing["tag_slug"] if existing else None),
         }
         return tag_id
 
@@ -189,7 +238,7 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
         raw_tag = tagging.get("tag")
         if not isinstance(raw_tag, dict):
             continue
-        tag = cast(dict[str, Any], raw_tag)
+        tag = cast(dict[str, object], raw_tag)
         tag_id = upsert_tag(tag)
         tagging_id = _normalize_tag_value(tagging.get("id"))
         if not tagging_id or not tag_id:
@@ -206,10 +255,12 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
                 "related_id": _normalize_optional_text(tagging.get("relatedId")),
             }
         )
-        for ancestor_tag in tag.get("ancestorTags") or []:
-            ancestor_id = upsert_tag(ancestor_tag)
-            if ancestor_id and ancestor_id != tag_id:
-                ancestor_edges.add((tag_id, ancestor_id))
+        ancestor_tags = tag.get("ancestorTags")
+        if isinstance(ancestor_tags, list):
+            for ancestor_tag in ancestor_tags:
+                ancestor_id = upsert_tag(ancestor_tag)
+                if ancestor_id and ancestor_id != tag_id:
+                    ancestor_edges.add((tag_id, ancestor_id))
 
     for relationship in relationships:
         if not isinstance(relationship, dict):
@@ -273,7 +324,7 @@ def _create_tagger_session() -> tuple[requests.Session, str]:
 # ---------------------------------------------------------------------------
 
 
-def _upsert_tag(db: Session, tag_data: dict[str, str | None]) -> None:
+def _upsert_tag(db: Session, tag_data: TagRecord) -> None:
     tag_id = tag_data["id"]
     tag = db.get(Tag, tag_id)
     if tag is None:
@@ -300,7 +351,7 @@ def _upsert_tag(db: Session, tag_data: dict[str, str | None]) -> None:
         tag.tag_slug = tag_data["tag_slug"]
 
 
-def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[dict[str, str | None]]]) -> None:
+def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEntities) -> None:
     tags = extracted["tags"]
     taggings = extracted["taggings"]
     ancestor_edges = extracted["ancestor_edges"]
@@ -311,22 +362,22 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
         if isinstance(tagging.get("tag_id"), str) and tagging["tag_id"]
     )
 
-    db.execute(delete(CardRelationship).where(CardRelationship.card_id == card_id))
-    db.execute(delete(CardTagging).where(CardTagging.card_id == card_id))
+    _ = db.execute(delete(CardRelationship).where(CardRelationship.card_id == card_id))
+    _ = db.execute(delete(CardTagging).where(CardTagging.card_id == card_id))
 
     for tag_data in tags:
         _upsert_tag(db, tag_data)
     db.flush()
 
     if direct_tag_ids:
-        db.execute(delete(TagAncestorMap).where(TagAncestorMap.tag_id.in_(direct_tag_ids)))
+        _ = db.execute(delete(TagAncestorMap).where(TagAncestorMap.tag_id.in_(direct_tag_ids)))
 
     for edge in ancestor_edges:
         db.add(TagAncestorMap(tag_id=edge["tag_id"], ancestor_tag_id=edge["ancestor_tag_id"]))
 
     for tagging_data in taggings:
         foreign_key = tagging_data.get("foreign_key")
-        db.merge(
+        _ = db.merge(
             CardTagging(
                 id=tagging_data["id"],
                 card_id=card_id,
@@ -341,7 +392,7 @@ def _replace_card_entities(db: Session, card_id: str, extracted: dict[str, list[
         )
 
     for r in relationships:
-        db.merge(
+        _ = db.merge(
             CardRelationship(
                 id=r["id"],
                 card_id=card_id,
@@ -408,7 +459,7 @@ def fetch_and_store_tags(
         return FetchResult(FetchOutcome.FAILED)
 
     try:
-        payload = resp.json()
+        payload = cast(dict[str, object], resp.json())
     except Exception as e:
         logger.info("Tagger JSON parse failed for %s: %s", card_id, e)
         return FetchResult(FetchOutcome.FAILED)

@@ -150,7 +150,9 @@ def _build_alembic_config() -> Config:
 
 def _upgrade_schema_to_head() -> None:
     alembic_cfg = _build_alembic_config()
+    logger.info("Running Alembic upgrade to head.")
     command.upgrade(alembic_cfg, "head")
+    logger.info("Alembic upgrade complete.")
 
 
 def init_db(mode: str = INIT_MODE_API) -> None:

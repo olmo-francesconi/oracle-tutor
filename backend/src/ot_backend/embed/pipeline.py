@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ..core.config import huggingface_cache_dir
 from ..core.database import SessionLocal
@@ -23,7 +24,6 @@ from ..core.logging_config import setup_loggers
 from ..core.models import CardFace
 from .text_prep import face_to_text, normalize_oracle_text
 
-setup_loggers()
 logger = logging.getLogger("ot_backend.embed.pipeline")
 
 TRAINING_DATASET_FILE_NAME = "training-dataset.json"
@@ -164,7 +164,7 @@ def _is_mps_available() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _face_text_records(db: Any) -> list[FaceTextRecord]:
+def _face_text_records(db: Session) -> list[FaceTextRecord]:
     query = select(
         CardFace.oracle_id,
         CardFace.face_ix,
@@ -190,7 +190,7 @@ def _normalize_face_record(face: FaceTextRecord) -> str:
 
 
 def build_training_dataset_state(
-    db: Any,
+    db: Session,
     *,
     max_tag_pairs_per_tag: int = _DEFAULT_MAX_TAG_PAIRS_PER_TAG,
     max_tag_pair_group_size: int = _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE,
@@ -674,6 +674,7 @@ def _export_dataset_and_exit(output_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    setup_loggers()
     args = _build_parser().parse_args(argv if argv is not None else [])
 
     if args.export_dataset is not None:
