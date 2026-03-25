@@ -19,6 +19,12 @@ from .text_prep import normalize_oracle_text
 logger = logging.getLogger("ot_backend.embed.index")
 
 _index: SemanticIndex | None = None
+_ORT_LOG_SEVERITY_ERRORS_ONLY = 3
+
+
+# ---------------------------------------------------------------------------
+# ONNX loading
+# ---------------------------------------------------------------------------
 
 
 def _load_onnx_dependencies() -> tuple[Any, Any, Any]:
@@ -77,6 +83,11 @@ def _validate_pooling_strategy(model_root: Path) -> None:
         raise RuntimeError("Semantic API does not support the configured ONNX pooling strategy.")
 
 
+# ---------------------------------------------------------------------------
+# Math / pooling
+# ---------------------------------------------------------------------------
+
+
 def _mean_pool(token_embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
     expanded_attention_mask = np.expand_dims(attention_mask, axis=-1).astype(np.float32)
     weighted_sum = np.sum(token_embeddings * expanded_attention_mask, axis=1)
@@ -89,6 +100,11 @@ def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
     return embeddings / np.clip(norms, a_min=1e-12, a_max=None)
 
 
+# ---------------------------------------------------------------------------
+# Encoder
+# ---------------------------------------------------------------------------
+
+
 class OnnxTextEncoder:
     def __init__(self, model_root: Path | None = None):
         model_root = semantic_model_path() if model_root is None else model_root
@@ -99,7 +115,7 @@ class OnnxTextEncoder:
         _validate_pooling_strategy(model_root)
         InferenceSession, SessionOptions, AutoTokenizer = _load_onnx_dependencies()
         sess_options = SessionOptions()
-        sess_options.log_severity_level = 3  # suppress ORT INFO/WARNING (errors only)
+        sess_options.log_severity_level = _ORT_LOG_SEVERITY_ERRORS_ONLY
         huggingface_cache_dir()
         logger.info("Loading ONNX model from %s", onnx_model_path)
         self._tokenizer = AutoTokenizer.from_pretrained(str(model_root), local_files_only=True)
@@ -130,6 +146,11 @@ class OnnxTextEncoder:
         pooled = _mean_pool(token_embeddings, attention_mask)
         normalized_embeddings = _normalize_embeddings(pooled)
         return normalized_embeddings[0].tolist()
+
+
+# ---------------------------------------------------------------------------
+# Index
+# ---------------------------------------------------------------------------
 
 
 class SemanticIndex:
@@ -269,6 +290,11 @@ class SemanticIndex:
 
         rows = query.order_by(distance).limit(limit).all()
         return [((row.oracle_id, row.face_ix), round(1.0 - row.distance, 6)) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Module accessor
+# ---------------------------------------------------------------------------
 
 
 def get_semantic_index() -> SemanticIndex | None:

@@ -35,8 +35,12 @@ def _semantic_embedding_type():
 
 
 def _utcnow_naive() -> datetime.datetime:
-    """Return naive UTC datetime without deprecated utcnow()."""
     return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+
+# ---------------------------------------------------------------------------
+# Metadata / ingestion tables
+# ---------------------------------------------------------------------------
 
 
 class SystemMetadata(Base):
@@ -127,6 +131,11 @@ class CardRaw(Base):
     card: Mapped["Card | None"] = relationship(back_populates="raw_printing")
 
 
+# ---------------------------------------------------------------------------
+# Card hierarchy
+# ---------------------------------------------------------------------------
+
+
 class Card(Base):
     __tablename__ = "cards"
 
@@ -214,6 +223,11 @@ class CardFace(Base):
         }
 
 
+# ---------------------------------------------------------------------------
+# Tags & relationships
+# ---------------------------------------------------------------------------
+
+
 class Tag(Base):
     __tablename__ = "tags"
 
@@ -276,6 +290,11 @@ class CardRelationship(Base):
     related_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
     card: Mapped["Card"] = relationship(back_populates="relationships")
+
+
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
 
 
 class CardFaceSemanticEmbedding(Base):

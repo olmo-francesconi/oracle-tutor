@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from collections.abc import Sequence
 from typing import Any, cast
 
 import requests
@@ -14,6 +14,11 @@ from sqlalchemy.orm import Session
 from ..core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
 
 logger = logging.getLogger("ot_backend.ingest")
+
+# ---------------------------------------------------------------------------
+# Constants / GraphQL
+# ---------------------------------------------------------------------------
+
 
 TAGGER_BASE_URL = "https://tagger.scryfall.com"
 TAGGER_GRAPHQL_URL = f"{TAGGER_BASE_URL}/graphql"
@@ -82,6 +87,11 @@ query FetchCard(
 """.strip()
 
 
+# ---------------------------------------------------------------------------
+# Data models
+# ---------------------------------------------------------------------------
+
+
 class FetchOutcome(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
@@ -93,6 +103,11 @@ class FetchResult:
     outcome: FetchOutcome
     oracle_tag_count: int = 0
     relationship_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Extraction helpers
+# ---------------------------------------------------------------------------
 
 
 def _normalize_tag_value(value: Any) -> str | None:
@@ -230,6 +245,11 @@ def _extract_card_entities(payload: Any) -> dict[str, list[dict[str, str | None]
     }
 
 
+# ---------------------------------------------------------------------------
+# HTTP / session
+# ---------------------------------------------------------------------------
+
+
 def _create_tagger_session() -> tuple[requests.Session, str]:
     session = requests.Session()
     response = session.get(TAGGER_BASE_URL, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -246,6 +266,11 @@ def _create_tagger_session() -> tuple[requests.Session, str]:
     if not csrf_token:
         raise RuntimeError("Tagger CSRF token not found in homepage response.")
     return session, csrf_token
+
+
+# ---------------------------------------------------------------------------
+# DB writes
+# ---------------------------------------------------------------------------
 
 
 def _upsert_tag(db: Session, tag_data: dict[str, str | None]) -> None:
@@ -400,6 +425,11 @@ def fetch_and_store_tags(
         oracle_tag_count=len(extracted["taggings"]),
         relationship_count=len(extracted["relationships"]),
     )
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str, str]]]:

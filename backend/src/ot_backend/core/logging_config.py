@@ -8,6 +8,15 @@ from functools import wraps
 from typing import Callable, ParamSpec, TypeVar
 
 from .config import DATA_DIR
+from .database import _is_production
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+# ---------------------------------------------------------------------------
+# Handler / formatter factories
+# ---------------------------------------------------------------------------
 
 
 def _formatter() -> logging.Formatter:
@@ -27,23 +36,6 @@ def _file_handler(filename: str) -> logging.Handler:
     return handler
 
 
-def _is_production() -> bool:
-    env = os.getenv("ORACLE_TUTOR_API_ENV", "development").lower()
-    if env in ("prod", "production"):
-        return True
-    if any(
-        os.getenv(k)
-        for k in (
-            "RAILWAY_ENVIRONMENT",
-            "RAILWAY_PROJECT_ID",
-            "RAILWAY_SERVICE_ID",
-            "RAILWAY_PUBLIC_DOMAIN",
-        )
-    ):
-        return True
-    return False
-
-
 def _log_to_files() -> bool:
     """
     Default to stdout-only in production (Railway-friendly).
@@ -53,6 +45,11 @@ def _log_to_files() -> bool:
     if explicit is not None:
         return explicit.lower() in ("1", "true", "yes")
     return not _is_production()
+
+
+# ---------------------------------------------------------------------------
+# Logger setup
+# ---------------------------------------------------------------------------
 
 
 def setup_loggers() -> None:
@@ -81,6 +78,11 @@ def setup_loggers() -> None:
     configure("ot_backend.embed.train", logging.INFO, embed_file)
     configure("ot_backend.embed.compute", logging.INFO, embed_file)
     configure("ot_backend.embed.index", logging.INFO, embed_file)
+
+
+# ---------------------------------------------------------------------------
+# Decorators
+# ---------------------------------------------------------------------------
 
 
 def log_performance(
@@ -115,6 +117,3 @@ def log_performance(
     if func is not None and callable(func):
         return decorator(func)
     return decorator
-
-P = ParamSpec("P")
-R = TypeVar("R")

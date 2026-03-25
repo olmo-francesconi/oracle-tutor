@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 from alembic.config import Config
@@ -12,6 +12,7 @@ from alembic import command
 
 from .config import DB_SCHEMA_VERSION
 from .database import engine
+from .models import _utcnow_naive
 
 logger = logging.getLogger("ot_backend.db")
 
@@ -25,9 +26,9 @@ MIGRATION_STATE_MIGRATING = "migrating"
 MIGRATION_STATE_FAILED = "failed"
 
 
-def _utcnow_naive() -> datetime:
-    """Return naive UTC datetime without using deprecated utcnow()."""
-    return datetime.now(UTC).replace(tzinfo=None)
+# ---------------------------------------------------------------------------
+# Lock helpers
+# ---------------------------------------------------------------------------
 
 
 def _acquire_schema_lock(conn, dialect: str) -> None:
@@ -58,6 +59,11 @@ def _set_migration_state(conn, *, state: str, target_version: str) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# State management
+# ---------------------------------------------------------------------------
+
+
 def get_migration_state() -> str:
     with engine.begin() as conn:
         inspector = inspect(conn)
@@ -70,6 +76,11 @@ def get_migration_state() -> str:
         if not row or not row[0]:
             return MIGRATION_STATE_READY
         return str(row[0])
+
+
+# ---------------------------------------------------------------------------
+# Wait helpers
+# ---------------------------------------------------------------------------
 
 
 def wait_for_migration_ready(*, timeout_s: float, interval_s: float = 1.0) -> bool:
@@ -91,6 +102,11 @@ def wait_for_migration_ready(*, timeout_s: float, interval_s: float = 1.0) -> bo
     if state != MIGRATION_STATE_READY:
         logger.warning("Schema migration timed out after %.0fs (state=%s)", timeout_s, state)
     return state == MIGRATION_STATE_READY
+
+
+# ---------------------------------------------------------------------------
+# Init / migration
+# ---------------------------------------------------------------------------
 
 
 def _upsert_schema_version(conn, schema_version: str) -> None:

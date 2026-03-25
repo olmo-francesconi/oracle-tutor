@@ -16,6 +16,10 @@ else:
 
 EMPTY_ORACLE_TOKEN = "emptyoracle"
 
+_LOYALTY_PATTERN = re.compile(r"([+-])\s*(\d+)\s*(:)?")
+_PT_PATTERN = re.compile(r"([+-])?\s*(\d+|[XYZ])\s*/\s*([+-])?\s*(\d+|[XYZ])", re.IGNORECASE)
+_ALLOWED_CHARS = re.compile(r"[^a-zA-Z0-9\s.,/+\-:]")
+
 _NUMBER_WORDS = [
     "zero",
     "one",
@@ -185,9 +189,6 @@ def _replace_symbol_runs(text: str) -> str:
     return pattern.sub(replace_run, text)
 
 
-_LOYALTY_PATTERN = re.compile(r"([+-])\s*(\d+)\s*(:)?")
-
-
 def _normalize_planeswalker_loyalty(text: str) -> str:
     def repl(m: re.Match[str]) -> str:
         sign, num, colon = m.groups()
@@ -198,9 +199,6 @@ def _normalize_planeswalker_loyalty(text: str) -> str:
         return action + (" :" if colon else "")
 
     return _LOYALTY_PATTERN.sub(repl, text)
-
-
-_PT_PATTERN = re.compile(r"([+-])?\s*(\d+|[XYZ])\s*/\s*([+-])?\s*(\d+|[XYZ])", re.IGNORECASE)
 
 
 def _is_pt_variable(s: str) -> bool:
@@ -239,9 +237,6 @@ def _numerals_to_words(text: str) -> str:
         return _number_word(int(m.group(0)))
 
     return re.sub(r"\d+", repl, text)
-
-
-_ALLOWED_CHARS = re.compile(r"[^a-zA-Z0-9\s.,/+\-:]")
 
 
 def _strip_disallowed_symbols(text: str) -> str:

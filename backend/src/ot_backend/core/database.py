@@ -7,6 +7,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+# ---------------------------------------------------------------------------
+# URL construction
+# ---------------------------------------------------------------------------
+
 
 def _is_production() -> bool:
     env = os.getenv("ORACLE_TUTOR_API_ENV", "development").lower()
@@ -55,6 +59,11 @@ def _build_database_url() -> str:
 
 DATABASE_URL = _build_database_url()
 
+
+# ---------------------------------------------------------------------------
+# Engine setup
+# ---------------------------------------------------------------------------
+
 # Future note: if we ever use async SQLAlchemy, this needs to change.
 #
 # Tests often use sqlite :memory:, which requires a StaticPool to keep one connection alive
@@ -81,6 +90,11 @@ else:
     })
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Session / Base
+# ---------------------------------------------------------------------------
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

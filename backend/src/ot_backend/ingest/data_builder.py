@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import sys
+import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -40,6 +41,7 @@ logger = logging.getLogger("ot_backend.ingest")
 
 BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
 BATCH_SIZE = 500
+CHUNK_SIZE = 1_000
 REDUCTION_LOG_INTERVAL = 10_000
 
 META_JSON = DATA_DIR / "scryfall_meta.json"
@@ -85,16 +87,17 @@ def _delete_card_related_rows(session, oracle_ids: list[str]) -> None:
     if not oracle_ids:
         return
 
-    chunk_size = 1000
-    for i in range(0, len(oracle_ids), chunk_size):
-        chunk = oracle_ids[i : i + chunk_size]
+    for i in range(0, len(oracle_ids), CHUNK_SIZE):
+        chunk = oracle_ids[i : i + CHUNK_SIZE]
         session.execute(delete(CardFaceSemanticEmbedding).where(CardFaceSemanticEmbedding.oracle_id.in_(chunk)))
         session.execute(delete(CardRelationship).where(CardRelationship.card_id.in_(chunk)))
         session.execute(delete(CardTagging).where(CardTagging.card_id.in_(chunk)))
         session.execute(delete(CardFace).where(CardFace.oracle_id.in_(chunk)))
 
 
-# Removed local ensure_data_dir, now in core.config
+# ---------------------------------------------------------------------------
+# Download
+# ---------------------------------------------------------------------------
 
 
 def _validate_scryfall_download_url(download_url: str) -> None:
@@ -268,6 +271,11 @@ def cleanup_unplayable_cards(session) -> dict[str, int]:
     stats["deleted_cards_by_type_line_card"] = int(getattr(res, "rowcount", 0) or len(ids_by_face_card))
 
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Normalisation
+# ---------------------------------------------------------------------------
 
 
 def prepare_raw_card(card_data: dict[str, Any]) -> dict[str, Any]:
@@ -537,6 +545,11 @@ def select_best_printing(current: dict[str, Any], candidate: dict[str, Any]) -> 
     return current
 
 
+# ---------------------------------------------------------------------------
+# Ingestion
+# ---------------------------------------------------------------------------
+
+
 def ingest_data_diff(
     new_path: Path,
     old_path: Path | None,
@@ -558,17 +571,6 @@ def ingest_data_diff(
         if cleanup_stats["deleted_cards_by_layout"] or cleanup_stats["deleted_cards_by_type_line_card"]:
             logger.info("Cleanup removed unplayables: %s", cleanup_stats)
             session.commit()
-
-        # Load existing cards map (keyed by oracle_id for stability, or id if we want to track specific printings)
-        # NOTE: Since we are now selecting printings dynamically, the "id" in our DB might change for the same card
-        # if a better printing becomes available (unlikely for "oldest", but possible if we change logic).
-        # For diffing, we should probably compare based on oracle_id to see if the *content* changed,
-        # but our DB schema uses Scryfall UUID as primary key.
-        #
-        # Strategy:
-        # 1. Read NEW file fully (it's big, but we need to reduce it).
-        # 2. Build map of oracle_id -> best_printing_card_object.
-        # 3. Compare this map against DB state.
 
         logger.info("Stage: read and reduce bulk data")
         best_printings: dict[str, dict[str, Any]] = {}
@@ -668,11 +670,10 @@ def ingest_data_diff(
         ingest_stats["deleted"] = len(existing_oracle_ids)
         if existing_oracle_ids:
             logger.info("Stage: delete obsolete cards total=%d", len(existing_oracle_ids))
-            chunk_size = 1000
             existing_oracle_ids_list = list(existing_oracle_ids)
-            total_delete_batches = (len(existing_oracle_ids_list) + chunk_size - 1) // chunk_size
-            for batch_ix, i in enumerate(range(0, len(existing_oracle_ids_list), chunk_size), start=1):
-                chunk = existing_oracle_ids_list[i : i + chunk_size]
+            total_delete_batches = (len(existing_oracle_ids_list) + CHUNK_SIZE - 1) // CHUNK_SIZE
+            for batch_ix, i in enumerate(range(0, len(existing_oracle_ids_list), CHUNK_SIZE), start=1):
+                chunk = existing_oracle_ids_list[i : i + CHUNK_SIZE]
                 _delete_card_related_rows(session, chunk)
                 session.execute(delete(Card).where(Card.oracle_id.in_(chunk)))
                 session.commit()
@@ -683,14 +684,13 @@ def ingest_data_diff(
                     items_in_batch=len(chunk),
                 )
 
-        chunk_size = 1000
         raw_ids = session.scalars(select(CardRaw.id)).all()
         obsolete_raw_ids = [raw_id for raw_id in raw_ids if raw_id not in seen_scryfall_ids]
         if obsolete_raw_ids:
             logger.info("Stage: delete obsolete raw printings total=%d", len(obsolete_raw_ids))
-            total_raw_delete_batches = (len(obsolete_raw_ids) + chunk_size - 1) // chunk_size
-            for batch_ix, i in enumerate(range(0, len(obsolete_raw_ids), chunk_size), start=1):
-                chunk = obsolete_raw_ids[i : i + chunk_size]
+            total_raw_delete_batches = (len(obsolete_raw_ids) + CHUNK_SIZE - 1) // CHUNK_SIZE
+            for batch_ix, i in enumerate(range(0, len(obsolete_raw_ids), CHUNK_SIZE), start=1):
+                chunk = obsolete_raw_ids[i : i + CHUNK_SIZE]
                 session.execute(delete(CardRaw).where(CardRaw.id.in_(chunk)))
                 session.commit()
                 _log_batch_progress(
@@ -712,7 +712,7 @@ def ingest_data_diff(
         if log_entry:
             log_entry.status = "success"
             log_entry.completed_at = _utcnow_naive()
-            log_entry.records_processed = ingest_stats["added"] + ingest_stats["unchanged"] # + modified
+            log_entry.records_processed = ingest_stats["added"] + ingest_stats["unchanged"]
             log_entry.records_skipped = stats["skipped"]
             log_entry.error_message = json.dumps(ingest_stats)
 
@@ -736,6 +736,11 @@ def ingest_data_diff(
         session.close()
 
 
+# ---------------------------------------------------------------------------
+# Uniqueness scoring
+# ---------------------------------------------------------------------------
+
+
 UNIQUENESS_THRESHOLD = 0.40
 UNIQUENESS_POWER = 2.0
 UNIQUENESS_BATCH_SIZE = 500
@@ -754,8 +759,6 @@ def compute_and_store_uniqueness_scores(session) -> None:
       4. Convert to uniqueness via log-scaled normalization:
            uniqueness = 100 * (1 - log(1+raw) / log(1+max_raw))
     """
-    import time
-
     import numpy as np
 
     logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
@@ -830,9 +833,8 @@ def compute_and_store_uniqueness_scores(session) -> None:
     )
     conn = session.connection()
     mappings = [{"_oracle_id": cid, "_score": score} for cid, score in card_uniqueness.items()]
-    chunk_size = 1000
-    for i in range(0, len(mappings), chunk_size):
-        conn.execute(stmt, mappings[i : i + chunk_size])
+    for i in range(0, len(mappings), CHUNK_SIZE):
+        conn.execute(stmt, mappings[i : i + CHUNK_SIZE])
     session.commit()
 
     elapsed = time.perf_counter() - t0
@@ -840,6 +842,11 @@ def compute_and_store_uniqueness_scores(session) -> None:
         "Uniqueness scores computed and stored in %.1fs. cards=%d, max_redundancy=%.2f",
         elapsed, len(card_uniqueness), max_raw,
     )
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
 
 
 def update_scryfall_data(

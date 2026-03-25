@@ -729,7 +729,7 @@ def test_reembed_only_loads_model_and_reembeds_without_touching_run_dirs(
 def test_reembed_only_defaults_to_latest_pytorch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    latest_pytorch = tmp_path / "latest" / "pytorch"
+    latest_pytorch = tmp_path / "latest" / "models" / "pytorch"
     latest_pytorch.mkdir(parents=True)
 
     loaded: list[str] = []
@@ -742,4 +742,4 @@ def test_reembed_only_defaults_to_latest_pytorch(
     exit_code = main(["--reembed-only", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
-    assert loaded == [str(tmp_path / "latest" / "pytorch")]
+    assert loaded == [str(tmp_path / "latest" / "models" / "pytorch")]

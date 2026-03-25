@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib.metadata
 import logging
 import os
@@ -28,6 +30,11 @@ setup_loggers()
 logger = logging.getLogger("ot_backend.api")
 
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+
 def _get_api_version() -> str:
     try:
         return importlib.metadata.version("oracle-tutor-api")
@@ -36,7 +43,25 @@ def _get_api_version() -> str:
 
 
 API_VERSION: Final[str] = _get_api_version()
+MAX_SEARCH_LIMIT: Final[int] = 25
+MAX_SIMILAR_CARDS_LIMIT: Final[int] = 100
+
+DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
+    {
+        "transform",
+        "modal_dfc",
+        "meld",
+        "double_faced_token",
+        "art_series",
+    }
+)
+_RARITY_MAP: Final = {"c": "common", "u": "uncommon", "r": "rare", "m": "mythic"}
 _schema_ready: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _ensure_schema_ready() -> None:
@@ -53,17 +78,6 @@ def _get_semantic_index():
     if get_semantic_index is None:
         return None
     return get_semantic_index()
-
-
-DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
-    {
-        "transform",
-        "modal_dfc",
-        "meld",
-        "double_faced_token",
-        "art_series",
-    }
-)
 
 
 def _image_side_for_face(layout: str | None, face_ix: int) -> Literal["front", "back"]:
@@ -117,6 +131,11 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
             )
         )
     return similar_cards
+
+
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
@@ -193,6 +212,11 @@ if cors_origins_env:
     )
 
 
+# ---------------------------------------------------------------------------
+# Routes — meta
+# ---------------------------------------------------------------------------
+
+
 @app.get("/", tags=["meta"])
 def root() -> dict[str, str]:
     return {"service": "oracle-tutor-api"}
@@ -213,12 +237,17 @@ def favicon():
     return Response(status_code=204)
 
 
+# ---------------------------------------------------------------------------
+# Routes — search
+# ---------------------------------------------------------------------------
+
+
 @app.get("/search", response_model=list[CardMatch])
 @log_performance(logger=logger)
 def search_cards(
     q: str,
     db: Session = Depends(get_db),
-    limit: Annotated[int, Query(ge=1, le=25)] = 10,
+    limit: Annotated[int, Query(ge=1, le=MAX_SEARCH_LIMIT)] = 10,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[CardMatch]:
     _ensure_schema_ready()
@@ -258,9 +287,6 @@ def get_card_by_id(oracle_id: str, db: Session = Depends(get_db)) -> dict[str, o
     return card.to_dict()
 
 
-_RARITY_MAP: Final = {'c': 'common', 'u': 'uncommon', 'r': 'rare', 'm': 'mythic'}
-
-
 def _parse_rarity(rarity: str | None) -> list[str] | None:
     if rarity is None:
         return None
@@ -283,7 +309,7 @@ def get_similar_cards(
     oracle_id: str | None = None,
     face_ix: Annotated[int, Query(ge=0)] = 0,
     q: str | None = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    limit: Annotated[int, Query(ge=1, le=MAX_SIMILAR_CARDS_LIMIT)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     card_type: str | None = None,
     colors: str | None = None,
