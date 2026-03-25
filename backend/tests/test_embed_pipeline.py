@@ -186,7 +186,7 @@ def test_build_dataset_uses_face_ids_and_lazy_text_resolution(monkeypatch: pytes
     monkeypatch.setattr("ot_backend.embed.pipeline.random.shuffle", lambda seq: None)
 
     with SessionLocal() as db:
-        state = build_training_dataset_state(db)
+        state = build_training_dataset_state(db, max_tag_pair_group_size=2)
         face_rows = db.query(CardFace).order_by(CardFace.oracle_id, CardFace.face_ix).all()
 
     assert len(state.face_texts) == 3
@@ -221,7 +221,7 @@ def test_build_dataset_ignores_non_card_or_non_oracle_tags(monkeypatch: pytest.M
             ]
         )
         db.commit()
-        state = build_training_dataset_state(db)
+        state = build_training_dataset_state(db, max_tag_pair_group_size=2)
 
     assert state.tag_pair_examples == 1
 
@@ -286,7 +286,7 @@ def test_pipeline_default_fine_tunes_then_computes_embeddings_then_exports(
     )
     monkeypatch.setattr(
         "ot_backend.embed.pipeline.load_training_dataset",
-        lambda path: calls.append(f"load:{path}") or TrainingDatasetState({}, [], 0, 0),
+        lambda path: calls.append(f"load:{path}") or TrainingDatasetState({}, [], [], 0, 0, 0),
     )
 
     class FakeModel:

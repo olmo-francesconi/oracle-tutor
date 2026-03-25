@@ -45,6 +45,7 @@ dev = [
   {include-group = "test"},
   "ruff>=0.15.7",
   "basedpyright>=1.38.3",
+  "modal>=0.73",
 ]
 
 [build-system]

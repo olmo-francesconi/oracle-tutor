@@ -33,7 +33,8 @@ LOG_INTERVAL = 10_000
 _DEFAULT_BASE_MODEL: str = os.environ.get("SEMANTIC_BASE_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 _DEFAULT_RUNS_DIR: Path = Path(os.environ.get("SEMANTIC_RUNS_DIR", "data/semantic/runs"))
 _DEFAULT_MAX_TAG_PAIRS_PER_TAG = 50
-_DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 2
+_DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 5
+_DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG = 50
 FaceIdentity = tuple[str, int]
 
 
@@ -50,8 +51,10 @@ class FaceTextRecord:
 class TrainingDatasetState:
     face_texts: dict[FaceIdentity, str]
     pair_ids: list[tuple[FaceIdentity, FaceIdentity]]
+    direct_text_pairs: list[tuple[str, str]]
     simcse_examples: int
     tag_pair_examples: int
+    tag_desc_pair_examples: int
 
 
 class LazyInputExampleDataset:
@@ -60,19 +63,26 @@ class LazyInputExampleDataset:
         pair_ids: list[tuple[FaceIdentity, FaceIdentity]],
         face_texts: dict[FaceIdentity, str],
         input_example_cls: Any,
+        direct_text_pairs: list[tuple[str, str]] | None = None,
     ) -> None:
         self._pair_ids = pair_ids
         self._face_texts = face_texts
         self._input_example_cls = input_example_cls
+        self._direct_text_pairs = direct_text_pairs or []
+        self._id_pair_count = len(pair_ids)
 
     def __len__(self) -> int:
-        return len(self._pair_ids)
+        return self._id_pair_count + len(self._direct_text_pairs)
 
     def __getitem__(self, index: int) -> Any:
-        left_face_key, right_face_key = self._pair_ids[index]
-        return self._input_example_cls(
-            texts=[self._face_texts[left_face_key], self._face_texts[right_face_key]]
-        )
+        if index < self._id_pair_count:
+            left_face_key, right_face_key = self._pair_ids[index]
+            return self._input_example_cls(
+                texts=[self._face_texts[left_face_key], self._face_texts[right_face_key]]
+            )
+        else:
+            anchor, positive = self._direct_text_pairs[index - self._id_pair_count]
+            return self._input_example_cls(texts=[anchor, positive])
 
 
 @dataclass
@@ -83,7 +93,8 @@ class PipelineConfig:
     warmup_divisor: int = 20
     min_warmup_steps: int = 100
     max_tag_pairs_per_tag: int = 50
-    max_tag_pair_group_size: int = 2
+    max_tag_pair_group_size: int = 5
+    max_tag_desc_pairs_per_tag: int = 50
     skip_fine_tune: bool = False
     skip_embeddings: bool = False
     embed_batch_size: int = 256
@@ -183,6 +194,7 @@ def build_training_dataset_state(
     *,
     max_tag_pairs_per_tag: int = _DEFAULT_MAX_TAG_PAIRS_PER_TAG,
     max_tag_pair_group_size: int = _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE,
+    max_tag_desc_pairs_per_tag: int = _DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG,
 ) -> TrainingDatasetState:
     logger.info("Loading face text for semantic training.")
     face_records = _face_text_records(db)
@@ -200,16 +212,24 @@ def build_training_dataset_state(
 
     logger.info("Building tag-derived positive pairs.")
     tag_to_face_ids: dict[str, list[FaceIdentity]] = defaultdict(list)
+    tag_to_desc: dict[str, str] = {}
+    tag_to_desc_faces: dict[str, list[FaceIdentity]] = defaultdict(list)
+
     direct_oracle_taggings = db.execute(
-        select(CardTagging.card_id, Tag.tag_name)
+        select(CardTagging.card_id, Tag.tag_name, Tag.tag_description)
         .join(Tag, CardTagging.tag_id == Tag.id)
         .filter(CardTagging.foreign_key == "oracleId")
         .filter(Tag.tag_namespace == "card")
     )
-    for card_id, tag_name in direct_oracle_taggings:
-        for face_key in card_face_map.get(card_id, []):
-            if face_key in face_texts:
-                tag_to_face_ids[tag_name].append(face_key)
+    for card_id, tag_name, tag_description in direct_oracle_taggings:
+        face_keys = [fk for fk in card_face_map.get(card_id, []) if fk in face_texts]
+        for face_key in face_keys:
+            tag_to_face_ids[tag_name].append(face_key)
+        normalized_name = tag_name.replace("-", " ").replace("_", " ")
+        anchor = f"{normalized_name}. {tag_description}".strip() if tag_description else normalized_name
+        tag_to_desc[tag_name] = anchor
+        for face_key in face_keys:
+            tag_to_desc_faces[tag_name].append(face_key)
 
     tag_pair_ids: list[tuple[FaceIdentity, FaceIdentity]] = []
     for fids in tag_to_face_ids.values():
@@ -217,23 +237,39 @@ def build_training_dataset_state(
             continue
         random.shuffle(fids)
         for a, b in list(zip(fids[::2], fids[1::2]))[:max_tag_pairs_per_tag]:
-            if face_texts.get(a) and face_texts.get(b):
+            if a[0] != b[0] and face_texts.get(a) and face_texts.get(b):
                 tag_pair_ids.append((a, b))
+
+    logger.info("Building tag-description anchor pairs.")
+    direct_text_pairs: list[tuple[str, str]] = []
+    for tag_name, face_ids in tag_to_desc_faces.items():
+        if not face_ids:
+            continue
+        anchor = tag_to_desc[tag_name]
+        sampled = random.sample(face_ids, min(len(face_ids), max_tag_desc_pairs_per_tag))
+        for face_key in sampled:
+            direct_text_pairs.append((anchor, face_texts[face_key]))
 
     pair_ids = self_pair_ids + tag_pair_ids
     random.shuffle(pair_ids)
+    random.shuffle(direct_text_pairs)
     return TrainingDatasetState(
         face_texts=face_texts,
         pair_ids=pair_ids,
+        direct_text_pairs=direct_text_pairs,
         simcse_examples=len(self_pair_ids),
         tag_pair_examples=len(tag_pair_ids),
+        tag_desc_pair_examples=len(direct_text_pairs),
     )
+
+
+TRAINING_DATASET_VERSION = 3
 
 
 def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "version": 2,
+        "version": TRAINING_DATASET_VERSION,
         "face_texts": [
             {"oracle_id": oracle_id, "face_ix": face_ix, "text": text}
             for (oracle_id, face_ix), text in sorted(dataset_state.face_texts.items())
@@ -242,16 +278,19 @@ def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Pa
             [[left_oracle_id, left_face_ix], [right_oracle_id, right_face_ix]]
             for (left_oracle_id, left_face_ix), (right_oracle_id, right_face_ix) in dataset_state.pair_ids
         ],
+        "direct_text_pairs": list(dataset_state.direct_text_pairs),
         "simcse_examples": dataset_state.simcse_examples,
         "tag_pair_examples": dataset_state.tag_pair_examples,
+        "tag_desc_pair_examples": dataset_state.tag_desc_pair_examples,
     }
     output_path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def load_training_dataset(input_path: Path) -> TrainingDatasetState:
     payload = json.loads(input_path.read_text(encoding="utf-8"))
-    if int(payload["version"]) != 2:
-        raise ValueError("Unsupported training dataset format version.")
+    version = int(payload["version"])
+    if version not in (2, 3):
+        raise ValueError(f"Unsupported training dataset format version: {version}.")
     face_texts = {
         (str(r["oracle_id"]), int(r["face_ix"])): str(r["text"])
         for r in payload["face_texts"]
@@ -260,11 +299,16 @@ def load_training_dataset(input_path: Path) -> TrainingDatasetState:
         ((str(left_oracle_id), int(left_face_ix)), (str(right_oracle_id), int(right_face_ix)))
         for [left_oracle_id, left_face_ix], [right_oracle_id, right_face_ix] in payload["pair_ids"]
     ]
+    direct_text_pairs: list[tuple[str, str]] = [
+        (str(a), str(b)) for a, b in payload.get("direct_text_pairs", [])
+    ]
     return TrainingDatasetState(
         face_texts=face_texts,
         pair_ids=pair_ids,
+        direct_text_pairs=direct_text_pairs,
         simcse_examples=int(payload["simcse_examples"]),
         tag_pair_examples=int(payload["tag_pair_examples"]),
+        tag_desc_pair_examples=int(payload.get("tag_desc_pair_examples", 0)),
     )
 
 
@@ -275,6 +319,7 @@ def _prepare_and_save_dataset(output_path: Path, config: PipelineConfig) -> None
             db,
             max_tag_pairs_per_tag=config.max_tag_pairs_per_tag,
             max_tag_pair_group_size=config.max_tag_pair_group_size,
+            max_tag_desc_pairs_per_tag=config.max_tag_desc_pairs_per_tag,
         )
     finally:
         db.close()
@@ -316,7 +361,12 @@ def _train(config: PipelineConfig, dataset_state: TrainingDatasetState, run_dir:
         raise RuntimeError("torch is required for training.") from exc
     DataLoader = getattr(torch_utils_data, "DataLoader")
 
-    training_dataset = LazyInputExampleDataset(dataset_state.pair_ids, dataset_state.face_texts, InputExample)
+    training_dataset = LazyInputExampleDataset(
+        dataset_state.pair_ids,
+        dataset_state.face_texts,
+        InputExample,
+        direct_text_pairs=dataset_state.direct_text_pairs,
+    )
     dataloader = DataLoader(training_dataset, shuffle=False, batch_size=config.batch_size)
     loss = losses.MultipleNegativesRankingLoss(model)
 
@@ -452,9 +502,10 @@ def run_pipeline(config: PipelineConfig, run_dir: Path) -> int:
 
         metrics["dataset"] = {
             "normalized_faces": len(dataset_state.face_texts),
-            "total_examples": len(dataset_state.pair_ids),
+            "total_examples": len(dataset_state.pair_ids) + len(dataset_state.direct_text_pairs),
             "simcse_examples": dataset_state.simcse_examples,
             "tag_pair_examples": dataset_state.tag_pair_examples,
+            "tag_desc_pair_examples": dataset_state.tag_desc_pair_examples,
         }
 
         # -- Training
@@ -510,6 +561,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--epochs", type=int, help="Training epochs (default: 5).")
     parser.add_argument("--batch-size", type=int, help="Training batch size (default: 8).")
     parser.add_argument("--base-model", help="HuggingFace model ID or local path.")
+    parser.add_argument("--max-tag-desc-pairs-per-tag", type=int, help="Max tag-description anchor pairs per tag (default: 20).")
     parser.add_argument("--no-fine-tune", action="store_true", help="Skip training; use base model for embeddings and ONNX export.")
     parser.add_argument("--no-embeddings", action="store_true", help="Skip embedding computation.")
     parser.add_argument("--embed-batch-size", type=int, help="Batch size for embedding computation (default: 256).")
@@ -523,6 +575,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Recompute DB embeddings from an existing model without training or touching model files. "
         "Defaults to latest/pytorch; override with --base-model.",
     )
+    parser.add_argument(
+        "--load-embeddings",
+        nargs="?",
+        const="latest",
+        default=None,
+        metavar="PATH",
+        help="Load pre-computed embeddings from a .npz file into DB. "
+        "Omit the path to use the latest run (runs/latest/embeddings/embeddings.npz).",
+    )
     return parser
 
 
@@ -535,6 +596,8 @@ def _apply_cli_overrides(config: PipelineConfig, args: argparse.Namespace) -> No
         config.batch_size = args.batch_size
     if args.base_model is not None:
         config.base_model = args.base_model
+    if args.max_tag_desc_pairs_per_tag is not None:
+        config.max_tag_desc_pairs_per_tag = args.max_tag_desc_pairs_per_tag
     if args.no_fine_tune:
         config.skip_fine_tune = True
     if args.no_embeddings:
@@ -556,6 +619,41 @@ def _reembed(model_source: str, embed_batch_size: int) -> int:
     return 0
 
 
+def _load_embeddings_from_file(path: Path) -> int:
+    try:
+        import numpy as np
+    except ImportError as exc:
+        raise RuntimeError("numpy is required to load pre-computed embeddings.") from exc
+
+    try:
+        from ..core.models import CardFaceSemanticEmbedding
+    except Exception as exc:
+        raise RuntimeError("CardFaceSemanticEmbedding model is unavailable.") from exc
+
+    logger.info("Loading pre-computed embeddings from %s", path)
+    data = np.load(path, allow_pickle=False)
+    oracle_ids: list[str] = data["oracle_ids"].tolist()
+    face_ixs: list[int] = data["face_ixs"].tolist()
+    embeddings = data["embeddings"]
+
+    db = SessionLocal()
+    try:
+        db.query(CardFaceSemanticEmbedding).delete()
+        db.add_all(
+            CardFaceSemanticEmbedding(
+                oracle_id=oracle_ids[i],
+                face_ix=face_ixs[i],
+                embedding=embeddings[i].tolist(),
+            )
+            for i in range(len(oracle_ids))
+        )
+        db.commit()
+        logger.info("Stored %d embeddings from file.", len(oracle_ids))
+        return len(oracle_ids)
+    finally:
+        db.close()
+
+
 def _export_dataset_and_exit(output_path: Path) -> int:
     logger.info("Exporting training dataset to %s", output_path)
     db = SessionLocal()
@@ -565,11 +663,12 @@ def _export_dataset_and_exit(output_path: Path) -> int:
         db.close()
     export_training_dataset(dataset_state, output_path)
     logger.info(
-        "Exported dataset. normalized_faces=%d total_examples=%d simcse_examples=%d tag_pair_examples=%d",
+        "Exported dataset. normalized_faces=%d total_examples=%d simcse_examples=%d tag_pair_examples=%d tag_desc_pair_examples=%d",
         len(dataset_state.face_texts),
-        len(dataset_state.pair_ids),
+        len(dataset_state.pair_ids) + len(dataset_state.direct_text_pairs),
         dataset_state.simcse_examples,
         dataset_state.tag_pair_examples,
+        dataset_state.tag_desc_pair_examples,
     )
     return 0
 
@@ -579,6 +678,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.export_dataset is not None:
         return _export_dataset_and_exit(args.export_dataset)
+
+    if args.load_embeddings is not None:
+        if args.load_embeddings == "latest":
+            embeddings_path = _DEFAULT_RUNS_DIR / "latest" / "embeddings" / "embeddings.npz"
+        else:
+            embeddings_path = Path(args.load_embeddings)
+        count = _load_embeddings_from_file(embeddings_path)
+        logger.info("load-embeddings complete. stored=%d", count)
+        return 0
 
     config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
     _apply_cli_overrides(config, args)
