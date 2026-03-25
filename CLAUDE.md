@@ -74,6 +74,7 @@ Current state: `/search` uses name ILIKE. Migration to semantic-only is in progr
 - `frontend/src/api.ts` — Axios client with: `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`, `getApiHealth`, `getApiVersion`
 
 ### Frontend conventions
+- **Style guide:** `frontend/STYLEGUIDE.md` — Bauhaus design system: colors, typography, layout pattern, component rules. Read before touching any UI.
 - Server state: TanStack Query; routing state: React Router params/query string; transient UI: component state
 - UI components do not fetch directly — use `api.ts`
 - Filters (color, CMC, type, rarity, format) are applied server-side in `embed/index.py`

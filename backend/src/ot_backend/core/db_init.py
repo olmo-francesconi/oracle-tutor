@@ -75,14 +75,22 @@ def get_migration_state() -> str:
 def wait_for_migration_ready(*, timeout_s: float, interval_s: float = 1.0) -> bool:
     deadline = _utcnow_naive() + timedelta(seconds=max(0.0, timeout_s))
     wait_seconds = max(interval_s, 0.1)
+    logged_waiting = False
     while _utcnow_naive() <= deadline:
         state = get_migration_state()
         if state == MIGRATION_STATE_READY:
             return True
         if state == MIGRATION_STATE_FAILED:
+            logger.warning("Schema migration state is FAILED — data endpoints will return 503")
             return False
+        if not logged_waiting:
+            logger.info("Schema migration in progress (state=%s), waiting up to %.0fs...", state, timeout_s)
+            logged_waiting = True
         time.sleep(wait_seconds)
-    return get_migration_state() == MIGRATION_STATE_READY
+    state = get_migration_state()
+    if state != MIGRATION_STATE_READY:
+        logger.warning("Schema migration timed out after %.0fs (state=%s)", timeout_s, state)
+    return state == MIGRATION_STATE_READY
 
 
 def _upsert_schema_version(conn, schema_version: str) -> None:

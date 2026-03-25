@@ -211,8 +211,12 @@ def main(
     base_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     epochs: int = 2,
     batch_size: int = 64,
+    no_unpack: bool = False,
 ) -> None:
+    import os
+    import zipfile
     from datetime import datetime, timezone
+
     run_ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
     out_path = output or f"data/semantic/oracle-tutor-model-{run_ts}.zip"
 
@@ -236,15 +240,12 @@ def main(
     out.write_bytes(result)
     print(f"Saved {len(result) / 1e6:.1f} MB → {out}")
 
-    answer = input("\nUnpack and link as latest? [y/N] ").strip().lower()
-    if answer != "y":
+    if no_unpack:
         print()
         print("To unpack manually:")
         print(f"  unzip {out} -d data/semantic/runs/{run_ts}")
-        print(f"  ln -sfn {run_ts} data/semantic/latest")
+        print(f"  cd data/semantic/runs && ln -sfn {run_ts} latest")
         return
-
-    import zipfile
 
     runs_dir = out.parent / "runs"
     artifact_dir = runs_dir / run_ts
@@ -256,7 +257,6 @@ def main(
 
     latest = runs_dir / "latest"
     latest.unlink(missing_ok=True)
-    import os
     os.symlink(run_ts, latest)
 
     print(f"Linked: {latest} → {run_ts}")

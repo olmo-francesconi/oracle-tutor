@@ -136,11 +136,19 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error("DB init failed: %s", exc, exc_info=True)
 
-    logger.info("Loading semantic model...")
+    from ..core.config import semantic_model_path, semantic_onnx_model_path
+
+    model_root = semantic_model_path()
+    onnx_path = semantic_onnx_model_path()
+    logger.info("Loading semantic model... (model_root=%s, onnx=%s)", model_root, onnx_path)
+    if not model_root.exists():
+        logger.warning("Semantic model root not found: %s", model_root)
+    elif not onnx_path.exists():
+        logger.warning("ONNX artifact not found: %s", onnx_path)
     try:
         index = _get_semantic_index()
         if index is None:
-            logger.warning("Semantic model not available — semantic endpoints will return 503")
+            logger.warning("Semantic model unavailable — semantic endpoints will return 503")
         else:
             logger.info("Semantic model loaded and ready")
     except Exception as exc:
@@ -250,6 +258,24 @@ def get_card_by_id(oracle_id: str, db: Session = Depends(get_db)) -> dict[str, o
     return card.to_dict()
 
 
+_RARITY_MAP: Final = {'c': 'common', 'u': 'uncommon', 'r': 'rare', 'm': 'mythic'}
+
+
+def _parse_rarity(rarity: str | None) -> list[str] | None:
+    if rarity is None:
+        return None
+    chars = list(rarity.lower())
+    invalid = [ch for ch in chars if ch not in _RARITY_MAP]
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid rarity characters: {', '.join(invalid)!r}. Use c, u, r, m.",
+        )
+    if len(chars) != len(set(chars)):
+        raise HTTPException(status_code=422, detail="Duplicate rarity characters in rarity filter")
+    return [_RARITY_MAP[ch] for ch in chars]
+
+
 @app.get("/similar-cards", response_model=list[SimilarCard])
 @log_performance(logger=logger)
 def get_similar_cards(
@@ -272,6 +298,8 @@ def get_similar_cards(
     if oracle_id is None and not (q and q.strip()):
         raise HTTPException(status_code=422, detail="Provide either oracle_id or q")
 
+    rarity_list = _parse_rarity(rarity)
+
     index = _get_semantic_index()
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
@@ -286,7 +314,7 @@ def get_similar_cards(
             cmc_min=cmc_min,
             cmc_max=cmc_max,
             format=format,
-            rarity=rarity,
+            rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,
         )
@@ -301,7 +329,7 @@ def get_similar_cards(
             cmc_min=cmc_min,
             cmc_max=cmc_max,
             format=format,
-            rarity=rarity,
+            rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,
         )

@@ -11,7 +11,7 @@ CARDS_JSON = DATA_DIR / "cards.json"
 DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
 DEFAULT_SEMANTIC_BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_SEMANTIC_RUNS_DIR = Path("data/semantic/runs")
-DEFAULT_SEMANTIC_MODEL_PATH = DEFAULT_SEMANTIC_RUNS_DIR / "latest"
+DEFAULT_SEMANTIC_MODEL_PATH = DEFAULT_SEMANTIC_RUNS_DIR / "latest" / "models" / "onnx"
 DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH = Path("onnx/model.onnx")
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)

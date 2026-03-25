@@ -74,6 +74,7 @@ def setup_loggers() -> None:
         logger.addHandler(console)
 
     configure("ot_backend.api", logging.INFO, api_file)
+    configure("ot_backend.db", logging.INFO, api_file)
     configure("ot_backend.data", logging.INFO, update_file)
     configure("ot_backend.ingest", logging.INFO, update_file)
     configure("ot_backend.embed", logging.INFO, embed_file)

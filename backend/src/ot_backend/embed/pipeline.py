@@ -518,13 +518,13 @@ def run_pipeline(config: PipelineConfig, run_dir: Path) -> int:
             metrics["embedding_count"] = _compute_embeddings(model, batch_size=config.embed_batch_size)
 
         # -- Save PyTorch model
-        pytorch_path = run_dir / "pytorch"
+        pytorch_path = run_dir / "models" / "pytorch"
         pytorch_path.mkdir(parents=True, exist_ok=True)
         model.save(str(pytorch_path))
         logger.info("PyTorch model saved to %s", pytorch_path)
 
         # -- Export ONNX from saved PyTorch
-        export_onnx_model(str(pytorch_path), run_dir)
+        export_onnx_model(str(pytorch_path), run_dir / "models" / "onnx")
 
     else:
         # No fine-tuning: load base model only for embeddings and ONNX export
@@ -535,7 +535,7 @@ def run_pipeline(config: PipelineConfig, run_dir: Path) -> int:
             model = SentenceTransformer(config.base_model)
             metrics["embedding_count"] = _compute_embeddings(model, batch_size=config.embed_batch_size)
 
-        export_onnx_model(config.base_model, run_dir)
+        export_onnx_model(config.base_model, run_dir / "models" / "onnx")
 
     metrics["total_duration_seconds"] = round(time.monotonic() - t0, 1)
     (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
@@ -693,7 +693,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.reembed_only:
         runs_dir = config.runs_dir
-        model_source = config.base_model if args.base_model else str(runs_dir / "latest" / "pytorch")
+        model_source = config.base_model if args.base_model else str(runs_dir / "latest" / "models" / "pytorch")
         return _reembed(model_source, embed_batch_size=config.embed_batch_size)
 
     run_id = _make_run_id(config.run_name)

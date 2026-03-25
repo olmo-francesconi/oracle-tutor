@@ -149,7 +149,7 @@ class SemanticIndex:
         cmc_min: float | None = None,
         cmc_max: float | None = None,
         format: str | None = None,
-        rarity: str | None = None,
+        rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
@@ -181,7 +181,7 @@ class SemanticIndex:
         cmc_min: float | None = None,
         cmc_max: float | None = None,
         format: str | None = None,
-        rarity: str | None = None,
+        rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
@@ -210,14 +210,14 @@ class SemanticIndex:
         cmc_min: float | None = None,
         cmc_max: float | None = None,
         format: str | None = None,
-        rarity: str | None = None,
+        rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
         distance = CardFaceSemanticEmbedding.embedding.cosine_distance(query_vec).label("distance")
         query = db.query(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix, distance)
 
-        has_filters = any(value is not None for value in (card_type, colors, cmc_min, cmc_max, format, rarity))
+        has_filters = any(value is not None for value in (card_type, colors, cmc_min, cmc_max, format)) or bool(rarity)
         if has_filters:
             query = query.join(
                 CardFace,
@@ -264,8 +264,8 @@ class SemanticIndex:
         if format is not None:
             query = query.filter(Card.legalities[format].astext.in_(["legal", "restricted"]))
 
-        if rarity is not None:
-            query = query.filter(Card.rarity == rarity)
+        if rarity:
+            query = query.filter(Card.rarity.in_(rarity))
 
         rows = query.order_by(distance).limit(limit).all()
         return [((row.oracle_id, row.face_ix), round(1.0 - row.distance, 6)) for row in rows]
