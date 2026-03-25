@@ -228,5 +228,8 @@ package-lock.json
 # MacOS
 .DS_Store
 
+# Playwright MCP
+.playwright-mcp/
+
 # VSCode
 .vscode/
