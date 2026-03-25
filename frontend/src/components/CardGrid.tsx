@@ -1,6 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CaretDown } from '@phosphor-icons/react'
-import { motion } from 'framer-motion'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { CardImage } from './CardImage'
 import { FilterBar } from './FilterBar'
 import { getCardImageUrl } from '../utils'
@@ -27,24 +25,15 @@ const SECTION_LABELS: Record<string, string> = {
   default: 'Other',
 }
 
-const SECTION_SCORES: Record<string, string> = {
-  perfect: '100%',
-  great: '80-100%',
-  good: '60-80%',
-  poor: '40-60%',
-  default: '<40%',
+const SECTION_COLORS: Record<string, string> = {
+  perfect: 'bg-[#111111]',
+  great: 'bg-[#444444]',
+  good: 'bg-[#888888]',
+  poor: 'bg-[#BBBBBB]',
+  default: 'bg-[#DDDDDD]',
 }
 
-const SECTION_COLORS: Record<string, string> = {
-  perfect: 'bg-blue-500',
-  great: 'bg-emerald-500',
-  good: 'bg-amber-500',
-  poor: 'bg-red-500',
-  default: 'bg-[#737373]',
-}
 const CARD_RADIUS_STYLE = { borderRadius: '4.5% / 3.21%' } as const
-const MIN_CARD_WIDTH_PX = 240
-const ASPECT_H_OVER_W = 7 / 5
 
 function AnimatedCount({ value }: { value: number }) {
   const [display, setDisplay] = useState(value)
@@ -91,10 +80,9 @@ interface CardGridProps {
   hasNextPage: boolean
   fetchNextPage: () => void
   onCardClick: (card: SimilarCard) => void
+  selectedCardId?: string | null
   noResultsMessage?: React.ReactNode
   searchQuery?: string
-  /** When this changes (e.g. card id or search query), we reset "Load" state for Other matches */
-  queryKey?: string
   filters?: FilterState
   onFilterChange?: (filters: FilterState) => void
   header?: React.ReactNode
@@ -103,68 +91,51 @@ interface CardGridProps {
 
 const CardGridItem = memo(function CardGridItem({
   card,
-  index,
-  animateIn,
+  isSelected,
   onCardClick,
 }: {
   card: SimilarCard
-  index: number
-  animateIn: boolean
+  isSelected: boolean
   onCardClick: (card: SimilarCard) => void
 }) {
-  const delay = (index % 60) * 0.05
   const handleClick = useCallback(() => onCardClick(card), [card, onCardClick])
 
-  const content = (
+  return (
     <div
       onClick={handleClick}
-      className="group relative block aspect-[5/7] cursor-pointer overflow-hidden border border-white/5 bg-[#262626] shadow-lg transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:ring-1 hover:ring-[#e3dccb]/30"
-      style={CARD_RADIUS_STYLE}
+      className={cn(
+        'flex cursor-pointer flex-col overflow-hidden border-2',
+        isSelected ? 'border-[#CC1100]' : 'border-[#111111]'
+      )}
     >
-      <CardImage
-        src={getCardImageUrl(card, 'normal')}
-        srcSet={`${getCardImageUrl(card, 'normal')} 1x, ${getCardImageUrl(card, 'large')} 2x`}
-        sizes="(min-width: 768px) 240px, 45vw"
-        alt={card.name}
-        loading="lazy"
-        decoding="async"
-        className="h-full w-full object-cover"
-      />
-
-      {/* Similarity Badge */}
-      <div className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-white/5 bg-[#171717]/90 px-3 py-1 shadow-lg backdrop-blur-md">
+      {/* Similarity score bar */}
+      {card.similarity !== undefined && (
         <div
           className={cn(
-            'h-2 w-2 rounded-full',
-            card.similarity > 0.8
-              ? 'bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
-              : 'bg-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+            'flex justify-end border-b-2 bg-[#F0EDE6] px-2 py-1',
+            isSelected ? 'border-[#CC1100]' : 'border-[#111111]'
           )}
-        />
-        <span className="text-xs font-bold text-[#f5f2eb]">
-          {(card.similarity * 100).toFixed(1)}%
-        </span>
-      </div>
+        >
+          <span className="font-display tabular-nums text-[10px] font-bold leading-tight tracking-[0.06em] text-[#111111]">
+            {(card.similarity * 100).toFixed(0)}%
+          </span>
+        </div>
+      )}
 
-      {/* Hover Name Overlay */}
-      <div className="absolute inset-x-0 bottom-0 translate-y-full bg-gradient-to-t from-[#171717] via-[#171717]/90 to-transparent p-4 pt-12 transition-transform duration-300 group-hover:translate-y-0">
-        <p className="truncate text-center text-sm font-medium text-[#f5f2eb]">
-          {card.name}
-        </p>
+      {/* Image area: dark background reveals card's natural corner radius */}
+      <div className="relative aspect-[5/7] overflow-hidden bg-[#111111]">
+        <CardImage
+          src={getCardImageUrl(card, 'normal')}
+          srcSet={`${getCardImageUrl(card, 'normal')} 1x, ${getCardImageUrl(card, 'large')} 2x`}
+          sizes="(min-width: 768px) 240px, 45vw"
+          alt={card.name}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+          style={CARD_RADIUS_STYLE}
+        />
       </div>
     </div>
-  )
-
-  if (!animateIn) return content
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay, ease: 'easeOut' }}
-    >
-      {content}
-    </motion.div>
   )
 })
 
@@ -175,314 +146,131 @@ export function CardGrid({
   hasNextPage,
   fetchNextPage,
   onCardClick,
+  selectedCardId,
   noResultsMessage,
   searchQuery,
-  queryKey,
   filters,
   onFilterChange,
   header,
   showFloatingFilters = true,
 }: CardGridProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const [viewportWidth, setViewportWidth] = useState(0)
-
-  const groupedCards = useMemo(() => {
-    const groups: Record<string, SimilarCard[]> = {
-      perfect: [],
-      great: [],
-      good: [],
-      poor: [],
-      default: [],
-    }
-    for (const card of cards) {
-      const sim = card.similarity ?? 0
-      const key = getSectionKey(sim)
-      groups[key].push(card)
-    }
-    return [
-      { key: 'perfect', cards: groups.perfect },
-      { key: 'great', cards: groups.great },
-      { key: 'good', cards: groups.good },
-      { key: 'poor', cards: groups.poor },
-      { key: 'default', cards: groups.default },
-    ]
-  }, [cards])
-
-  const bestSectionKey = useMemo(() => {
-    const first = groupedCards.find((g) => g.cards.length > 0)
-    return first?.key ?? null
-  }, [groupedCards])
-
-  const initialCollapsedRef = useRef(false)
-  const [collapsedSections, setCollapsedSections] = useState<
-    Record<string, boolean>
-  >({ default: true })
-
-  useEffect(() => {
-    if (!bestSectionKey || initialCollapsedRef.current) return
-    initialCollapsedRef.current = true
-    queueMicrotask(() => {
-      setCollapsedSections((prev) => {
-        const next = { ...prev }
-        for (const { key } of groupedCards) {
-          next[key] = key !== bestSectionKey
-        }
-        return next
-      })
-    })
-  }, [bestSectionKey, groupedCards])
-
-  const [userRequestedDefaultLoad, setUserRequestedDefaultLoad] = useState(false)
-
-  const hasDefaultCards = useMemo(() => {
-    return cards.some((c) => getSectionKey(c.similarity ?? 0) === 'default')
-  }, [cards])
-
-  const toggleSection = useCallback((key: string) => {
-    setCollapsedSections((prev) => {
-      const willExpand = prev[key] !== false
-      if (willExpand && key === 'default') {
-        setUserRequestedDefaultLoad(true)
-      }
-      return { ...prev, [key]: !prev[key] }
-    })
-  }, [])
-
-  // Load perfect/great/good on page load; stop before default. Resume default only when user clicks Load
-  useEffect(() => {
-    if (isLoading || isFetchingNextPage || !hasNextPage) return
-    if (cards.length >= 1000) return
-    if (hasDefaultCards && !userRequestedDefaultLoad) return
-    fetchNextPage()
-  }, [
-    isLoading,
-    isFetchingNextPage,
-    hasNextPage,
-    cards.length,
-    hasDefaultCards,
-    userRequestedDefaultLoad,
-    fetchNextPage,
-  ])
-
-  const searchOrQueryKey = queryKey ?? searchQuery
-  useEffect(() => {
-    queueMicrotask(() => setUserRequestedDefaultLoad(false))
-  }, [searchOrQueryKey])
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   // Scroll to top when search query changes
   useEffect(() => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'instant' })
     }
   }, [searchQuery])
 
-  // Initial loading state is now handled inside the main return to preserve the scroll container ref
-  const showInitialLoader = isLoading && cards.length === 0
-
-  // Measure available width for responsive column calculation.
+  // Infinite scroll: fetch next page when sentinel enters view
   useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const update = () => setViewportWidth(el.clientWidth)
-    update()
+    const sentinel = sentinelRef.current
+    if (!sentinel || !hasNextPage || isFetchingNextPage) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) fetchNextPage()
+      },
+      { root: scrollContainerRef.current, rootMargin: '200px' }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  // Group cards by similarity section
+  const sections = (['perfect', 'great', 'good', 'poor', 'default'] as const).map((key) => ({
+    key,
+    cards: cards.filter((c) => getSectionKey(c.similarity ?? 0) === key),
+  })).filter((s) => s.cards.length > 0)
 
-  const layout = useMemo(() => {
-    const w = viewportWidth || 0
-
-    // Match the tailwind breakpoints used in the prior grid styles.
-    const isSm = w >= 640
-    const isMd = w >= 768
-
-    const padding = isSm ? (isMd ? 16 : 24) : 12
-    const paddingBottom = isMd ? 40 : 96
-    const gap = isSm ? (isMd ? 16 : 20) : 12
-
-    // Keep 2 columns on small screens for a stable layout.
-    let columns = 2
-    if (isMd) {
-      const usable = Math.max(0, w - padding * 2)
-      columns = Math.max(
-        2,
-        Math.floor((usable + gap) / (MIN_CARD_WIDTH_PX + gap))
-      )
-    }
-
-    const usable = Math.max(1, w - padding * 2 - gap * (columns - 1))
-    const cardWidth = usable / columns
-    const cardHeight = cardWidth * ASPECT_H_OVER_W
-
-    // Pitch includes the visual gap between rows.
-    const rowPitch = cardHeight + gap
-
-    return {
-      padding,
-      paddingBottom,
-      gap,
-      columns,
-      cardWidth,
-      cardHeight,
-      rowPitch,
-    }
-  }, [viewportWidth])
-
+  if (isLoading && cards.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex items-center gap-2 text-[#7A7670]">
+          {BOUNCE_DELAYS.map((d) => (
+            <div
+              key={d}
+              className="h-2 w-2 animate-bounce rounded-full bg-[#111111]"
+              style={{ animationDelay: d }}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div
-      ref={scrollContainerRef}
-      className="relative h-full flex-1 overflow-y-auto scroll-smooth bg-transparent"
-    >
+    <div ref={scrollContainerRef} className="h-full flex-1 overflow-y-auto bg-transparent">
       {header}
-      {showInitialLoader ? (
-        <div className="flex h-full items-center justify-center">
-          <div className="flex items-center gap-2 text-[#737373]">
-            {BOUNCE_DELAYS.map((d) => (
-              <div
-                key={d}
-                className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
-                style={{ animationDelay: d }}
-              />
-            ))}
-          </div>
+
+      {showFloatingFilters && filters && onFilterChange && (
+        <div className="sticky top-0 z-40 -mb-2 hidden border-b-2 border-[#111111] bg-[#F0EDE6] py-3 pr-4 md:block">
+          <FilterBar filters={filters} onFilterChange={onFilterChange} variant="inline" />
         </div>
-      ) : (
-        <>
-          {/* Filter bar at top - above sections */}
-          {showFloatingFilters && filters && onFilterChange && (
-            <div
-              className="sticky top-0 z-40 -mb-2 hidden border-b border-white/5 bg-[#1c1c1c]/60 pr-4 py-3 backdrop-blur-sm md:block"
-              style={{ paddingRight: layout.padding }}
-            >
-              <FilterBar
-                filters={filters}
-                onFilterChange={onFilterChange}
-                variant="inline"
-              />
+      )}
+
+      {!isLoading && cards.length === 0 && (
+        <div className="p-4">{noResultsMessage}</div>
+      )}
+
+      {cards.length > 0 && (
+        <div className="p-4 pb-10 md:p-6">
+          {sections.map(({ key, cards: sectionCards }) => (
+            <div key={key} className="mb-8">
+              {/* Section header */}
+              <div className="mb-4 flex items-center gap-3 border-b-2 border-[#111111] pb-3">
+                <span className="font-display text-[13px] font-bold uppercase tracking-[0.14em] text-[#111111]">
+                  {SECTION_LABELS[key]}
+                </span>
+                <span className="text-[11px] text-[#7A7670]">
+                  <AnimatedCount value={sectionCards.length} />
+                </span>
+                <div className={cn('h-[2px] flex-1', SECTION_COLORS[key])} />
+              </div>
+
+              {/* Card grid */}
+              <div
+                className="grid gap-3 md:gap-4"
+                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
+              >
+                {sectionCards.map((card) => (
+                  <CardGridItem
+                    key={`${card.oracle_id}:${card.face_ix}`}
+                    card={card}
+                    isSelected={selectedCardId === `${card.oracle_id}:${card.face_ix}`}
+                    onCardClick={onCardClick}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Infinite scroll sentinel */}
+          <div ref={sentinelRef} />
+
+          {isFetchingNextPage && (
+            <div className="flex justify-center py-6">
+              <div className="flex gap-2 text-[#7A7670]">
+                {BOUNCE_DELAYS.map((d) => (
+                  <div
+                    key={d}
+                    className="h-2 w-2 animate-bounce rounded-full bg-[#111111]"
+                    style={{ animationDelay: d }}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Collapsible sections by match quality */}
-          <div
-            style={{
-              padding: layout.padding,
-              paddingBottom: layout.paddingBottom,
-            }}
-          >
-            {groupedCards.map(({ key, cards: sectionCards }) => {
-              const isCollapsed = collapsedSections[key]
-
-              return (
-                <div
-                  key={key}
-                  className={cn(
-                    'transition-[margin] duration-200 ease-out',
-                    isCollapsed ? 'mb-2' : 'mb-8'
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={() => toggleSection(key)}
-                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-lg border border-white/5 bg-white/5 px-4 py-3 text-left transition-colors duration-200 hover:bg-white/10"
-                  >
-                    <span className="flex items-center gap-2 font-semibold text-[#f5f2eb]">
-                      <span
-                        className={cn(
-                          'h-2 w-2 shrink-0 rounded-full',
-                          SECTION_COLORS[key]
-                        )}
-                        aria-hidden
-                      />
-                      {SECTION_LABELS[key]}
-                      <span className="text-sm font-normal text-[#a3a3a3]">
-                        {SECTION_SCORES[key]}
-                      </span>
-                      <span className="text-sm font-normal text-[#737373]">
-                        {key === 'default' && !userRequestedDefaultLoad
-                          ? '· Load'
-                          : (
-                            <>
-                              · <AnimatedCount value={sectionCards.length} />
-                            </>
-                          )}
-                      </span>
-                    </span>
-                    <CaretDown
-                      className={cn(
-                        'h-5 w-5 shrink-0 text-[#a3a3a3] transition-transform duration-200',
-                        isCollapsed ? '-rotate-90' : ''
-                      )}
-                    />
-                  </button>
-
-                  <div
-                    className="grid transition-[grid-template-rows_0.25s_ease-out]"
-                    style={{
-                      gridTemplateRows: isCollapsed ? '0fr' : '1fr',
-                    }}
-                  >
-                    <div className="min-h-0 overflow-hidden">
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
-                          gap: layout.gap,
-                        }}
-                      >
-                        {sectionCards.map((card, index) => (
-                        <div
-                          key={`${card.oracle_id}:${card.face_ix}`}
-                          style={{
-                            width: '100%',
-                            aspectRatio: '5/7',
-                          }}
-                        >
-                          <CardGridItem
-                            card={card}
-                            index={index}
-                            animateIn={false}
-                            onCardClick={onCardClick}
-                          />
-                        </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-
-            {!isLoading && cards.length === 0 && noResultsMessage}
-
-            {/* Loading indicator while fetching all cards */}
-            {isFetchingNextPage && (
-              <div className="flex justify-center py-6">
-                <div className="flex gap-2 text-[#737373]">
-                  {BOUNCE_DELAYS.map((d) => (
-                    <div
-                      key={d}
-                      className="h-2 w-2 animate-bounce rounded-full bg-[#e3dccb]"
-                      style={{ animationDelay: d }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!hasNextPage && cards.length > 0 && !isFetchingNextPage && (
-              <div className="flex flex-col items-center gap-1 pb-6">
-                <span className="text-sm text-[#525252]">
-                  {cards.length >= 1000
-                    ? 'Showing the best 1,000 cards'
-                    : 'End of results'}
-                </span>
-              </div>
-            )}
-          </div>
-        </>
+          {!hasNextPage && !isFetchingNextPage && (
+            <div className="flex flex-col items-center gap-1 pb-6 pt-2">
+              <span className="font-display text-[11px] uppercase tracking-[0.12em] text-[#7A7670]">
+                {cards.length >= 1000 ? 'Showing the best 1,000 cards' : 'End of results'}
+              </span>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

@@ -15,9 +15,9 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
   split = false,
   className = '',
 }) => {
-  const textColor = variant === 'light' ? 'text-white/40' : 'text-[#1c1c1c]/40'
+  const textColor = variant === 'light' ? 'text-white/40' : 'text-[#7A7670]'
   const hoverColor =
-    variant === 'light' ? 'hover:text-white/70' : 'hover:text-[#1c1c1c]/70'
+    variant === 'light' ? 'hover:text-white/70' : 'hover:text-[#111111]'
 
   if (split) {
     return (
@@ -29,7 +29,7 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
       >
         <span
           className={cn(
-            'min-w-0 flex-1 truncate text-[9px] leading-none font-medium tracking-[0.14em] whitespace-nowrap uppercase',
+            'min-w-0 flex-1 truncate font-mono text-[9px] leading-none font-medium tracking-[0.14em] whitespace-nowrap',
             textColor
           )}
         >
@@ -39,7 +39,7 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
         <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           <span
             className={cn(
-              'text-[9px] leading-none font-medium tracking-[0.14em] uppercase',
+              'font-mono text-[9px] leading-none font-medium tracking-[0.14em]',
               textColor
             )}
           >
@@ -80,7 +80,7 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
       >
         <span
           className={cn(
-            'min-w-0 truncate text-[9px] font-medium tracking-[0.14em] uppercase',
+            'min-w-0 truncate text-[9px] font-medium tracking-[0.14em]',
             textColor
           )}
         >
@@ -114,7 +114,7 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
     <div className={cn('flex flex-col gap-2', className)}>
       <div
         className={cn(
-          'text-[9px] font-medium tracking-[0.1em] uppercase',
+          'font-mono text-[9px] font-medium tracking-[0.1em]',
           textColor
         )}
       >
@@ -123,7 +123,7 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
       <div className="pointer-events-auto flex items-center gap-4">
         <span
           className={cn(
-            'text-[10px] font-medium tracking-[0.2em] uppercase',
+            'font-mono text-[10px] font-medium tracking-[0.2em]',
             textColor
           )}
         >

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ImageBroken } from '@phosphor-icons/react'
+import { ImageBrokenIcon } from '@phosphor-icons/react'
 import { cn } from '../lib/cn'
 
 type CardImageProps = React.ImgHTMLAttributes<HTMLImageElement>
@@ -18,7 +18,7 @@ export function CardImage({ src, alt, className, ...props }: CardImageProps) {
         role="img"
         aria-label={alt ? `Placeholder for ${alt}` : 'Image placeholder'}
       >
-        <ImageBroken className="mb-2 h-8 w-8 opacity-50" />
+        <ImageBrokenIcon className="mb-2 h-8 w-8 opacity-50" />
         <span className="px-4 text-center text-xs font-medium">
           {alt || 'Image unavailable'}
         </span>

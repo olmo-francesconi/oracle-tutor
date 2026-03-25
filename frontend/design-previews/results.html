@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oracle Tutor — Search Results (Design Preview)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800;900&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #F0EDE6;
+      --surface: #FFFFFF;
+      --ink:     #111111;
+      --red:     #CC1100;
+      --yellow:  #F5C400;
+      --muted:   #7A7670;
+      --border:  2px solid #111111;
+      --font-display: 'Big Shoulders Display', sans-serif;
+      --font-mono:    'DM Mono', monospace;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
+      border-bottom: var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0;
+      height: 56px;
+    }
+
+    .topbar-logo {
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      border-right: var(--border);
+      height: 100%;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: -0.01em;
+      text-transform: uppercase;
+      color: var(--ink);
+      text-decoration: none;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .topbar-logo:hover { background: var(--ink); color: var(--bg); }
+
+    .topbar-search {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      height: 100%;
+      border-right: var(--border);
+    }
+    .topbar-search svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .topbar-search input {
+      flex: 1;
+      border: none;
+      outline: none;
+      background: transparent;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--ink);
+    }
+    .topbar-search input::placeholder { color: #ABABAB; }
+
+    .topbar-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 20px;
+      height: 100%;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      border-left: 0;
+      flex-shrink: 0;
+      transition: background 0.08s, color 0.08s;
+    }
+    .topbar-btn:hover { background: var(--ink); color: var(--bg); }
+    .topbar-btn svg { width: 14px; height: 14px; }
+    .topbar-btn .badge {
+      background: var(--red);
+      color: white;
+      font-size: 10px;
+      width: 16px; height: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── Filter strip (collapsible) ── */
+    .filter-strip {
+      border-bottom: var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 0;
+      height: 44px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .filter-strip::-webkit-scrollbar { display: none; }
+
+    .filter-label {
+      padding: 0 16px;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-right: 1px solid #E0DDD6;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 4px;
+      border-right: 1px solid #E0DDD6;
+      height: 100%;
+      flex-shrink: 0;
+    }
+
+    .filter-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border: 1px solid #C8C5BE;
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+      transition: background 0.08s, color 0.08s, border-color 0.08s;
+    }
+    .filter-pill:hover, .filter-pill.active {
+      background: var(--ink);
+      color: var(--bg);
+      border-color: var(--ink);
+    }
+    .filter-pill.color-W { border-color: #D4C990; }
+    .filter-pill.color-U { border-color: #7AABCC; }
+    .filter-pill.color-B { border-color: #888; }
+    .filter-pill.color-R { border-color: #CC6644; }
+    .filter-pill.color-G { border-color: #66AA66; }
+
+    /* ── Main grid area ── */
+    .main {
+      padding: 32px 32px 64px;
+    }
+
+    .query-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+
+    .query-header h2 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 28px;
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+    }
+
+    .query-header .count {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── Section headers ── */
+    .section {
+      margin-bottom: 40px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: var(--border);
+    }
+
+    .section-header h3 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+
+    .section-header .section-count {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .section-header .section-bar {
+      flex: 1;
+      height: 2px;
+      background: #E0DDD6;
+    }
+    .section-header.perfect .section-bar { background: var(--ink); }
+    .section-header.great .section-bar { background: #555; }
+    .section-header.good .section-bar { background: #AAA; }
+
+    /* ── Card grid ── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    .card-item {
+      position: relative;
+      cursor: pointer;
+      border: var(--border);
+      background: var(--surface);
+      overflow: hidden;
+      transition: transform 0.1s;
+    }
+    .card-item:hover { transform: translateY(-2px); }
+    .card-item:hover .card-overlay { opacity: 1; }
+
+    .card-img {
+      width: 100%;
+      aspect-ratio: 63/88;
+      background: #D8D4CC;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #AAA;
+      overflow: hidden;
+    }
+    .card-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .card-overlay {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: var(--ink);
+      color: var(--bg);
+      padding: 8px 10px;
+      opacity: 0;
+      transition: opacity 0.12s;
+    }
+    .card-overlay .name {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .card-overlay .type {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: #AAAAAA;
+      margin-top: 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Fake card colors for variety ── */
+    .card-bg-1 { background: #E4E0D6; }
+    .card-bg-2 { background: #D4DCE8; }
+    .card-bg-3 { background: #D0D4CC; }
+    .card-bg-4 { background: #E8D8CC; }
+    .card-bg-5 { background: #D8E0D0; }
+
+    /* ── Preview badge ── */
+    .preview-badge {
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      background: var(--ink);
+      color: var(--bg);
+      padding: 4px 10px;
+      z-index: 999;
+    }
+
+    /* ── Mobile ── */
+    @media (max-width: 600px) {
+      .topbar-logo { font-size: 14px; padding: 0 12px; }
+      .main { padding: 20px 16px 48px; }
+      .card-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="preview-badge">Design Preview</div>
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <a class="topbar-logo" href="home.html">Oracle Tutor</a>
+    <div class="topbar-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" value="deal damage to any target" placeholder="search..." />
+    </div>
+    <button class="topbar-btn" onclick="toggleFilters()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/>
+      </svg>
+      Filters
+    </button>
+  </div>
+
+  <!-- Filter strip (hidden by default) -->
+  <div class="filter-strip" id="filters" style="display:none;">
+    <span class="filter-label">Colors</span>
+    <div class="filter-group">
+      <button class="filter-pill color-W">W</button>
+      <button class="filter-pill color-U">U</button>
+      <button class="filter-pill color-B">B</button>
+      <button class="filter-pill color-R active">R</button>
+      <button class="filter-pill color-G">G</button>
+    </div>
+    <div class="filter-group">
+      <span style="font-family:var(--font-display);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:6px;">Type</span>
+      <button class="filter-pill">Instant</button>
+      <button class="filter-pill">Sorcery</button>
+      <button class="filter-pill">Creature</button>
+    </div>
+    <div class="filter-group">
+      <span style="font-family:var(--font-display);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:6px;">CMC</span>
+      <input type="number" placeholder="min" style="width:44px;padding:3px 6px;border:1px solid #C8C5BE;background:transparent;font-family:var(--font-mono);font-size:11px;outline:none;" />
+      <span style="font-size:11px;color:var(--muted);padding:0 4px;">–</span>
+      <input type="number" placeholder="max" style="width:44px;padding:3px 6px;border:1px solid #C8C5BE;background:transparent;font-family:var(--font-mono);font-size:11px;outline:none;" />
+    </div>
+    <div class="filter-group">
+      <span style="font-family:var(--font-display);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:6px;">Rarity</span>
+      <button class="filter-pill">C</button>
+      <button class="filter-pill">U</button>
+      <button class="filter-pill active">R</button>
+      <button class="filter-pill">M</button>
+    </div>
+    <div class="filter-group">
+      <span style="font-family:var(--font-display);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:6px;">Format</span>
+      <button class="filter-pill">Modern</button>
+      <button class="filter-pill active">Legacy</button>
+      <button class="filter-pill">Standard</button>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="main">
+    <div class="query-header">
+      <h2>"deal damage to any target"</h2>
+      <span class="count">142 results</span>
+    </div>
+
+    <!-- Perfect match section -->
+    <div class="section">
+      <div class="section-header perfect">
+        <h3>Perfect match</h3>
+        <span class="section-count">6 cards</span>
+        <div class="section-bar"></div>
+      </div>
+      <div class="card-grid" id="perfect-grid"></div>
+    </div>
+
+    <!-- Great match section -->
+    <div class="section">
+      <div class="section-header great">
+        <h3>Great match</h3>
+        <span class="section-count">18 cards</span>
+        <div class="section-bar"></div>
+      </div>
+      <div class="card-grid" id="great-grid"></div>
+    </div>
+
+    <!-- Good match section -->
+    <div class="section">
+      <div class="section-header good">
+        <h3>Good match</h3>
+        <span class="section-count">48 cards</span>
+        <div class="section-bar"></div>
+      </div>
+      <div class="card-grid" id="good-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    const CARDS = {
+      perfect: [
+        { name: 'Lightning Bolt', type: 'Instant', bg: 'card-bg-4', img: 'https://cards.scryfall.io/normal/front/e/3/e3285e6b-3e79-4d7c-bf96-d920f973b122.jpg' },
+        { name: 'Lightning Strike', type: 'Instant', bg: 'card-bg-4', img: 'https://cards.scryfall.io/normal/front/4/1/41c31532-036c-4a49-b68e-97e735f82a95.jpg' },
+        { name: 'Shock', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Searing Spear', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Incinerate', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Burst Lightning', type: 'Instant', bg: 'card-bg-4', img: '' },
+      ],
+      great: [
+        { name: 'Lightning Helix', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Char', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Lava Spike', type: 'Sorcery', bg: 'card-bg-4', img: '' },
+        { name: 'Rift Bolt', type: 'Sorcery', bg: 'card-bg-4', img: '' },
+        { name: 'Skullcrack', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Shard Volley', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Fireblast', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Galvanic Blast', type: 'Instant', bg: 'card-bg-4', img: '' },
+      ],
+      good: [
+        { name: 'Pyrokinesis', type: 'Instant', bg: 'card-bg-3', img: '' },
+        { name: 'Tarfire', type: 'Instant', bg: 'card-bg-3', img: '' },
+        { name: 'Forked Bolt', type: 'Sorcery', bg: 'card-bg-3', img: '' },
+        { name: 'Price of Progress', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Chainwhirler', type: 'Creature', bg: 'card-bg-4', img: '' },
+        { name: 'Goblin Guide', type: 'Creature', bg: 'card-bg-4', img: '' },
+        { name: 'Monastery Swiftspear', type: 'Creature', bg: 'card-bg-4', img: '' },
+        { name: 'Searing Blood', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Magma Jet', type: 'Instant', bg: 'card-bg-4', img: '' },
+        { name: 'Pillar of Flame', type: 'Sorcery', bg: 'card-bg-4', img: '' },
+      ],
+    };
+
+    function renderGrid(id, cards) {
+      const grid = document.getElementById(id);
+      grid.innerHTML = cards.map(c => `
+        <div class="card-item" onclick="void(0)">
+          <div class="card-img ${c.bg}">
+            ${c.img
+              ? `<img src="${c.img}" alt="${c.name}" onerror="this.parentElement.innerHTML='${c.name.toUpperCase()}'" />`
+              : `<span>${c.name.split(' ').slice(0,2).join('<br/>')}</span>`
+            }
+          </div>
+          <div class="card-overlay">
+            <div class="name">${c.name}</div>
+            <div class="type">${c.type}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    renderGrid('perfect-grid', CARDS.perfect);
+    renderGrid('great-grid', CARDS.great);
+    renderGrid('good-grid', CARDS.good);
+
+    function toggleFilters() {
+      const f = document.getElementById('filters');
+      f.style.display = f.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    // Toggle filter pills
+    document.addEventListener('click', e => {
+      if (e.target.classList.contains('filter-pill')) {
+        e.target.classList.toggle('active');
+      }
+    });
+  </script>
+</body>
+</html>

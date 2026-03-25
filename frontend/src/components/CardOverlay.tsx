@@ -188,7 +188,7 @@ export function CardOverlay({
             e.stopPropagation()
             onPrev()
           }}
-          className="absolute left-2 top-1/2 z-[110] -translate-y-1/2 rounded-full bg-black/40 p-3 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 hover:scale-110 focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:outline-none sm:left-4"
+          className="absolute left-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white transition-colors hover:bg-[#333] focus-visible:outline-none sm:left-4"
           aria-label="Previous card"
         >
           <CaretLeft className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
@@ -200,32 +200,32 @@ export function CardOverlay({
             e.stopPropagation()
             onNext()
           }}
-          className="absolute right-2 top-1/2 z-[110] -translate-y-1/2 rounded-full bg-black/40 p-3 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 hover:scale-110 focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:outline-none sm:right-4"
+          className="absolute right-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white transition-colors hover:bg-[#333] focus-visible:outline-none sm:right-4"
           aria-label="Next card"
         >
           <CaretRight className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
         </button>
       )}
 
-      {/* Modal Content - Fixed height to prevent resizing on flip */}
-      <div className="relative flex max-h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-y-auto rounded-2xl bg-[#f5f2eb] shadow-2xl md:h-[750px] md:max-h-none md:flex-row md:overflow-hidden">
+      {/* Modal Content */}
+      <div className="relative flex max-h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-y-auto border-2 border-[#111111] bg-[#F0EDE6] md:h-[750px] md:max-h-none md:flex-row md:overflow-hidden">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 rounded-full bg-[#1c1c1c]/80 p-2.5 text-white shadow-lg ring-1 ring-black/20 backdrop-blur-sm transition-all hover:scale-105 hover:bg-[#1c1c1c] focus-visible:ring-2 focus-visible:ring-[#e3dccb] focus-visible:outline-none"
+          className="absolute top-3 right-3 z-10 border-2 border-[#111111] bg-[#111111] p-2 text-white transition-colors hover:bg-[#333] focus-visible:outline-none"
           aria-label="Close"
         >
-          <X className="h-6 w-6" weight="bold" />
+          <X className="h-5 w-5" weight="bold" />
         </button>
 
         {/* Image Section */}
-        <div className="relative flex w-full items-center justify-center bg-[#e5e5e5] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
+        <div className="relative flex w-full items-center justify-center bg-[#F0EDE6] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
           {/* Wrapper: size to viewport on mobile; fixed aspect box on desktop */}
-          <div className="group relative inline-block overflow-hidden rounded-[4.5%/3.21%] shadow-2xl ring-1 ring-black/10 md:aspect-[5/7] md:w-full md:max-w-[360px]">
-            {/* Dark placeholder shown while image loads */}
+          <div className="group relative inline-block overflow-hidden border-2 border-[#111111] md:aspect-[5/7] md:w-full md:max-w-[360px]">
+            {/* Placeholder shown while image loads */}
             <div
               className={cn(
-                'absolute inset-0 rounded-[4.5%/3.21%] bg-[#1c1c1c] transition-opacity duration-200',
+                'absolute inset-0 bg-[#CCCCCC] transition-opacity duration-200',
                 isImageLoaded ? 'opacity-0' : 'opacity-100'
               )}
               aria-hidden
@@ -260,7 +260,7 @@ export function CardOverlay({
                       e.stopPropagation()
                       handleFlip()
                     }}
-                    className="rounded-full bg-black/60 p-3 text-white shadow-lg backdrop-blur-sm transition-all hover:scale-110 hover:bg-black/80"
+                    className="border-2 border-white bg-[#111111] p-2 text-white transition-colors hover:bg-[#333]"
                   >
                     <ArrowsClockwise className="h-5 w-5" />
                   </button>
@@ -271,23 +271,16 @@ export function CardOverlay({
         </div>
 
         {/* Details Section */}
-        <div className="flex w-full flex-col bg-white p-5 text-[#1c1c1c] sm:p-8 md:w-1/2 md:overflow-y-auto md:p-10">
+        <div className="flex w-full flex-col bg-white p-5 text-[#111111] sm:p-8 md:w-1/2 md:overflow-y-auto md:p-10">
           <div className="flex-1">
-            <h2 className="mb-2 text-2xl font-bold text-[#1c1c1c] sm:text-3xl">
+            <h2 className="mb-2 font-display text-2xl font-[800] uppercase tracking-[-0.01em] text-[#111111] sm:text-3xl">
               {displayName}
             </h2>
 
-            <div className="mb-5 flex items-center gap-3 text-[#737373] sm:mb-6">
+            <div className="mb-5 flex items-center gap-3 sm:mb-6">
               {initialCard.similarity !== undefined && (
-                <span
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-xs font-bold text-white',
-                    initialCard.similarity > 0.8
-                      ? 'bg-emerald-500'
-                      : 'bg-amber-500'
-                  )}
-                >
-                  {(initialCard.similarity * 100).toFixed(1)}% Match
+                <span className="border-2 border-[#111111] px-2 py-0.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111]">
+                  {(initialCard.similarity * 100).toFixed(0)}% match
                 </span>
               )}
             </div>
@@ -299,20 +292,20 @@ export function CardOverlay({
                 isFlipping ? 'opacity-0' : 'opacity-100'
               )}
             >
-              <p className="text-base leading-snug font-medium text-[#404040] sm:text-lg">
-                <span className="text-[#1c1c1c]">
+              <p className="font-mono text-[13px] leading-snug text-[#111111]">
+                <span>
                   {displayData.type_line || '—'}
                 </span>{' '}
-                <span className="px-1.5 text-[#a3a3a3]" aria-hidden="true">
+                <span className="px-1.5 text-[#7A7670]" aria-hidden="true">
                   •
                 </span>
-                <span className="text-[#1c1c1c]">
+                <span>
                   <SymbolText text={displayData.mana_cost || 'None'} />
                 </span>
               </p>
 
-              <div className="border-t border-[#f5f5f5] pt-5 sm:pt-6">
-                <span className="mb-2 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
+              <div className="border-t border-[#E8E5DE] pt-5 sm:pt-6">
+                <span className="mb-2 block font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
                   Oracle Text
                 </span>
 
@@ -322,10 +315,10 @@ export function CardOverlay({
                       <div
                         key={idx}
                         className={
-                          idx > 0 ? 'mt-6 border-t border-[#f5f5f5] pt-6' : ''
+                          idx > 0 ? 'mt-6 border-t border-[#E8E5DE] pt-6' : ''
                         }
                       >
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
+                        <p className="font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-[#111111]">
                           <SymbolText
                             text={face.oracle_text || 'No oracle text.'}
                           />
@@ -334,7 +327,7 @@ export function CardOverlay({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#404040]">
+                  <p className="font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-[#111111]">
                     <SymbolText
                       text={displayData.oracle_text || 'No oracle text.'}
                     />
@@ -343,18 +336,18 @@ export function CardOverlay({
               </div>
 
               {(fullCard?.uniqueness ?? initialCard.uniqueness) != null && (
-                <div className="border-t border-[#f5f5f5] pt-5 sm:pt-6">
-                  <span className="mb-2 block text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
+                <div className="border-t border-[#E8E5DE] pt-5 sm:pt-6">
+                  <span className="mb-2 block font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
                     Uniqueness
                   </span>
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 flex-1 rounded-full bg-[#e5e5e5]">
+                    <div className="h-1.5 flex-1 bg-[#F0EDE6]">
                       <div
-                        className="h-full rounded-full bg-violet-500 transition-all"
+                        className="h-full bg-[#111111] transition-all"
                         style={{ width: `${Math.max(2, fullCard?.uniqueness ?? initialCard.uniqueness ?? 0)}%` }}
                       />
                     </div>
-                    <span className="text-sm font-semibold text-[#1c1c1c]">
+                    <span className="font-mono text-[11px] font-bold text-[#111111]">
                       {(fullCard?.uniqueness ?? initialCard.uniqueness ?? 0).toFixed(0)}
                     </span>
                   </div>
@@ -367,7 +360,7 @@ export function CardOverlay({
           <div className="mt-8">
             {/* External Links - Centered, no top border */}
             <div className="flex flex-col items-center pb-6">
-              <span className="mb-3 block text-center text-xs font-semibold tracking-wider text-[#a3a3a3] uppercase">
+              <span className="mb-3 block text-center font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
                 External Links
               </span>
               <div className="flex flex-wrap justify-center gap-2">
@@ -375,46 +368,31 @@ export function CardOverlay({
                   href={scryfallUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 rounded-md bg-[#f5f5f5] px-3 py-1.5 text-xs font-semibold text-[#525252] transition-colors hover:bg-[#e5e5e5] hover:text-[#1c1c1c]"
+                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] transition-colors hover:bg-[#111111] hover:text-white"
                 >
-                  <img
-                    src="https://www.google.com/s2/favicons?domain=scryfall.com&sz=32"
-                    alt=""
-                    className="h-4 w-4 rounded-sm opacity-80"
-                  />
                   Scryfall
                 </a>
                 <a
                   href={edhrecUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 rounded-md bg-[#f5f5f5] px-3 py-1.5 text-xs font-semibold text-[#525252] transition-colors hover:bg-[#e5e5e5] hover:text-[#1c1c1c]"
+                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] transition-colors hover:bg-[#111111] hover:text-white"
                 >
-                  <img
-                    src="https://www.google.com/s2/favicons?domain=edhrec.com&sz=32"
-                    alt=""
-                    className="h-4 w-4 rounded-sm opacity-80"
-                  />
                   EDHREC
                 </a>
                 <a
                   href={moxfieldUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 rounded-md bg-[#f5f5f5] px-3 py-1.5 text-xs font-semibold text-[#525252] transition-colors hover:bg-[#e5e5e5] hover:text-[#1c1c1c]"
+                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] transition-colors hover:bg-[#111111] hover:text-white"
                 >
-                  <img
-                    src="https://www.google.com/s2/favicons?domain=moxfield.com&sz=32"
-                    alt=""
-                    className="h-4 w-4 rounded-sm opacity-80"
-                  />
                   Moxfield
                 </a>
               </div>
             </div>
 
             {/* Action Button - Separator moved here */}
-            <div className="border-t border-[#f5f5f5] pt-6">
+            <div className="border-t border-[#E8E5DE] pt-6">
               <Link
                 to={
                   initialCard.face_ix > 0
@@ -422,7 +400,7 @@ export function CardOverlay({
                     : `/card/${initialCard.oracle_id}`
                 }
                 onClick={onClose}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1c1c1c] px-6 py-3 font-semibold text-white shadow-lg transition-all hover:bg-[#333] hover:shadow-xl active:scale-[0.98]"
+                className="flex w-full items-center justify-center gap-2 border-2 border-[#111111] bg-[#111111] px-6 py-3 font-display text-[13px] font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-[#333]"
               >
                 <MagnifyingGlass className="h-4 w-4" />
                 Find Similar Cards

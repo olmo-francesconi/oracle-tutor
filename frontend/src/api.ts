@@ -92,7 +92,7 @@ export const getSimilarCards = async (
     if (filters.format) params.format = filters.format
     if (filters.cmcMin !== undefined) params.cmc_min = filters.cmcMin
     if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
-    if (filters.rarity) params.rarity = filters.rarity
+    if (filters.rarities?.length) params.rarity = filters.rarities.map((r) => r[0]).join('')
     if (filters.matchMode) params.match_mode = filters.matchMode
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
@@ -116,7 +116,7 @@ export const searchOracleText = async (
     if (filters.format) params.format = filters.format
     if (filters.cmcMin !== undefined) params.cmc_min = filters.cmcMin
     if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
-    if (filters.rarity) params.rarity = filters.rarity
+    if (filters.rarities?.length) params.rarity = filters.rarities.map((r) => r[0]).join('')
     if (filters.matchMode) params.match_mode = filters.matchMode
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
@@ -125,14 +125,4 @@ export const searchOracleText = async (
     params,
   })
   return response.data.map(normalizeSimilarCard)
-}
-
-export const getApiHealth = async (): Promise<{ status: string }> => {
-  const response = await api.get('/health')
-  return response.data
-}
-
-export const getApiVersion = async (): Promise<{ version: string }> => {
-  const response = await api.get('/version')
-  return response.data
 }
