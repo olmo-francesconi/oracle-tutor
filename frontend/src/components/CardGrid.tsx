@@ -190,7 +190,7 @@ export function CardGrid({
           {BOUNCE_DELAYS.map((d) => (
             <div
               key={d}
-              className="h-2 w-2 animate-bounce rounded-full bg-[#111111]"
+              className="h-2 w-2 animate-bounce bg-[#111111]"
               style={{ animationDelay: d }}
             />
           ))}
@@ -218,7 +218,7 @@ export function CardGrid({
           {sections.map(({ key, cards: sectionCards }) => (
             <div key={key} className="mb-8">
               {/* Section header */}
-              <div className="mb-4 flex items-center gap-3 border-b-2 border-[#111111] pb-3">
+              <div className="mb-6 flex items-center gap-3 border-b-2 border-[#111111] pb-3">
                 <span className="font-display text-[13px] font-bold uppercase tracking-[0.14em] text-[#111111]">
                   {SECTION_LABELS[key]}
                 </span>
@@ -254,7 +254,7 @@ export function CardGrid({
                 {BOUNCE_DELAYS.map((d) => (
                   <div
                     key={d}
-                    className="h-2 w-2 animate-bounce rounded-full bg-[#111111]"
+                    className="h-2 w-2 animate-bounce bg-[#111111]"
                     style={{ animationDelay: d }}
                   />
                 ))}
@@ -263,7 +263,7 @@ export function CardGrid({
           )}
 
           {!hasNextPage && !isFetchingNextPage && (
-            <div className="flex flex-col items-center gap-1 pb-6 pt-2">
+            <div className="flex flex-col items-center gap-1 pb-6 pt-6">
               <span className="font-display text-[11px] uppercase tracking-[0.12em] text-[#7A7670]">
                 {cards.length >= 1000 ? 'Showing the best 1,000 cards' : 'End of results'}
               </span>

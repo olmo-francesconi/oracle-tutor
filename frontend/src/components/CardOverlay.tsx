@@ -219,7 +219,7 @@ export function CardOverlay({
         </button>
 
         {/* Image Section */}
-        <div className="relative flex w-full flex-col items-center justify-center gap-4 bg-[#F0EDE6] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
+        <div className="relative flex w-full flex-col items-center justify-center gap-4 bg-[#F0EDE6] p-6 md:w-1/2 md:overflow-y-auto md:p-8">
           {/* Card image wrapper */}
           <div
             className="relative inline-block overflow-hidden border-2 border-[#111111] transition-transform duration-[250ms] ease-in-out md:aspect-[5/7] md:w-full md:max-w-[360px]"

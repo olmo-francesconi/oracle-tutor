@@ -30,7 +30,7 @@ export default function HomePage() {
       />
 
       {/* Main content */}
-      <div className="relative z-10 flex min-h-screen flex-col items-center justify-start px-6 pl-10 pt-[22vh]">
+      <div className="relative z-10 flex min-h-screen flex-col items-center justify-start pr-6 pl-10 pt-[22vh]">
         <motion.div
           className="flex w-full max-w-[560px] flex-col items-center"
           animate={{ y: isDropdownOpen ? -56 : 0 }}

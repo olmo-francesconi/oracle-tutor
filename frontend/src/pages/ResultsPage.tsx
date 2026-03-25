@@ -97,7 +97,7 @@ function SearchMode({ query }: { query: string }) {
 
         {query && (
           <DetailBand accent>
-            <div className="flex items-baseline gap-3 px-6 py-[14px]">
+            <div className="flex items-baseline gap-3 px-6 py-3.5">
               <h2 className="font-display text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
                 {query}
               </h2>
@@ -334,7 +334,7 @@ function CardMode({ id }: { id: string }) {
       )}
 
       <DetailBand accent>
-        <div className="flex min-w-0 flex-1 items-center gap-3 px-6 py-[14px]">
+        <div className="flex min-w-0 flex-1 items-center gap-3 px-6 py-3.5">
           <h1 className="font-display shrink-0 text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
             {displayName}
           </h1>
