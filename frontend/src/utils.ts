@@ -41,6 +41,18 @@ export function getCardImageUrl(
   return `https://cards.scryfall.io/${size}/${side}/${id[0]}/${id[1]}/${id}.jpg`
 }
 
+const BORDER_COLOR_MAP: Record<string, string> = {
+  black: '#111111',
+  white: '#ededef',
+  silver: '#8a8a8a',
+  gold: '#a8894d',
+  borderless: '#111111',
+}
+
+export function getCardBorderColor(borderColor: string | undefined | null): string {
+  return (borderColor && BORDER_COLOR_MAP[borderColor]) ?? '#111111'
+}
+
 export function getImageSideForFace(
   layout: string | undefined,
   faceIx: number

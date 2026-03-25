@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { CardImage } from './CardImage'
 import { FilterBar } from './FilterBar'
-import { getCardImageUrl } from '../utils'
+import { getCardImageUrl, getCardBorderColor } from '../utils'
 import type { SimilarCard, FilterState } from '../types'
 import { cn } from '../lib/cn'
 
@@ -122,8 +122,8 @@ const CardGridItem = memo(function CardGridItem({
         </div>
       )}
 
-      {/* Image area: dark background reveals card's natural corner radius */}
-      <div className="relative aspect-[5/7] overflow-hidden bg-[#111111]">
+      {/* Image area: background color matches card's physical border */}
+      <div className="relative aspect-[5/7] overflow-hidden" style={{ backgroundColor: getCardBorderColor(card.border_color) }}>
         <CardImage
           src={getCardImageUrl(card, 'normal')}
           srcSet={`${getCardImageUrl(card, 'normal')} 1x, ${getCardImageUrl(card, 'large')} 2x`}

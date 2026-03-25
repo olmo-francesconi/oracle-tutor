@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom'
 import { getCard } from '../api'
 import { cn } from '../lib/cn'
 import type { SimilarCard } from '../types'
-import { getCardImageUrl } from '../utils'
+import { getCardImageUrl, getCardBorderColor } from '../utils'
 import { CardImage } from './CardImage'
 import { SymbolText } from './SymbolText'
 
@@ -222,7 +222,8 @@ export function CardOverlay({
         <div className="relative flex w-full flex-col items-center justify-center gap-4 bg-[#F0EDE6] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
           {/* Card image wrapper */}
           <div
-            className="relative inline-block overflow-hidden border-2 border-[#111111] bg-[#111111] transition-transform duration-[250ms] ease-in-out md:aspect-[5/7] md:w-full md:max-w-[360px]"
+            className="relative inline-block overflow-hidden border-2 border-[#111111] transition-transform duration-[250ms] ease-in-out md:aspect-[5/7] md:w-full md:max-w-[360px]"
+            style={{ backgroundColor: getCardBorderColor(initialCard.border_color) }}
             style={{
               transform: isFlipping ? 'rotateY(90deg)' : 'rotateY(0deg)',
               opacity: isFlipping ? 0.5 : isImageLoaded ? 1 : 0,

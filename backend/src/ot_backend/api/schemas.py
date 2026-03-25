@@ -34,3 +34,4 @@ class SimilarCard(BaseModel):
     rarity: str | None = None
     legalities: dict[str, str] | None = None
     uniqueness: float | None = None
+    border_color: str | None = None

@@ -128,7 +128,7 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
     key_to_score = {face_key: score for face_key, score in results}
     faces = (
         db.query(CardFace)
-        .options(joinedload(CardFace.card))
+        .options(joinedload(CardFace.card).joinedload(Card.raw_printing))
         .filter(tuple_(CardFace.oracle_id, CardFace.face_ix).in_(target_face_keys))
         .all()
     )
@@ -160,6 +160,7 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
                 rarity=card.rarity,
                 legalities=card.legalities,
                 uniqueness=card.uniqueness,
+                border_color=card.raw_printing.border_color,
             )
         )
     return similar_cards
