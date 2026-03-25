@@ -174,10 +174,10 @@ export function CardOverlay({
   const moxfieldUrl = `https://www.moxfield.com/search/cards?q=${encodedName}`
 
   return (
-    <div className="fixed inset-0 z-[100] flex animate-[fadeIn_0.2s_ease-out] items-center justify-center p-4 sm:p-8">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
 
@@ -188,7 +188,7 @@ export function CardOverlay({
             e.stopPropagation()
             onPrev()
           }}
-          className="absolute left-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white transition-colors hover:bg-[#333] focus-visible:outline-none sm:left-4"
+          className="absolute left-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white hover:bg-[#333] focus-visible:outline-none sm:left-4"
           aria-label="Previous card"
         >
           <CaretLeft className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
@@ -200,7 +200,7 @@ export function CardOverlay({
             e.stopPropagation()
             onNext()
           }}
-          className="absolute right-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white transition-colors hover:bg-[#333] focus-visible:outline-none sm:right-4"
+          className="absolute right-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white hover:bg-[#333] focus-visible:outline-none sm:right-4"
           aria-label="Next card"
         >
           <CaretRight className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
@@ -208,76 +208,59 @@ export function CardOverlay({
       )}
 
       {/* Modal Content */}
-      <div className="relative flex max-h-[90vh] w-full max-w-4xl animate-[slideUp_0.3s_ease-out] flex-col overflow-y-auto border-2 border-[#111111] bg-[#F0EDE6] md:h-[750px] md:max-h-none md:flex-row md:overflow-hidden">
+      <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-y-auto border-2 border-[#111111] bg-[#F0EDE6] md:h-[750px] md:max-h-none md:flex-row md:overflow-hidden">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 z-10 border-2 border-[#111111] bg-[#111111] p-2 text-white transition-colors hover:bg-[#333] focus-visible:outline-none"
+          className="absolute top-3 right-3 z-10 border-2 border-[#111111] bg-[#111111] p-2 text-white hover:bg-[#333] focus-visible:outline-none"
           aria-label="Close"
         >
           <X className="h-5 w-5" weight="bold" />
         </button>
 
         {/* Image Section */}
-        <div className="relative flex w-full items-center justify-center bg-[#F0EDE6] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
-          {/* Wrapper: size to viewport on mobile; fixed aspect box on desktop */}
-          <div className="group relative inline-block overflow-hidden border-2 border-[#111111] md:aspect-[5/7] md:w-full md:max-w-[360px]">
-            {/* Placeholder shown while image loads */}
-            <div
-              className={cn(
-                'absolute inset-0 bg-[#CCCCCC] transition-opacity duration-200',
-                isImageLoaded ? 'opacity-0' : 'opacity-100'
-              )}
-              aria-hidden
+        <div className="relative flex w-full flex-col items-center justify-center gap-4 bg-[#F0EDE6] p-4 sm:p-8 md:w-1/2 md:overflow-y-auto">
+          {/* Card image wrapper */}
+          <div
+            className="relative inline-block overflow-hidden border-2 border-[#111111] bg-[#111111] transition-transform duration-[250ms] ease-in-out md:aspect-[5/7] md:w-full md:max-w-[360px]"
+            style={{
+              transform: isFlipping ? 'rotateY(90deg)' : 'rotateY(0deg)',
+              opacity: isFlipping ? 0.5 : isImageLoaded ? 1 : 0,
+            }}
+          >
+            <CardImage
+              src={imageUrl}
+              alt={displayData.name}
+              loading="eager"
+              fetchPriority="high"
+              onLoad={() => setIsImageLoaded(true)}
+              className="block max-h-[55vh] w-auto max-w-full object-contain md:h-full md:max-h-none md:w-full md:object-cover"
+              style={{ borderRadius: '4.5% / 3.21%' }}
             />
-            {/* Rotating Card Container */}
-            <div
-              onClick={hasMultipleFaces ? handleFlip : undefined}
-              className={cn(
-                'h-full w-full shrink-0 transition-all duration-[250ms] ease-in-out',
-                hasMultipleFaces && 'cursor-pointer'
-              )}
-              style={{
-                transform: isFlipping ? 'rotateY(90deg)' : 'rotateY(0deg)',
-                opacity: isFlipping ? 0.5 : isImageLoaded ? 1 : 0,
-              }}
-            >
-              {/* Card Image - hidden until loaded to avoid old image showing with new text */}
-              <CardImage
-                src={imageUrl}
-                alt={displayData.name}
-                loading="eager"
-                fetchPriority="high"
-                onLoad={() => setIsImageLoaded(true)}
-                className="block max-h-[55vh] w-auto max-w-full object-contain md:h-full md:max-h-none md:w-full"
-              />
-
-              {/* Flip Symbol (Top Right) */}
-              {hasMultipleFaces && (
-                <div className="absolute top-4 right-4 z-20 opacity-0 transition-all duration-300 group-hover:opacity-100">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleFlip()
-                    }}
-                    className="border-2 border-white bg-[#111111] p-2 text-white transition-colors hover:bg-[#333]"
-                  >
-                    <ArrowsClockwise className="h-5 w-5" />
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
+
+          {/* Flip button — always reserves space, visible only for double-sided cards */}
+          <button
+            onClick={handleFlip}
+            disabled={!hasMultipleFaces}
+            className={cn(
+              'flex items-center gap-2 border-2 border-[#111111] px-4 py-2 font-display text-[11px] font-bold uppercase tracking-[0.1em] text-[#111111] hover:bg-[#111111] hover:text-white',
+              !hasMultipleFaces && 'invisible'
+            )}
+          >
+            <ArrowsClockwise className="h-4 w-4" />
+            Flip card
+          </button>
         </div>
 
         {/* Details Section */}
-        <div className="flex w-full flex-col bg-white p-5 text-[#111111] sm:p-8 md:w-1/2 md:overflow-y-auto md:p-10">
+        <div className="flex w-full flex-col bg-white p-6 text-[#111111] md:w-1/2 md:overflow-y-auto md:p-8">
           <div className="flex-1">
-            <h2 className="mb-2 font-display text-2xl font-[800] uppercase tracking-[-0.01em] text-[#111111] sm:text-3xl">
-              {displayName}
-            </h2>
-
-            <div className="mb-5 flex items-center gap-3 sm:mb-6">
+            {/* Header: name + badge */}
+            <div className="mb-5">
+              <h2 className="mb-2 font-display text-2xl font-[800] uppercase tracking-[-0.01em] text-[#111111] sm:text-3xl">
+                {displayName}
+              </h2>
               {initialCard.similarity !== undefined && (
                 <span className="border-2 border-[#111111] px-2 py-0.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111]">
                   {(initialCard.similarity * 100).toFixed(0)}% match
@@ -285,27 +268,28 @@ export function CardOverlay({
               )}
             </div>
 
-            {/* Animated Details Container */}
-            <div
+            {/* Type / mana — card metadata, tight to header */}
+            <p
               className={cn(
-                'space-y-5 transition-opacity duration-[125ms] ease-in-out sm:space-y-6',
+                'font-mono text-[13px] leading-snug text-[#111111]',
                 isFlipping ? 'opacity-0' : 'opacity-100'
               )}
             >
-              <p className="font-mono text-[13px] leading-snug text-[#111111]">
-                <span>
-                  {displayData.type_line || '—'}
-                </span>{' '}
-                <span className="px-1.5 text-[#7A7670]" aria-hidden="true">
-                  •
-                </span>
-                <span>
-                  <SymbolText text={displayData.mana_cost || 'None'} />
-                </span>
-              </p>
+              <span>{displayData.type_line || '—'}</span>
+              {' '}
+              <span className="px-1.5 text-[#7A7670]" aria-hidden="true">•</span>
+              <span><SymbolText text={displayData.mana_cost || 'None'} /></span>
+            </p>
 
-              <div className="border-t border-[#E8E5DE] pt-5 sm:pt-6">
-                <span className="mb-2 block font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
+            {/* Content sections — distinct blocks, generous spacing */}
+            <div
+              className={cn(
+                'mt-6 space-y-6',
+                isFlipping ? 'opacity-0' : 'opacity-100'
+              )}
+            >
+              <div className="border-t border-[#E8E5DE] pt-6">
+                <span className="mb-3 block font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
                   Oracle Text
                 </span>
 
@@ -336,14 +320,14 @@ export function CardOverlay({
               </div>
 
               {(fullCard?.uniqueness ?? initialCard.uniqueness) != null && (
-                <div className="border-t border-[#E8E5DE] pt-5 sm:pt-6">
-                  <span className="mb-2 block font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
+                <div className="border-t border-[#E8E5DE] pt-6">
+                  <span className="mb-3 block font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
                     Uniqueness
                   </span>
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 flex-1 bg-[#F0EDE6]">
                       <div
-                        className="h-full bg-[#111111] transition-all"
+                        className="h-full bg-[#111111]"
                         style={{ width: `${Math.max(2, fullCard?.uniqueness ?? initialCard.uniqueness ?? 0)}%` }}
                       />
                     </div>
@@ -357,18 +341,18 @@ export function CardOverlay({
           </div>
 
           {/* Footer: External Links + Action Button */}
-          <div className="mt-8">
-            {/* External Links - Centered, no top border */}
-            <div className="flex flex-col items-center pb-6">
-              <span className="mb-3 block text-center font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
+          <div className="mt-auto pt-6">
+            {/* External Links */}
+            <div className="flex flex-col pb-6">
+              <span className="mb-3 block font-display text-[10px] font-bold uppercase tracking-[0.16em] text-[#7A7670]">
                 External Links
               </span>
-              <div className="flex flex-wrap justify-center gap-2">
+              <div className="flex flex-wrap gap-2">
                 <a
                   href={scryfallUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] transition-colors hover:bg-[#111111] hover:text-white"
+                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] hover:bg-[#111111] hover:text-white"
                 >
                   Scryfall
                 </a>
@@ -376,7 +360,7 @@ export function CardOverlay({
                   href={edhrecUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] transition-colors hover:bg-[#111111] hover:text-white"
+                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] hover:bg-[#111111] hover:text-white"
                 >
                   EDHREC
                 </a>
@@ -384,7 +368,7 @@ export function CardOverlay({
                   href={moxfieldUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] transition-colors hover:bg-[#111111] hover:text-white"
+                  className="flex items-center gap-2 border-2 border-[#111111] px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-[#111111] hover:bg-[#111111] hover:text-white"
                 >
                   Moxfield
                 </a>
@@ -400,7 +384,7 @@ export function CardOverlay({
                     : `/card/${initialCard.oracle_id}`
                 }
                 onClick={onClose}
-                className="flex w-full items-center justify-center gap-2 border-2 border-[#111111] bg-[#111111] px-6 py-3 font-display text-[13px] font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-[#333]"
+                className="flex w-full items-center justify-center gap-2 border-2 border-[#111111] bg-[#111111] px-6 py-3 font-display text-[13px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#333]"
               >
                 <MagnifyingGlass className="h-4 w-4" />
                 Find Similar Cards
