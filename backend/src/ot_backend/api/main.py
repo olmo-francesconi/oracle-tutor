@@ -161,6 +161,7 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
                 legalities=card.legalities,
                 uniqueness=card.uniqueness,
                 border_color=card.raw_printing.border_color,
+                set_code=card.raw_printing.set_code,
             )
         )
     return similar_cards

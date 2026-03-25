@@ -29,6 +29,7 @@ export interface Card {
   legalities?: Record<string, string>
   uniqueness?: number
   border_color?: string
+  set_code?: string
   faces?: CardFace[]
 }
 

@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom'
 import { getCard } from '../api'
 import { cn } from '../lib/cn'
 import type { SimilarCard } from '../types'
-import { getCardImageUrl, getCardBorderColor } from '../utils'
+import { getCardImageUrl, getCardBorderColor, getCardRadiusStyle } from '../utils'
 import { CardImage } from './CardImage'
 import { SymbolText } from './SymbolText'
 
@@ -236,7 +236,7 @@ export function CardOverlay({
               fetchPriority="high"
               onLoad={() => setIsImageLoaded(true)}
               className="block max-h-[55vh] w-auto max-w-full object-contain md:h-full md:max-h-none md:w-full md:object-cover"
-              style={{ borderRadius: '4.5% / 3.21%' }}
+              style={getCardRadiusStyle(initialCard.set_code)}
             />
           </div>
 

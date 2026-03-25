@@ -49,6 +49,13 @@ const BORDER_COLOR_MAP: Record<string, string> = {
   borderless: '#111111',
 }
 
+const ALPHA_RADIUS_STYLE = { borderRadius: '10.5% / 7.5%' } as const
+const STANDARD_RADIUS_STYLE = { borderRadius: '4.5% / 3.21%' } as const
+
+export function getCardRadiusStyle(setCode: string | undefined | null) {
+  return setCode === 'lea' ? ALPHA_RADIUS_STYLE : STANDARD_RADIUS_STYLE
+}
+
 export function getCardBorderColor(borderColor: string | undefined | null): string {
   return (borderColor && BORDER_COLOR_MAP[borderColor]) ?? '#111111'
 }

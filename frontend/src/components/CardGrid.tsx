@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { CardImage } from './CardImage'
 import { FilterBar } from './FilterBar'
-import { getCardImageUrl, getCardBorderColor } from '../utils'
+import { getCardImageUrl, getCardBorderColor, getCardRadiusStyle } from '../utils'
 import type { SimilarCard, FilterState } from '../types'
 import { cn } from '../lib/cn'
 
@@ -33,7 +33,6 @@ const SECTION_COLORS: Record<string, string> = {
   default: 'bg-[#DDDDDD]',
 }
 
-const CARD_RADIUS_STYLE = { borderRadius: '4.5% / 3.21%' } as const
 
 function AnimatedCount({ value }: { value: number }) {
   const [display, setDisplay] = useState(value)
@@ -132,7 +131,7 @@ const CardGridItem = memo(function CardGridItem({
           loading="lazy"
           decoding="async"
           className="h-full w-full object-cover"
-          style={CARD_RADIUS_STYLE}
+          style={getCardRadiusStyle(card.set_code)}
         />
       </div>
     </div>
