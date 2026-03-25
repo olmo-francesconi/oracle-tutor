@@ -184,19 +184,7 @@ export function CardGrid({
   })).filter((s) => s.cards.length > 0)
 
   if (isLoading && cards.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="flex items-center gap-2 text-[#7A7670]">
-          {BOUNCE_DELAYS.map((d) => (
-            <div
-              key={d}
-              className="h-2 w-2 animate-bounce bg-[#111111]"
-              style={{ animationDelay: d }}
-            />
-          ))}
-        </div>
-      </div>
-    )
+    return null
   }
 
   return (
