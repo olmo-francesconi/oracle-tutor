@@ -104,15 +104,15 @@ const CardGridItem = memo(function CardGridItem({
     <div
       onClick={handleClick}
       className={cn(
-        'flex cursor-pointer flex-col overflow-hidden border-2',
-        isSelected ? 'border-[#CC1100]' : 'border-[#111111]'
+        'group flex cursor-pointer flex-col overflow-hidden border-2 transition-colors',
+        isSelected ? 'border-[#CC1100]' : 'border-[#111111] hover:border-[#CC1100]'
       )}
     >
       {/* Similarity score bar */}
       {card.similarity !== undefined && (
         <div
           className={cn(
-            'flex justify-end border-b-2 bg-[#F0EDE6] px-2 py-1',
+            'flex justify-end border-b-2 bg-[#F0EDE6] px-2 py-1 transition-colors',
             isSelected ? 'border-[#CC1100]' : 'border-[#111111]'
           )}
         >

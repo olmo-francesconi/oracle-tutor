@@ -37,7 +37,3 @@ Backend tests use `pytest`; place new tests in `backend/tests/` as `test_*.py`. 
 ## Commit & Pull Request Guidelines
 
 Recent history uses Conventional Commit prefixes such as `fix:`, `refactor:`, `docs:`, and `chore:`. Keep commit subjects imperative and concise, for example `fix: handle empty oracle query`. PRs should stay focused on one concern, explain the user-visible change, link related issues, and include screenshots for frontend changes.
-
-## Agent Notes
-
-Standard project context files such as `.agent-config/shared.md`, `ARCHITECTURE.md`, `ROADMAP.md`, and `TODO.md` are not present in this checkout. If this repo should use the shared template, run `~/.agent-config/setup-project.sh` from the repository root.

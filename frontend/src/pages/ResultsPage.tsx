@@ -5,7 +5,6 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { FunnelIcon } from '@phosphor-icons/react'
 import { getCard, getSimilarCards, searchOracleText } from '../api'
 import { CardGrid } from '../components/CardGrid'
-import { CardImage } from '../components/CardImage'
 import { CardOverlay } from '../components/CardOverlay'
 import { FilterBar } from '../components/FilterBar'
 import { PageSEO } from '../components/PageSEO'
@@ -14,8 +13,6 @@ import { UnifiedSearchBox } from '../components/UnifiedSearchBox'
 import { getBaseUrl } from '../lib/seo'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl, getImageSideForFace } from '../utils'
-
-const CARD_RADIUS_STYLE = { borderRadius: '4.5% / 3.21%' } as const
 
 // ── Search mode ──────────────────────────────────────────────────────────────
 
@@ -99,9 +96,7 @@ function SearchMode({ query }: { query: string }) {
         )}
 
         {query && (
-          <div className="flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]">
-            {/* Red left accent — Bauhaus stripe */}
-            <div className="w-[4px] shrink-0 bg-[#CC1100]" />
+          <DetailBand accent>
             <div className="flex items-baseline gap-3 px-6 py-[14px]">
               <h2 className="font-display text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
                 {query}
@@ -112,7 +107,7 @@ function SearchMode({ query }: { query: string }) {
                 </span>
               )}
             </div>
-          </div>
+          </DetailBand>
         )}
 
         <div className="min-h-0 flex-1">
@@ -338,13 +333,36 @@ function CardMode({ id }: { id: string }) {
         <FilterStrip filters={filters} onFilterChange={setFilters} />
       )}
 
-      {/* Card detail panel */}
-      <div className="flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]">
-        {/* Thumbnail on dark stage */}
+      <DetailBand accent>
+        <div className="flex min-w-0 flex-1 items-center gap-3 px-6 py-[14px]">
+          <h1 className="font-display shrink-0 text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
+            {displayName}
+          </h1>
+          {displayType && (
+            <>
+              <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
+              <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">{displayType}</span>
+            </>
+          )}
+          {displayMana && (
+            <>
+              <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
+              <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">
+                <SymbolText text={displayMana} />
+              </span>
+            </>
+          )}
+          {displayOracle && (
+            <>
+              <span className="hidden shrink-0 text-[#CCCCCC] sm:block" aria-hidden>·</span>
+              <span className="font-mono hidden min-w-0 truncate text-[11px] text-[#7A7670] sm:block">
+                <SymbolText text={displayOracle} />
+              </span>
+            </>
+          )}
+        </div>
         <button
           type="button"
-          className="relative shrink-0 cursor-pointer overflow-hidden bg-[#111111] transition-opacity hover:opacity-80 -my-[2px]"
-          style={{ width: 88 }}
           onClick={() =>
             setSelected({
               routeId: id,
@@ -356,69 +374,41 @@ function CardMode({ id }: { id: string }) {
               } as SimilarCard,
             })
           }
-          aria-label="Open large card view"
+          className="font-mono flex shrink-0 items-center border-l-2 border-[#111111] px-5 text-[11px] uppercase tracking-[0.08em] text-[#7A7670] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6]"
         >
-          <CardImage
-            src={mainCardImageUrl}
-            alt={displayName}
-            className="h-full w-full object-cover"
-            style={CARD_RADIUS_STYLE}
-          />
+          View card ↗
         </button>
+      </DetailBand>
 
-        {/* Col 1: name + type + cost — fixed width keeps it readable at any viewport */}
-        <div className="flex w-[280px] min-w-0 shrink-0 flex-col justify-center border-r-2 border-[#111111] px-5 py-4">
-          <h1 className="font-display truncate text-[22px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
-            {displayName}
-          </h1>
-          <p className="mt-2 flex items-center gap-1.5 font-mono text-[11px] text-[#7A7670]">
-            <span className="truncate">{displayType || '—'}</span>
-            {displayMana && (
-              <>
-                <span className="shrink-0 text-[#CCCCCC]" aria-hidden>
-                  ·
-                </span>
-                <span className="shrink-0 text-[#111111]">
-                  <SymbolText text={displayMana} />
-                </span>
-              </>
-            )}
-          </p>
-        </div>
-
-        {/* Col 2: oracle text */}
-        <div className="flex min-w-0 flex-1 flex-col justify-center px-5 py-4">
-          <span className="font-display mb-1.5 block text-[9px] font-bold tracking-[0.18em] text-[#7A7670] uppercase">
-            Oracle
-          </span>
-          {displayOracle ? (
-            <p className="line-clamp-2 font-mono text-[11px] leading-[1.5] text-[#444444]">
-              <SymbolText text={displayOracle} />
-            </p>
-          ) : (
-            <p className="font-mono text-[11px] text-[#CCCCCC]">—</p>
-          )}
-        </div>
+      <div className="min-h-0 flex-1">
+        <CardGrid
+          cards={similarCards}
+          isLoading={similarLoading}
+          isFetchingNextPage={isFetchingNextPage}
+          hasNextPage={!!hasNextPage}
+          fetchNextPage={fetchNextPage}
+          onCardClick={(c) => setSelected({ routeId: id, card: c })}
+          selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
+          searchQuery={id}
+          filters={filters}
+          onFilterChange={setFilters}
+          showFloatingFilters={false}
+        />
       </div>
-
-      <CardGrid
-        cards={similarCards}
-        isLoading={similarLoading}
-        isFetchingNextPage={isFetchingNextPage}
-        hasNextPage={!!hasNextPage}
-        fetchNextPage={fetchNextPage}
-        onCardClick={(c) => setSelected({ routeId: id, card: c })}
-        selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
-        searchQuery={id}
-        filters={filters}
-        onFilterChange={setFilters}
-        showFloatingFilters={false}
-      />
     </div>
   )
 }
 
 // ── Shared chrome ─────────────────────────────────────────────────────────────
+
+function DetailBand({ accent, children }: { accent?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]">
+      {accent && <div className="w-[4px] shrink-0 bg-[#CC1100]" />}
+      {children}
+    </div>
+  )
+}
 
 function TopBar({
   center,
