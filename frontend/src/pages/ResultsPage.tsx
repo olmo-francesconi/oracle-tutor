@@ -19,6 +19,85 @@ const RESULTS_PAGE_SIZE = 60
 const HOME_LEFT_INSET = 6
 const MIN_HOME_COMPOSITION_WIDTH = 360
 
+function getActiveFilterCount(filters: FilterState): number {
+  return Object.keys(filters).filter(
+    (key) => filters[key as keyof FilterState] !== undefined
+  ).length
+}
+
+function getSelectedCardId(card: SimilarCard | null): string | null {
+  return card ? `${card.oracle_id}:${card.face_ix}` : null
+}
+
+function getCurrentCardIndex(
+  cards: SimilarCard[],
+  selectedCard: SimilarCard | null
+): number {
+  if (!selectedCard) return -1
+
+  return cards.findIndex(
+    (card) =>
+      card.oracle_id === selectedCard.oracle_id &&
+      card.face_ix === selectedCard.face_ix
+  )
+}
+
+function SearchResultsOverlay({
+  selectedCard,
+  cards,
+  onClose,
+  onSelect,
+}: {
+  selectedCard: SimilarCard | null
+  cards: SimilarCard[]
+  onClose: () => void
+  onSelect: (card: SimilarCard) => void
+}) {
+  const currentIndex = getCurrentCardIndex(cards, selectedCard)
+
+  if (!selectedCard) return null
+
+  return (
+    <CardOverlay
+      card={selectedCard}
+      onClose={onClose}
+      hasPrev={currentIndex > 0}
+      hasNext={currentIndex >= 0 && currentIndex < cards.length - 1}
+      onPrev={() => onSelect(cards[currentIndex - 1])}
+      onNext={() => onSelect(cards[currentIndex + 1])}
+    />
+  )
+}
+
+function CardResultsOverlay({
+  selectedCard,
+  cards,
+  routeId,
+  onClose,
+  onSelect,
+}: {
+  selectedCard: SimilarCard | null
+  cards: SimilarCard[]
+  routeId: string
+  onClose: () => void
+  onSelect: (selection: { routeId: string; card: SimilarCard }) => void
+}) {
+  const currentIndex = getCurrentCardIndex(cards, selectedCard)
+
+  if (!selectedCard) return null
+
+  return (
+    <CardOverlay
+      card={selectedCard}
+      onClose={onClose}
+      hasPrev={currentIndex > 0}
+      hasNext={currentIndex >= 0 && currentIndex < cards.length - 1}
+      onPrev={() => onSelect({ routeId, card: cards[currentIndex - 1] })}
+      onNext={() => onSelect({ routeId, card: cards[currentIndex + 1] })}
+    />
+  )
+}
+
 // ── Search mode ──────────────────────────────────────────────────────────────
 
 function SearchMode({ query }: { query: string }) {
@@ -50,15 +129,6 @@ function SearchMode({ query }: { query: string }) {
     [searchData]
   )
 
-  const currentIndex =
-    selectedCard != null
-      ? cards.findIndex(
-          (c) =>
-            c.oracle_id === selectedCard.oracle_id &&
-            c.face_ix === selectedCard.face_ix
-        )
-      : -1
-
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setSelectedCard(null)
@@ -67,9 +137,7 @@ function SearchMode({ query }: { query: string }) {
     return () => window.removeEventListener('keydown', handleEsc)
   }, [])
 
-  const activeFilterCount = Object.keys(filters).filter(
-    (k) => filters[k as keyof FilterState] !== undefined
-  ).length
+  const activeFilterCount = getActiveFilterCount(filters)
 
   const { pathname, search } = useLocation()
 
@@ -85,36 +153,28 @@ function SearchMode({ query }: { query: string }) {
         path={`${pathname}${search}`}
       />
 
-      {selectedCard && (
-        <CardOverlay
-          card={selectedCard}
-          onClose={() => setSelectedCard(null)}
-          hasPrev={currentIndex > 0}
-          hasNext={currentIndex >= 0 && currentIndex < cards.length - 1}
-          onPrev={() => setSelectedCard(cards[currentIndex - 1])}
-          onNext={() => setSelectedCard(cards[currentIndex + 1])}
-        />
-      )}
+      <SearchResultsOverlay
+        selectedCard={selectedCard}
+        cards={cards}
+        onClose={() => setSelectedCard(null)}
+        onSelect={setSelectedCard}
+      />
 
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F0EDE6]">
-        <TopBar
-          center={
-            <UnifiedSearchBox
-              key={query}
-              size="topBar"
-              initialValue={query}
-              className="h-full w-full"
-            />
-          }
-          showFilters={showFilters}
-          activeFilterCount={activeFilterCount}
-          onToggleFilters={() => setShowFilters((v) => !v)}
-        />
-
-        {showFilters && (
-          <FilterStrip filters={filters} onFilterChange={setFilters} />
-        )}
-
+      <ResultsPageShell
+        searchBox={
+          <UnifiedSearchBox
+            key={query}
+            size="topBar"
+            initialValue={query}
+            className="h-full w-full"
+          />
+        }
+        filters={filters}
+        onFilterChange={setFilters}
+        showFilters={showFilters}
+        activeFilterCount={activeFilterCount}
+        onToggleFilters={() => setShowFilters((value) => !value)}
+      >
         {query && (
           <DetailBand accent>
             <div className="flex items-baseline gap-3 px-6 py-3.5">
@@ -141,13 +201,13 @@ function SearchMode({ query }: { query: string }) {
               fetchNextPage={fetchNextPage}
               onCardClick={setSelectedCard}
               showCountPlus={!!hasNextPage || isFetchingNextPage}
-              selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
+              selectedCardId={getSelectedCardId(selectedCard)}
               searchQuery={query}
               showFloatingFilters={false}
             />
           </ResultsSurface>
         </div>
-      </div>
+      </ResultsPageShell>
     </>
   )
 }
@@ -216,15 +276,6 @@ function CardMode({ id }: { id: string }) {
     ]
   }, [card, selectedFaceIx, similarCards])
 
-  const currentIndex =
-    selectedCard != null
-      ? navigableCards.findIndex(
-          (c) =>
-            c.oracle_id === selectedCard.oracle_id &&
-            c.face_ix === selectedCard.face_ix
-        )
-      : -1
-
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setSelected(null)
@@ -234,6 +285,8 @@ function CardMode({ id }: { id: string }) {
   }, [])
 
   useEffect(() => {
+    const currentIndex = getCurrentCardIndex(navigableCards, selectedCard)
+
     if (
       selectedCard &&
       currentIndex >= 0 &&
@@ -245,16 +298,13 @@ function CardMode({ id }: { id: string }) {
     }
   }, [
     selectedCard,
-    currentIndex,
-    navigableCards.length,
+    navigableCards,
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
   ])
 
-  const activeFilterCount = Object.keys(filters).filter(
-    (k) => filters[k as keyof FilterState] !== undefined
-  ).length
+  const activeFilterCount = getActiveFilterCount(filters)
 
   if (cardLoading)
     return (
@@ -312,25 +362,16 @@ function CardMode({ id }: { id: string }) {
         <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
       </Helmet>
 
-      {selectedCard && (
-        <CardOverlay
-          card={selectedCard}
-          onClose={() => setSelected(null)}
-          hasPrev={currentIndex > 0}
-          hasNext={
-            currentIndex >= 0 && currentIndex < navigableCards.length - 1
-          }
-          onPrev={() =>
-            setSelected({ routeId: id, card: navigableCards[currentIndex - 1] })
-          }
-          onNext={() =>
-            setSelected({ routeId: id, card: navigableCards[currentIndex + 1] })
-          }
-        />
-      )}
+      <CardResultsOverlay
+        selectedCard={selectedCard}
+        cards={navigableCards}
+        routeId={id}
+        onClose={() => setSelected(null)}
+        onSelect={setSelected}
+      />
 
-      <TopBar
-        center={
+      <ResultsPageShell
+        searchBox={
           <UnifiedSearchBox
             key={displayName}
             size="topBar"
@@ -338,80 +379,80 @@ function CardMode({ id }: { id: string }) {
             className="h-full w-full"
           />
         }
+        filters={filters}
+        onFilterChange={setFilters}
         showFilters={showFilters}
         activeFilterCount={activeFilterCount}
-        onToggleFilters={() => setShowFilters((v) => !v)}
-      />
+        onToggleFilters={() => setShowFilters((value) => !value)}
+      >
+        <DetailBand accent>
+          <div className="flex min-w-0 flex-1 items-center gap-3 px-6 py-3.5">
+            <h1 className="font-display shrink-0 text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
+              {displayName}
+            </h1>
+            {displayType && (
+              <>
+                <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
+                <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">{displayType}</span>
+              </>
+            )}
+            {displayMana && (
+              <>
+                <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
+                <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">
+                  <SymbolText text={displayMana} />
+                </span>
+              </>
+            )}
+            {displayOracle && (
+              <>
+                <span className="hidden shrink-0 text-[#CCCCCC] sm:block" aria-hidden>·</span>
+                <span className="font-mono hidden min-w-0 truncate text-[11px] text-[#7A7670] sm:block">
+                  <SymbolText text={displayOracle} />
+                </span>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setSelected({
+                routeId: id,
+                card: {
+                  ...card,
+                  face_ix: selectedFaceIx,
+                  image_side: selectedImageSide,
+                  similarity: 1,
+                } as SimilarCard,
+              })
+            }
+            className="font-mono flex shrink-0 items-center border-l-2 border-[#111111] px-5 text-[11px] uppercase tracking-[0.08em] text-[#7A7670] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6]"
+          >
+            View card ↗
+          </button>
+        </DetailBand>
 
-      {showFilters && (
-        <FilterStrip filters={filters} onFilterChange={setFilters} />
-      )}
-
-      <DetailBand accent>
-        <div className="flex min-w-0 flex-1 items-center gap-3 px-6 py-3.5">
-          <h1 className="font-display shrink-0 text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
-            {displayName}
-          </h1>
-          {displayType && (
-            <>
-              <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
-              <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">{displayType}</span>
-            </>
-          )}
-          {displayMana && (
-            <>
-              <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
-              <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">
-                <SymbolText text={displayMana} />
-              </span>
-            </>
-          )}
-          {displayOracle && (
-            <>
-              <span className="hidden shrink-0 text-[#CCCCCC] sm:block" aria-hidden>·</span>
-              <span className="font-mono hidden min-w-0 truncate text-[11px] text-[#7A7670] sm:block">
-                <SymbolText text={displayOracle} />
-              </span>
-            </>
-          )}
+        <div className="min-h-0 flex-1">
+          <ResultsSurface>
+            <CardGrid
+              cards={similarCards}
+              isLoading={similarLoading}
+              isFetchingNextPage={isFetchingNextPage}
+              hasNextPage={!!hasNextPage}
+              fetchNextPage={fetchNextPage}
+              onCardClick={(similarCard) =>
+                setSelected({ routeId: id, card: similarCard })
+              }
+              showCountPlus={!!hasNextPage || isFetchingNextPage}
+              selectedCardId={getSelectedCardId(selectedCard)}
+              searchQuery={id}
+              filters={filters}
+              onFilterChange={setFilters}
+              showFloatingFilters={false}
+            />
+          </ResultsSurface>
         </div>
-        <button
-          type="button"
-          onClick={() =>
-            setSelected({
-              routeId: id,
-              card: {
-                ...card,
-                face_ix: selectedFaceIx,
-                image_side: selectedImageSide,
-                similarity: 1,
-              } as SimilarCard,
-            })
-          }
-          className="font-mono flex shrink-0 items-center border-l-2 border-[#111111] px-5 text-[11px] uppercase tracking-[0.08em] text-[#7A7670] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6]"
-        >
-          View card ↗
-        </button>
-      </DetailBand>
-
-      <div className="min-h-0 flex-1">
-        <ResultsSurface>
-          <CardGrid
-            cards={similarCards}
-            isLoading={similarLoading}
-            isFetchingNextPage={isFetchingNextPage}
-            hasNextPage={!!hasNextPage}
-            fetchNextPage={fetchNextPage}
-            onCardClick={(c) => setSelected({ routeId: id, card: c })}
-            showCountPlus={!!hasNextPage || isFetchingNextPage}
-            selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
-            searchQuery={id}
-            filters={filters}
-            onFilterChange={setFilters}
-            showFloatingFilters={false}
-          />
-        </ResultsSurface>
-      </div>
+      </ResultsPageShell>
     </div>
   )
 }
@@ -439,6 +480,41 @@ function ResultsSurface({ children }: { children: React.ReactNode }) {
       <div className="relative z-10 h-full">
         {children}
       </div>
+    </div>
+  )
+}
+
+function ResultsPageShell({
+  searchBox,
+  filters,
+  onFilterChange,
+  showFilters,
+  activeFilterCount,
+  onToggleFilters,
+  children,
+}: {
+  searchBox: React.ReactNode
+  filters: FilterState
+  onFilterChange: (filters: FilterState) => void
+  showFilters: boolean
+  activeFilterCount: number
+  onToggleFilters: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F0EDE6]">
+      <TopBar
+        center={searchBox}
+        showFilters={showFilters}
+        activeFilterCount={activeFilterCount}
+        onToggleFilters={onToggleFilters}
+      />
+
+      {showFilters && (
+        <FilterStrip filters={filters} onFilterChange={onFilterChange} />
+      )}
+
+      {children}
     </div>
   )
 }
