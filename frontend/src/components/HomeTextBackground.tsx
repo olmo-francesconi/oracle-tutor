@@ -5,6 +5,7 @@ type HomeTextBackgroundProps = {
   texts: string[]
   isLoaded: boolean
   leftInset?: number
+  minTotalWidth?: number
   onStatsChange?: (stats: HomeTextBackgroundStats) => void
 }
 
@@ -109,6 +110,7 @@ export function HomeTextBackground({
   texts,
   isLoaded,
   leftInset = 0,
+  minTotalWidth = 0,
   onStatsChange,
 }: HomeTextBackgroundProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -117,8 +119,9 @@ export function HomeTextBackground({
 
   useEffect(() => {
     const updateViewport = () => {
+      const totalWidth = Math.max(window.innerWidth, minTotalWidth)
       setViewport({
-        width: Math.max(window.innerWidth - leftInset, 0),
+        width: Math.max(totalWidth - leftInset, 0),
         height: Math.max(window.innerHeight, 0),
       })
     }
@@ -142,7 +145,7 @@ export function HomeTextBackground({
         window.cancelAnimationFrame(frameRef.current)
       }
     }
-  }, [leftInset])
+  }, [leftInset, minTotalWidth])
 
   const metrics = useMemo(() => {
     return estimateMetrics(buildRepeatedText(texts))
@@ -189,7 +192,7 @@ export function HomeTextBackground({
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none fixed inset-y-0 right-0 z-[1] select-none overflow-hidden"
+      className="pointer-events-none absolute inset-y-0 right-0 z-[1] select-none overflow-hidden"
       style={{
         left: leftInset,
         contain: 'layout style paint',

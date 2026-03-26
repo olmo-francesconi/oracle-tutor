@@ -35,6 +35,7 @@ const MONUMENT_SLOTS: Array<{ style: React.CSSProperties; baseFontSize: number }
 ]
 const MAX_MONUMENT_TERM_LENGTH = 18
 const HOME_LEFT_INSET = 6
+const MIN_HOME_COMPOSITION_WIDTH = 360
 const DESIGN_VIEWPORT_WIDTH = 1440
 const DESIGN_VIEWPORT_HEIGHT = 900
 const MIN_COMPOSITION_SCALE = 0.78
@@ -55,6 +56,8 @@ const FOOTER_RIGHT_INSET = 40
 const FOOTER_BOTTOM_INSET = 20
 const FOOTER_SCALE_MIN = 0.92
 const FOOTER_SCALE_MAX = 1.05
+const HERO_BOTTOM_CLEARANCE = 88
+const HERO_SIDE_CLEARANCE = 20
 
 type HomeViewport = {
   width: number
@@ -169,9 +172,11 @@ export default function HomePage() {
   const footerRightInset = FOOTER_RIGHT_INSET * compositionScale
   const footerBottomInset = FOOTER_BOTTOM_INSET * compositionScale
   const footerScale = clamp(compositionScale, FOOTER_SCALE_MIN, FOOTER_SCALE_MAX)
+  const heroBottomClearance = HERO_BOTTOM_CLEARANCE * compositionScale
+  const heroSideClearance = HERO_SIDE_CLEARANCE * compositionScale
 
   return (
-    <>
+    <div className="relative min-h-screen min-w-[360px]">
       <PageSEO
         title={DEFAULT_TITLE}
         description={DEFAULT_DESCRIPTION}
@@ -179,19 +184,20 @@ export default function HomePage() {
       />
 
       {/* Red left stripe */}
-      <div className="fixed left-0 top-0 z-50 h-full w-[6px] bg-[#CC1100]" />
+      <div className="absolute left-0 top-0 z-50 h-full w-[6px] bg-[#CC1100]" />
 
       <HomeTextBackground
         texts={texts}
         isLoaded={isLoaded}
         leftInset={HOME_LEFT_INSET}
+        minTotalWidth={MIN_HOME_COMPOSITION_WIDTH}
         onStatsChange={setBackgroundStats}
       />
 
       {/* ── Art layer 2: Monumental keywords ───────────────────────────────────
           Fades in second (0.35s delay). Letter-shapes emerge as abstract forms. */}
       <div
-        className="pointer-events-none fixed inset-0 z-[3] select-none overflow-hidden"
+        className="pointer-events-none absolute inset-0 z-[3] select-none overflow-hidden"
         style={{
           left: HOME_LEFT_INSET,
           contain: 'layout style',
@@ -222,7 +228,7 @@ export default function HomePage() {
       {/* ── Art layer 3: Medium oracle phrases ─────────────────────────────────
           Fades in last (0.75s delay). Fine type settles over the composition. */}
       <div
-        className="pointer-events-none fixed inset-0 z-[2] select-none overflow-hidden"
+        className="pointer-events-none absolute inset-0 z-[2] select-none overflow-hidden"
         style={{
           left: HOME_LEFT_INSET,
           contain: 'layout style',
@@ -257,7 +263,13 @@ export default function HomePage() {
       </div>
 
       {/* Foreground: wordmark + search — always visible, independent of oracle loading */}
-      <div className="relative z-10 flex min-h-screen flex-col items-center justify-center pl-[6px]">
+      <div
+        className="relative z-10 flex min-h-screen flex-col items-center justify-center pl-[6px]"
+        style={{
+          paddingBottom: `${heroBottomClearance}px`,
+          paddingInline: `${heroSideClearance}px`,
+        }}
+      >
         <motion.div
           className="flex w-full flex-col items-center"
           style={{ maxWidth: `${heroWidth}px`, gap: `${heroStackGap}px` }}
@@ -296,7 +308,7 @@ export default function HomePage() {
         </motion.div>
 
         <div
-          className="fixed"
+          className="absolute"
           style={{
             bottom: `${footerBottomInset}px`,
             right: `${footerRightInset}px`,
@@ -311,6 +323,6 @@ export default function HomePage() {
           <HomeBackgroundDebugPanel stats={backgroundStats} />
         ) : null}
       </div>
-    </>
+    </div>
   )
 }

@@ -38,6 +38,13 @@ const SYMBOL_RAIL_ITEMS = [
   ...PHYREXIAN_MANA_SYMBOLS, '.',
   ...TWO_BRID_MANA_SYMBOLS, ...GENERIC_MANA_SYMBOLS, ...LETTER_SYMBOLS,
 ] as const
+const HERO_MIN_HORIZONTAL_PADDING = 14
+const HERO_MIN_VERTICAL_PADDING = 16
+const HERO_MIN_TEXT_SIZE = 16
+const HERO_MIN_ICON_SIZE = 18
+const LONG_PLACEHOLDER = 'search for a card or describe what it does…'
+const MEDIUM_PLACEHOLDER = 'search cards by meaning…'
+const SHORT_PLACEHOLDER = 'search…'
 
 type SelectionRange = {
   start: number
@@ -223,6 +230,10 @@ export function UnifiedSearchBox({
   const editorRef = useRef<HTMLDivElement>(null)
   const symbolRailRef = useRef<HTMLDivElement>(null)
   const pendingSelectionRef = useRef<SelectionRange | null>(null)
+  const textAreaRef = useRef<HTMLDivElement>(null)
+  const placeholderMeasureRef = useRef<HTMLSpanElement>(null)
+  const resizeFrameRef = useRef<number | null>(null)
+  const [textAreaWidth, setTextAreaWidth] = useState(0)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -240,6 +251,40 @@ export function UnifiedSearchBox({
     editorRef.current.focus()
     setSelectionRange(editorRef.current, initialCaretRef.current, initialCaretRef.current)
   }, [autoFocus])
+
+  useEffect(() => {
+    const updateTextAreaWidth = () => {
+      setTextAreaWidth(textAreaRef.current?.clientWidth ?? 0)
+    }
+
+    const scheduleUpdate = () => {
+      if (resizeFrameRef.current !== null) return
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null
+        updateTextAreaWidth()
+      })
+    }
+
+    updateTextAreaWidth()
+
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => scheduleUpdate())
+      : null
+
+    if (textAreaRef.current && observer) {
+      observer.observe(textAreaRef.current)
+    }
+
+    window.addEventListener('resize', scheduleUpdate)
+
+    return () => {
+      window.removeEventListener('resize', scheduleUpdate)
+      observer?.disconnect()
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (query.length < 2) {
@@ -436,16 +481,33 @@ export function UnifiedSearchBox({
   const isTopBar = size === 'topBar'
   const isHero = size === 'hero'
   const isSmall = isCompact || isTopBar
+  const heroHorizontalPadding = Math.max(HERO_MIN_HORIZONTAL_PADDING, 16 * heroScale)
+  const heroVerticalPadding = Math.max(HERO_MIN_VERTICAL_PADDING, 18 * heroScale)
+  const heroTextSize = Math.max(HERO_MIN_TEXT_SIZE, 15 * heroScale)
+  const heroIconSize = Math.max(HERO_MIN_ICON_SIZE, 20 * heroScale)
+  const placeholderMeasureFontSize = isHero ? `${heroTextSize}px` : undefined
+  const canFitPlaceholder = (candidate: string) => {
+    if (!isHero) return true
+    const measure = placeholderMeasureRef.current
+    if (!measure || textAreaWidth <= 0) return false
+    measure.textContent = candidate
+    return measure.scrollWidth <= textAreaWidth
+  }
   const placeholder = isSmall
-    ? 'search…'
-    : 'search for a card or describe what it does…'
-  const heroHorizontalPadding = 16 * heroScale
-  const heroVerticalPadding = 18 * heroScale
-  const heroTextSize = 15 * heroScale
-  const heroIconSize = 20 * heroScale
+    ? SHORT_PLACEHOLDER
+    : isHero
+      ? canFitPlaceholder(LONG_PLACEHOLDER)
+        ? LONG_PLACEHOLDER
+        : canFitPlaceholder(MEDIUM_PLACEHOLDER)
+          ? MEDIUM_PLACEHOLDER
+          : SHORT_PLACEHOLDER
+      : LONG_PLACEHOLDER
 
   return (
-    <div ref={wrapperRef} className={cn('relative', className)}>
+    <div
+      ref={wrapperRef}
+      className={cn('relative', (isFocused || showDropdown) && 'z-20', className)}
+    >
       {isFocused && (
         <div
           className={cn(
@@ -571,11 +633,19 @@ export function UnifiedSearchBox({
           size={isHero ? heroIconSize : undefined}
           weight="bold"
         />
-        <div className="relative min-w-0 flex-1">
+        <div ref={textAreaRef} className="relative min-w-0 flex-1">
+          {isHero && (
+            <span
+              ref={placeholderMeasureRef}
+              aria-hidden="true"
+              className="pointer-events-none absolute invisible inset-0 overflow-hidden whitespace-nowrap font-mono"
+              style={{ fontSize: placeholderMeasureFontSize }}
+            />
+          )}
           {!query && (
             <span
               className={cn(
-                'pointer-events-none absolute inset-0 font-mono text-[#ABABAB]',
+                'pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[#ABABAB]',
                 isHero ? '' : isSmall ? 'text-[13px]' : 'text-[15px]'
               )}
               style={isHero ? { fontSize: `${heroTextSize}px` } : undefined}
@@ -628,7 +698,7 @@ export function UnifiedSearchBox({
                   onClick={() => handleNameSelect(card)}
                   className="font-mono flex w-full cursor-pointer items-center px-4 py-3 text-left text-[13px] text-[#111111] hover:bg-[#111111] hover:text-white"
                 >
-                  {card.name}
+                  <SymbolText text={card.name} className="flex-nowrap items-center gap-0" />
                 </button>
               ))}
             </>
@@ -643,7 +713,7 @@ export function UnifiedSearchBox({
             <>
               <div className="flex items-center justify-between border-b border-[#E8E5DE] px-4 py-2">
                 <span className="font-display text-[9px] font-bold tracking-[0.18em] text-[#8B7A00] uppercase">
-                  About &ldquo;{displayQuery}&rdquo;
+                  About &ldquo;<SymbolText text={displayQuery} className="inline-flex flex-nowrap items-center gap-0 align-baseline normal-case" />&rdquo;
                 </span>
                 {isSemanticLoading && (
                   <span className="font-mono text-[10px] text-[#ABABAB]">
@@ -657,7 +727,7 @@ export function UnifiedSearchBox({
                   onClick={() => handleSemanticSelect(card)}
                   className="font-mono flex w-full cursor-pointer items-center justify-between border-b border-[#F0EDE6] px-4 py-3 text-left text-[13px] text-[#111111] last:border-b-0 hover:bg-[#111111] hover:text-white"
                 >
-                  <span>{card.name}</span>
+                  <SymbolText text={card.name} className="flex-nowrap items-center gap-0" />
                   {card.type_line && (
                     <span className="ml-4 shrink-0 text-[11px] text-[#7A7670] hover:text-inherit">
                       {card.type_line.split('—')[0].trim()}
@@ -676,7 +746,9 @@ export function UnifiedSearchBox({
                 onClick={handleSemanticSearch}
                 className="font-display flex w-full cursor-pointer items-center justify-between px-4 py-3 text-[11px] font-bold tracking-[0.1em] text-[#111111] uppercase hover:bg-[#111111] hover:text-white"
               >
-                <span>See all results for &ldquo;{displayQuery}&rdquo;</span>
+                <span>
+                  See all results for &ldquo;<SymbolText text={displayQuery} className="inline-flex flex-nowrap items-center gap-0 align-baseline normal-case" />&rdquo;
+                </span>
                 <span>→</span>
               </button>
             </>
