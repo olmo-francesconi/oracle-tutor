@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CaretLeftIcon, CaretRightIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { searchCards, searchOracleText } from '../api'
@@ -64,7 +64,10 @@ function getNodeRawLength(node: Node): number {
     return node.dataset.token.length
   }
 
-  return 0
+  return Array.from(node.childNodes).reduce(
+    (total, childNode) => total + getNodeRawLength(childNode),
+    0
+  )
 }
 
 function buildEditableContent(root: HTMLDivElement, text: string) {
@@ -109,9 +112,23 @@ function readRawQuery(root: HTMLDivElement): string {
         return node.dataset.token
       }
 
-      return ''
+      return Array.from(node.childNodes)
+        .map((childNode) => getNodeRawLength(childNode) ? readNodeRawText(childNode) : '')
+        .join('')
     })
     .join('')
+}
+
+function readNodeRawText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent ?? ''
+  }
+
+  if (node instanceof HTMLElement && node.dataset.token) {
+    return node.dataset.token
+  }
+
+  return Array.from(node.childNodes).map(readNodeRawText).join('')
 }
 
 function getRawOffset(root: HTMLDivElement, target: Node | null, offset: number): number {
@@ -125,17 +142,11 @@ function getRawOffset(root: HTMLDivElement, target: Node | null, offset: number)
 
   let total = 0
   for (const node of Array.from(root.childNodes)) {
-    if (node === target) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        return total + offset
-      }
-
-      if (node instanceof HTMLElement && node.dataset.token) {
-        return total + (offset > 0 ? node.dataset.token.length : 0)
-      }
+    if (node.contains(target)) {
+      return total + getNestedRawOffset(node, target, offset)
     }
 
-    if (node.contains(target)) {
+    if (node === target) {
       if (node.nodeType === Node.TEXT_NODE) {
         return total + offset
       }
@@ -149,6 +160,36 @@ function getRawOffset(root: HTMLDivElement, target: Node | null, offset: number)
   }
 
   return total
+}
+
+function getNestedRawOffset(node: Node, target: Node, offset: number): number {
+  if (node === target) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return offset
+    }
+
+    if (node instanceof HTMLElement && node.dataset.token) {
+      return offset > 0 ? node.dataset.token.length : 0
+    }
+  }
+
+  let total = 0
+  for (const childNode of Array.from(node.childNodes)) {
+    if (childNode === target || childNode.contains(target)) {
+      return total + getNestedRawOffset(childNode, target, offset)
+    }
+
+    total += getNodeRawLength(childNode)
+  }
+
+  return total
+}
+
+function normalizePastedText(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/\t/g, ' ')
 }
 
 function getSelectionRange(root: HTMLDivElement): SelectionRange {
@@ -413,6 +454,25 @@ export function UnifiedSearchBox({
     setQuery(nextQuery)
   }
 
+  const handleEditorPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    event.preventDefault()
+
+    const pastedText = normalizePastedText(event.clipboardData.getData('text/plain'))
+    if (!pastedText) return
+
+    const selection = editorRef.current
+      ? getSelectionRange(editorRef.current)
+      : { start: query.length, end: query.length }
+    const nextQuery =
+      query.slice(0, selection.start) + pastedText + query.slice(selection.end)
+    const nextCaret = selection.start + pastedText.length
+
+    hasTyped.current = true
+    pendingSelectionRef.current = { start: nextCaret, end: nextCaret }
+    setQuery(nextQuery)
+    focusEditorAt(nextCaret)
+  }
+
   const updateSymbolScrollState = () => {
     const rail = symbolRailRef.current
     if (!rail) {
@@ -667,6 +727,7 @@ export function UnifiedSearchBox({
             aria-label="Search"
             spellCheck={false}
             onInput={handleEditorInput}
+            onPaste={handleEditorPaste}
             onKeyDown={handleKeyDown}
             onFocus={() => {
               setIsFocused(true)
