@@ -1,5 +1,11 @@
 import axios from 'axios'
-import type { Card, CardMatch, FilterState, SimilarCard } from './types'
+import type {
+  Card,
+  CardMatch,
+  FilterState,
+  SimilarCard,
+  SimilarCardsPage,
+} from './types'
 
 const API_URL = '/api'
 
@@ -29,6 +35,10 @@ type OracleSearchParams = SimilarCardsParams & {
 type ApiCardMatch = Omit<CardMatch, 'id'>
 type ApiCard = Omit<Card, 'id'>
 type ApiSimilarCard = Omit<SimilarCard, 'id'>
+type ApiSimilarCardsPage = {
+  items: ApiSimilarCard[]
+  has_more: boolean
+}
 type OracleSamples = {
   texts: string[]
   terms: string[]
@@ -88,7 +98,7 @@ export const getSimilarCards = async (
   offset: number = 0,
   limit: number = 24,
   filters?: FilterState
-): Promise<SimilarCard[]> => {
+): Promise<SimilarCardsPage> => {
   const params: SimilarCardsParams = { limit, offset }
   if (filters) {
     if (filters.cardType) params.card_type = filters.cardType
@@ -101,10 +111,13 @@ export const getSimilarCards = async (
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
-  const response = await api.get<ApiSimilarCard[]>('/similar-cards', {
+  const response = await api.get<ApiSimilarCardsPage>('/similar-cards', {
     params: { ...params, oracle_id: id, face_ix: faceIx },
   })
-  return response.data.map(normalizeSimilarCard)
+  return {
+    items: response.data.items.map(normalizeSimilarCard),
+    has_more: response.data.has_more,
+  }
 }
 
 export const searchOracleText = async (
@@ -112,7 +125,7 @@ export const searchOracleText = async (
   offset: number = 0,
   limit: number = 24,
   filters?: FilterState
-): Promise<SimilarCard[]> => {
+): Promise<SimilarCardsPage> => {
   const params: OracleSearchParams = { q: query, limit, offset }
   if (filters) {
     if (filters.cardType) params.card_type = filters.cardType
@@ -125,10 +138,13 @@ export const searchOracleText = async (
     if (filters.colorFeature) params.color_feature = filters.colorFeature
   }
 
-  const response = await api.get<ApiSimilarCard[]>('/similar-cards', {
+  const response = await api.get<ApiSimilarCardsPage>('/similar-cards', {
     params,
   })
-  return response.data.map(normalizeSimilarCard)
+  return {
+    items: response.data.items.map(normalizeSimilarCard),
+    has_more: response.data.has_more,
+  }
 }
 
 export const getOracleSamples = async (): Promise<OracleSamples> => {

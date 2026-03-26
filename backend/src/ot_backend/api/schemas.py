@@ -38,6 +38,11 @@ class SimilarCard(BaseModel):
     set_code: str | None = None
 
 
+class SimilarCardsPage(BaseModel):
+    items: list[SimilarCard]
+    has_more: bool
+
+
 class OracleSamplesResponse(BaseModel):
     texts: list[str]
     terms: list[str]

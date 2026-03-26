@@ -28,7 +28,7 @@ try:
 except ImportError:
     get_semantic_index = None
 
-from .schemas import CardMatch, OracleSamplesResponse, SimilarCard
+from .schemas import CardMatch, OracleSamplesResponse, SimilarCard, SimilarCardsPage
 
 logger = logging.getLogger("ot_backend.api")
 
@@ -412,7 +412,7 @@ def _parse_rarity(rarity: str | None) -> list[str] | None:
     return [_RARITY_MAP[ch] for ch in chars]
 
 
-@app.get("/similar-cards", response_model=list[SimilarCard])
+@app.get("/similar-cards", response_model=SimilarCardsPage)
 @log_performance(logger=logger)
 def get_similar_cards(
     db: Session = Depends(get_db),
@@ -429,7 +429,7 @@ def get_similar_cards(
     rarity: str | None = None,
     color_feature: str = "identity",
     match_mode: str = "at_least",
-) -> list[SimilarCard]:
+) -> SimilarCardsPage:
     _ensure_schema_ready()
     if oracle_id is None and not (q and q.strip()):
         raise HTTPException(status_code=422, detail="Provide either oracle_id or q")
@@ -443,7 +443,7 @@ def get_similar_cards(
     if oracle_id is not None:
         results = index.similar_to_face(
             (oracle_id, face_ix),
-            limit=limit + offset,
+            limit=limit + offset + 1,
             db=db,
             card_type=card_type,
             colors=colors,
@@ -458,7 +458,7 @@ def get_similar_cards(
         assert q is not None  # guarded by the 422 check above
         results = index.search_oracle(
             q,
-            limit=limit + offset,
+            limit=limit + offset + 1,
             db=db,
             card_type=card_type,
             colors=colors,
@@ -470,4 +470,6 @@ def get_similar_cards(
             match_mode=match_mode,
         )
 
-    return _to_similar_cards(results[offset:], db)
+    page_results = results[offset : offset + limit]
+    has_more = len(results) > offset + limit
+    return SimilarCardsPage(items=_to_similar_cards(page_results, db), has_more=has_more)

@@ -7,6 +7,7 @@ type HomeTextBackgroundProps = {
   leftInset?: number
   minTotalWidth?: number
   fitToParent?: boolean
+  fixedToViewport?: boolean
   onStatsChange?: (stats: HomeTextBackgroundStats) => void
 }
 
@@ -113,6 +114,7 @@ export function HomeTextBackground({
   leftInset = 0,
   minTotalWidth = 0,
   fitToParent = false,
+  fixedToViewport = false,
   onStatsChange,
 }: HomeTextBackgroundProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -221,7 +223,7 @@ export function HomeTextBackground({
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none absolute inset-y-0 right-0 z-[1] select-none overflow-hidden"
+      className={`pointer-events-none inset-y-0 right-0 z-[1] select-none overflow-hidden ${fixedToViewport ? 'fixed' : 'absolute'}`}
       style={{
         left: leftInset,
         contain: 'layout style paint',

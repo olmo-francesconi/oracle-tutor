@@ -322,7 +322,7 @@ export function UnifiedSearchBox({
     const timer = setTimeout(async () => {
       try {
         const results = await searchOracleText(query, 0, 4)
-        setSemanticMatches(results)
+        setSemanticMatches(results.items)
         if (hasTyped.current) setIsOpen(true)
       } catch {
         // silently ignore

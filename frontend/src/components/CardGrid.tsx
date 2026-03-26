@@ -1,9 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { getOracleSamples } from '../api'
 import { CardImage } from './CardImage'
 import { FilterBar } from './FilterBar'
-import { HomeTextBackground } from './HomeTextBackground'
 import { getCardImageUrl, getCardBorderColor, getCardRadiusStyle } from '../utils'
 import type { SimilarCard, FilterState } from '../types'
 import { cn } from '../lib/cn'
@@ -35,9 +32,6 @@ const SECTION_COLORS: Record<string, string> = {
   poor: 'bg-[#BBBBBB]',
   default: 'bg-[#DDDDDD]',
 }
-
-const HOME_LEFT_INSET = 6
-const MIN_HOME_COMPOSITION_WIDTH = 360
 
 function AnimatedCount({ value }: { value: number }) {
   const [display, setDisplay] = useState(value)
@@ -77,6 +71,21 @@ function AnimatedCount({ value }: { value: number }) {
   return <>{display.toLocaleString()}</>
 }
 
+function CountLabel({
+  value,
+  showPlus = false,
+}: {
+  value: number
+  showPlus?: boolean
+}) {
+  return (
+    <>
+      <AnimatedCount value={value} />
+      {showPlus ? '+' : ''}
+    </>
+  )
+}
+
 interface CardGridProps {
   cards: SimilarCard[]
   isLoading: boolean
@@ -84,8 +93,8 @@ interface CardGridProps {
   hasNextPage: boolean
   fetchNextPage: () => void
   onCardClick: (card: SimilarCard) => void
+  showCountPlus?: boolean
   selectedCardId?: string | null
-  noResultsMessage?: React.ReactNode
   searchQuery?: string
   filters?: FilterState
   onFilterChange?: (filters: FilterState) => void
@@ -150,8 +159,8 @@ export function CardGrid({
   hasNextPage,
   fetchNextPage,
   onCardClick,
+  showCountPlus = false,
   selectedCardId,
-  noResultsMessage,
   searchQuery,
   filters,
   onFilterChange,
@@ -160,15 +169,6 @@ export function CardGrid({
 }: CardGridProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const { data: oracleSamples, isSuccess: hasOracleSamples } = useQuery({
-    queryKey: ['oracle-samples'],
-    queryFn: getOracleSamples,
-    staleTime: Infinity,
-    gcTime: Infinity,
-  })
-
-  const backgroundTexts = oracleSamples?.texts ?? []
-  const isBackgroundLoaded = hasOracleSamples && backgroundTexts.length > 0
 
   // Scroll to top when search query changes
   useEffect(() => {
@@ -196,6 +196,7 @@ export function CardGrid({
     key,
     cards: cards.filter((c) => getSectionKey(c.similarity ?? 0) === key),
   })).filter((s) => s.cards.length > 0)
+  const lastSectionKey = sections.at(-1)?.key
 
   if (isLoading && cards.length === 0) {
     return null
@@ -211,23 +212,6 @@ export function CardGrid({
         </div>
       )}
 
-      {!isLoading && cards.length === 0 && (
-        <div className="p-4">{noResultsMessage}</div>
-      )}
-
-      {cards.length > 0 && (
-        <div className="pointer-events-none sticky top-0 z-0 h-0 overflow-visible">
-          <div className="relative h-[100dvh]">
-            <HomeTextBackground
-              texts={backgroundTexts}
-              isLoaded={isBackgroundLoaded}
-              leftInset={HOME_LEFT_INSET}
-              minTotalWidth={MIN_HOME_COMPOSITION_WIDTH}
-            />
-          </div>
-        </div>
-      )}
-
       {cards.length > 0 && (
         <div className="relative p-4 pb-10 md:p-6">
           <div className="relative z-10">
@@ -239,7 +223,10 @@ export function CardGrid({
                     {SECTION_LABELS[key]}
                   </span>
                   <span className="text-[11px] text-[#7A7670]">
-                    <AnimatedCount value={sectionCards.length} />
+                    <CountLabel
+                      value={sectionCards.length}
+                      showPlus={showCountPlus && key === lastSectionKey}
+                    />
                   </span>
                   <div className={cn('h-[2px] flex-1', SECTION_COLORS[key])} />
                 </div>

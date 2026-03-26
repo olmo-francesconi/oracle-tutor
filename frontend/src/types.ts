@@ -40,6 +40,11 @@ export interface SimilarCard extends Card {
   card_name?: string
 }
 
+export interface SimilarCardsPage {
+  items: SimilarCard[]
+  has_more: boolean
+}
+
 export interface CardMatch {
   id: string
   name: string

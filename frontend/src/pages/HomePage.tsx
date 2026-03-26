@@ -176,7 +176,7 @@ export default function HomePage() {
   const heroSideClearance = HERO_SIDE_CLEARANCE * compositionScale
 
   return (
-    <div className="relative min-h-screen min-w-[360px]">
+    <div className="relative h-screen min-w-[360px] overflow-hidden" style={{ height: '100lvh' }}>
       <PageSEO
         title={DEFAULT_TITLE}
         description={DEFAULT_DESCRIPTION}
@@ -191,6 +191,7 @@ export default function HomePage() {
         isLoaded={isLoaded}
         leftInset={HOME_LEFT_INSET}
         minTotalWidth={MIN_HOME_COMPOSITION_WIDTH}
+        fitToParent
         onStatsChange={setBackgroundStats}
       />
 
@@ -264,7 +265,7 @@ export default function HomePage() {
 
       {/* Foreground: wordmark + search — always visible, independent of oracle loading */}
       <div
-        className="relative z-10 flex min-h-screen flex-col items-center justify-center pl-[6px]"
+        className="relative z-10 flex h-full flex-col items-center justify-center pl-[6px]"
         style={{
           paddingBottom: `${heroBottomClearance}px`,
           paddingInline: `${heroSideClearance}px`,

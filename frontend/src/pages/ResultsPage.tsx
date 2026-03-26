@@ -3,16 +3,21 @@ import { useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { FunnelIcon } from '@phosphor-icons/react'
-import { getCard, getSimilarCards, searchOracleText } from '../api'
+import { getCard, getOracleSamples, getSimilarCards, searchOracleText } from '../api'
 import { CardGrid } from '../components/CardGrid'
 import { CardOverlay } from '../components/CardOverlay'
 import { FilterBar } from '../components/FilterBar'
+import { HomeTextBackground } from '../components/HomeTextBackground'
 import { PageSEO } from '../components/PageSEO'
 import { SymbolText } from '../components/SymbolText'
 import { UnifiedSearchBox } from '../components/UnifiedSearchBox'
 import { getBaseUrl } from '../lib/seo'
 import type { FilterState, SimilarCard } from '../types'
 import { getCardImageUrl, getImageSideForFace } from '../utils'
+
+const RESULTS_PAGE_SIZE = 60
+const HOME_LEFT_INSET = 6
+const MIN_HOME_COMPOSITION_WIDTH = 360
 
 // ── Search mode ──────────────────────────────────────────────────────────────
 
@@ -21,14 +26,29 @@ function SearchMode({ query }: { query: string }) {
   const [filters, setFilters] = useState<FilterState>({})
   const [showFilters, setShowFilters] = useState(false)
 
-  const { data: cards = [], isLoading } = useQuery({
+  const {
+    data: searchData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQuery({
     queryKey: ['oracle-search', query, filters],
-    queryFn: () => searchOracleText(query, 0, 60, filters),
+    queryFn: ({ pageParam = 0 }) =>
+      searchOracleText(query, pageParam, RESULTS_PAGE_SIZE, filters),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.has_more ? allPages.length * RESULTS_PAGE_SIZE : undefined,
     enabled: !!query,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     staleTime: Infinity,
   })
+
+  const cards = useMemo(
+    () => searchData?.pages.flatMap((page) => page.items) ?? [],
+    [searchData]
+  )
 
   const currentIndex =
     selectedCard != null
@@ -76,7 +96,7 @@ function SearchMode({ query }: { query: string }) {
         />
       )}
 
-      <div className="flex h-screen flex-col overflow-hidden bg-[#F0EDE6]">
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F0EDE6]">
         <TopBar
           center={
             <UnifiedSearchBox
@@ -103,7 +123,8 @@ function SearchMode({ query }: { query: string }) {
               </h2>
               {!isLoading && (
                 <span className="font-mono text-[11px] text-[#7A7670]">
-                  {cards.length} results
+                  {cards.length}
+                  {hasNextPage || isFetchingNextPage ? '+' : ''} results
                 </span>
               )}
             </div>
@@ -111,27 +132,20 @@ function SearchMode({ query }: { query: string }) {
         )}
 
         <div className="min-h-0 flex-1">
-          <CardGrid
-            cards={cards}
-            isLoading={isLoading}
-            isFetchingNextPage={false}
-            hasNextPage={false}
-            fetchNextPage={() => {}}
-            onCardClick={setSelectedCard}
-            selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
-            noResultsMessage={
-              <div className="px-8 py-16 text-center">
-                <p className="font-display text-xl font-bold tracking-wide text-[#7A7670] uppercase">
-                  No results
-                </p>
-                <p className="mt-2 font-mono text-[11px] text-[#7A7670]">
-                  Try adjusting your search terms
-                </p>
-              </div>
-            }
-            searchQuery={query}
-            showFloatingFilters={false}
-          />
+          <ResultsSurface>
+            <CardGrid
+              cards={cards}
+              isLoading={isLoading}
+              isFetchingNextPage={isFetchingNextPage}
+              hasNextPage={!!hasNextPage}
+              fetchNextPage={fetchNextPage}
+              onCardClick={setSelectedCard}
+              showCountPlus={!!hasNextPage || isFetchingNextPage}
+              selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
+              searchQuery={query}
+              showFloatingFilters={false}
+            />
+          </ResultsSurface>
         </div>
       </div>
     </>
@@ -173,10 +187,10 @@ function CardMode({ id }: { id: string }) {
   } = useInfiniteQuery({
     queryKey: ['similar', id, selectedFaceIx, filters],
     queryFn: ({ pageParam = 0 }) =>
-      getSimilarCards(id, selectedFaceIx, pageParam, 60, filters),
+      getSimilarCards(id, selectedFaceIx, pageParam, RESULTS_PAGE_SIZE, filters),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === 60 ? allPages.length * 60 : undefined,
+      lastPage.has_more ? allPages.length * RESULTS_PAGE_SIZE : undefined,
     enabled: !!id,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -184,7 +198,7 @@ function CardMode({ id }: { id: string }) {
   })
 
   const similarCards = useMemo(
-    () => similarData?.pages.flatMap((page) => page) ?? [],
+    () => similarData?.pages.flatMap((page) => page.items) ?? [],
     [similarData]
   )
 
@@ -381,19 +395,49 @@ function CardMode({ id }: { id: string }) {
       </DetailBand>
 
       <div className="min-h-0 flex-1">
-        <CardGrid
-          cards={similarCards}
-          isLoading={similarLoading}
-          isFetchingNextPage={isFetchingNextPage}
-          hasNextPage={!!hasNextPage}
-          fetchNextPage={fetchNextPage}
-          onCardClick={(c) => setSelected({ routeId: id, card: c })}
-          selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
-          searchQuery={id}
-          filters={filters}
-          onFilterChange={setFilters}
-          showFloatingFilters={false}
-        />
+        <ResultsSurface>
+          <CardGrid
+            cards={similarCards}
+            isLoading={similarLoading}
+            isFetchingNextPage={isFetchingNextPage}
+            hasNextPage={!!hasNextPage}
+            fetchNextPage={fetchNextPage}
+            onCardClick={(c) => setSelected({ routeId: id, card: c })}
+            showCountPlus={!!hasNextPage || isFetchingNextPage}
+            selectedCardId={selectedCard ? `${selectedCard.oracle_id}:${selectedCard.face_ix}` : null}
+            searchQuery={id}
+            filters={filters}
+            onFilterChange={setFilters}
+            showFloatingFilters={false}
+          />
+        </ResultsSurface>
+      </div>
+    </div>
+  )
+}
+
+function ResultsSurface({ children }: { children: React.ReactNode }) {
+  const { data: oracleSamples, isSuccess: hasOracleSamples } = useQuery({
+    queryKey: ['oracle-samples'],
+    queryFn: getOracleSamples,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+
+  const backgroundTexts = oracleSamples?.texts ?? []
+  const isBackgroundLoaded = hasOracleSamples && backgroundTexts.length > 0
+
+  return (
+    <div className="relative h-full min-h-0 flex-1 overflow-hidden">
+      <HomeTextBackground
+        texts={backgroundTexts}
+        isLoaded={isBackgroundLoaded}
+        leftInset={HOME_LEFT_INSET}
+        minTotalWidth={MIN_HOME_COMPOSITION_WIDTH}
+        fixedToViewport
+      />
+      <div className="relative z-10 h-full">
+        {children}
       </div>
     </div>
   )
@@ -403,7 +447,7 @@ function CardMode({ id }: { id: string }) {
 
 function DetailBand({ accent, children }: { accent?: boolean; children: React.ReactNode }) {
   return (
-    <div className="flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]">
+    <div className="relative z-20 flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]">
       {accent && <div className="w-[4px] shrink-0 bg-[#CC1100]" />}
       {children}
     </div>
@@ -423,7 +467,7 @@ function TopBar({
 }) {
   return (
     <div
-      className="flex shrink-0 items-stretch border-b-2 border-[#111111]"
+      className="relative z-20 flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]"
       style={{ height: 56 }}
     >
       <Link
@@ -467,7 +511,7 @@ function FilterStrip({
   onFilterChange: (f: FilterState) => void
 }) {
   return (
-    <div className="flex shrink-0 items-center border-b-2 border-[#111111] bg-white px-4">
+    <div className="relative z-20 flex shrink-0 items-center border-b-2 border-[#111111] bg-white px-4">
       <FilterBar
         filters={filters}
         onFilterChange={onFilterChange}
