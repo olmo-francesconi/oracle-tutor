@@ -99,7 +99,7 @@ function SearchMode({ query }: { query: string }) {
           <DetailBand accent>
             <div className="flex items-baseline gap-3 px-6 py-3.5">
               <h2 className="font-display text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
-                {query}
+                <SymbolText text={query} />
               </h2>
               {!isLoading && (
                 <span className="font-mono text-[11px] text-[#7A7670]">
