@@ -14,8 +14,9 @@ Bauhaus/brutalist design system. Every new UI element must follow these rules.
 | `--ot-red` | `#CC1100` | Bauhaus accent — home stripe, filter badge |
 | `--ot-yellow` | `#F5C400` | Semantic section divider in dropdown |
 | `--ot-muted` | `#7A7670` | Secondary text, labels, counts |
+| `--ot-cobalt` | `#0E2150` | Home-page editorial composition only |
 
-No other colors. No gradients. No opacity tricks for text color — use `#7A7670` for muted.
+No other colors for UI chrome. `--ot-cobalt` is reserved for the home-page art composition, not general-purpose interface accents. No gradients. No opacity tricks for text color — use `#7A7670` for muted.
 
 ---
 
