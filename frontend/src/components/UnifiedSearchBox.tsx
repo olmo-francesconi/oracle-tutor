@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MagnifyingGlassIcon } from '@phosphor-icons/react'
+import { CaretLeftIcon, CaretRightIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { searchCards, searchOracleText } from '../api'
+import { getManaClass } from '../lib/manaSymbols'
+import { SymbolText } from './SymbolText'
 import type { CardMatch, SimilarCard } from '../types'
 import { cn } from '../lib/cn'
 
@@ -11,6 +13,189 @@ interface UnifiedSearchBoxProps {
   initialValue?: string
   size?: 'default' | 'compact' | 'topBar'
   onDropdownChange?: (open: boolean) => void
+  onFocusChange?: (focused: boolean) => void
+}
+
+const SYMBOL_SCROLL_STEP = 240
+const GENERIC_MANA_SYMBOLS = Array.from({ length: 21 }, (_, index) => `{${index}}`)
+const LETTER_SYMBOLS = ['{X}', '{Y}', '{Z}'] as const
+const HYBRID_MANA_SYMBOLS = [
+  '{W/U}', '{U/B}', '{B/R}', '{R/G}', '{G/W}',
+  '{W/B}', '{B/G}', '{G/U}', '{U/R}', '{R/W}',
+] as const
+const TWO_BRID_MANA_SYMBOLS = ['{2/W}', '{2/U}', '{2/B}', '{2/R}', '{2/G}'] as const
+const PHYREXIAN_MANA_SYMBOLS = [
+  '{P}', '{W/P}', '{U/P}', '{B/P}', '{R/P}', '{G/P}',
+  '{W/U/P}', '{U/B/P}', '{B/R/P}', '{R/G/P}', '{G/W/P}',
+] as const
+const UTILITY_SYMBOLS = ['{E}', '{TK}', '{A}', '{PAW}'] as const
+const SYMBOL_RAIL_ITEMS = [
+  '{T}', '{Q}', '.',
+  '{W}', '{U}', '{B}', '{R}', '{G}', '{C}', '{S}', '.',
+  ...UTILITY_SYMBOLS, '.',
+  ...HYBRID_MANA_SYMBOLS, '.',
+  ...PHYREXIAN_MANA_SYMBOLS, '.',
+  ...TWO_BRID_MANA_SYMBOLS, ...GENERIC_MANA_SYMBOLS, ...LETTER_SYMBOLS,
+] as const
+
+type SelectionRange = {
+  start: number
+  end: number
+}
+
+function splitQueryParts(text: string) {
+  return text.split(/(\{[^}]*\})/g).filter((part) => part.length > 0)
+}
+
+function getNodeRawLength(node: Node): number {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent?.length ?? 0
+  }
+
+  if (node instanceof HTMLElement && node.dataset.token) {
+    return node.dataset.token.length
+  }
+
+  return 0
+}
+
+function buildEditableContent(root: HTMLDivElement, text: string) {
+  const fragment = document.createDocumentFragment()
+
+  splitQueryParts(text).forEach((part) => {
+    if (part.startsWith('{') && part.endsWith('}')) {
+      const manaClass = getManaClass(part)
+      if (manaClass) {
+        const token = document.createElement('span')
+        token.dataset.token = part
+        token.contentEditable = 'false'
+        token.className = 'inline-flex items-center align-middle'
+
+        const icon = document.createElement('i')
+        icon.className = `${manaClass} ms-cost align-[-0.08em]`
+        icon.setAttribute('title', part)
+        icon.setAttribute('aria-label', part)
+        icon.style.fontSize = '0.9em'
+        icon.style.verticalAlign = 'middle'
+
+        token.appendChild(icon)
+        fragment.appendChild(token)
+        return
+      }
+    }
+
+    fragment.appendChild(document.createTextNode(part))
+  })
+
+  root.replaceChildren(fragment)
+}
+
+function readRawQuery(root: HTMLDivElement): string {
+  return Array.from(root.childNodes)
+    .map((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return node.textContent ?? ''
+      }
+
+      if (node instanceof HTMLElement && node.dataset.token) {
+        return node.dataset.token
+      }
+
+      return ''
+    })
+    .join('')
+}
+
+function getRawOffset(root: HTMLDivElement, target: Node | null, offset: number): number {
+  if (!target) return 0
+
+  if (target === root) {
+    return Array.from(root.childNodes)
+      .slice(0, offset)
+      .reduce((total, node) => total + getNodeRawLength(node), 0)
+  }
+
+  let total = 0
+  for (const node of Array.from(root.childNodes)) {
+    if (node === target) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return total + offset
+      }
+
+      if (node instanceof HTMLElement && node.dataset.token) {
+        return total + (offset > 0 ? node.dataset.token.length : 0)
+      }
+    }
+
+    if (node.contains(target)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return total + offset
+      }
+
+      if (node instanceof HTMLElement && node.dataset.token) {
+        return total + (offset > 0 ? node.dataset.token.length : 0)
+      }
+    }
+
+    total += getNodeRawLength(node)
+  }
+
+  return total
+}
+
+function getSelectionRange(root: HTMLDivElement): SelectionRange {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) {
+    const end = readRawQuery(root).length
+    return { start: end, end }
+  }
+
+  const start = getRawOffset(root, selection.anchorNode, selection.anchorOffset)
+  const end = getRawOffset(root, selection.focusNode, selection.focusOffset)
+
+  return start <= end ? { start, end } : { start: end, end: start }
+}
+
+function setSelectionRange(root: HTMLDivElement, start: number, end: number) {
+  const selection = window.getSelection()
+  if (!selection) return
+
+  const resolvePosition = (rawOffset: number) => {
+    let total = 0
+    const nodes = Array.from(root.childNodes)
+
+    for (let index = 0; index < nodes.length; index += 1) {
+      const node = nodes[index]
+      const length = getNodeRawLength(node)
+
+      if (node.nodeType === Node.TEXT_NODE && rawOffset <= total + length) {
+        return { node, offset: rawOffset - total }
+      }
+
+      if (node instanceof HTMLElement && node.dataset.token) {
+        if (rawOffset <= total) {
+          return { node: root, offset: index }
+        }
+
+        if (rawOffset <= total + length) {
+          return { node: root, offset: index + 1 }
+        }
+      }
+
+      total += length
+    }
+
+    return { node: root, offset: nodes.length }
+  }
+
+  const range = document.createRange()
+  const startPosition = resolvePosition(start)
+  const endPosition = resolvePosition(end)
+
+  range.setStart(startPosition.node, startPosition.offset)
+  range.setEnd(endPosition.node, endPosition.offset)
+  selection.removeAllRanges()
+  selection.addRange(range)
 }
 
 export function UnifiedSearchBox({
@@ -19,36 +204,47 @@ export function UnifiedSearchBox({
   initialValue = '',
   size = 'default',
   onDropdownChange,
+  onFocusChange,
 }: UnifiedSearchBoxProps) {
   const [query, setQuery] = useState(initialValue)
   const [nameMatches, setNameMatches] = useState<CardMatch[]>([])
   const [semanticMatches, setSemanticMatches] = useState<SimilarCard[]>([])
   const [isSemanticLoading, setIsSemanticLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
+  const [canScrollSymbolsLeft, setCanScrollSymbolsLeft] = useState(false)
+  const [canScrollSymbolsRight, setCanScrollSymbolsRight] = useState(false)
   const hasTyped = useRef(false)
+  const initialCaretRef = useRef(initialValue.length)
   const navigate = useNavigate()
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<HTMLDivElement>(null)
+  const symbolRailRef = useRef<HTMLDivElement>(null)
+  const pendingSelectionRef = useRef<SelectionRange | null>(null)
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (
-        wrapperRef.current &&
-        !wrapperRef.current.contains(e.target as Node)
-      ) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
         setIsOpen(false)
+        setIsFocused(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Name search: 250ms debounce
+  useEffect(() => {
+    if (!autoFocus || !editorRef.current) return
+    editorRef.current.focus()
+    setSelectionRange(editorRef.current, initialCaretRef.current, initialCaretRef.current)
+  }, [autoFocus])
+
   useEffect(() => {
     if (query.length < 2) {
       setNameMatches([])
       return
     }
+
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       try {
@@ -61,19 +257,20 @@ export function UnifiedSearchBox({
         // silently ignore aborted requests
       }
     }, 250)
+
     return () => {
       clearTimeout(timer)
       controller.abort()
     }
   }, [query])
 
-  // Semantic search: 600ms debounce
   useEffect(() => {
     if (query.length < 3) {
       setSemanticMatches([])
       setIsSemanticLoading(false)
       return
     }
+
     setIsSemanticLoading(true)
     const timer = setTimeout(async () => {
       try {
@@ -86,6 +283,7 @@ export function UnifiedSearchBox({
         setIsSemanticLoading(false)
       }
     }, 600)
+
     return () => {
       clearTimeout(timer)
       setIsSemanticLoading(false)
@@ -110,7 +308,7 @@ export function UnifiedSearchBox({
     }
   }
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       const exact = nameMatches.find(
@@ -123,7 +321,66 @@ export function UnifiedSearchBox({
       }
     } else if (e.key === 'Escape') {
       setIsOpen(false)
+      setIsFocused(false)
+      editorRef.current?.blur()
     }
+  }
+
+  const focusEditorAt = (position: number) => {
+    requestAnimationFrame(() => {
+      if (!editorRef.current) return
+      editorRef.current.focus()
+      setSelectionRange(editorRef.current, position, position)
+    })
+  }
+
+  const handleInsertSymbol = (symbol: string) => {
+    const selection = editorRef.current
+      ? getSelectionRange(editorRef.current)
+      : { start: query.length, end: query.length }
+    const nextQuery =
+      query.slice(0, selection.start) + symbol + query.slice(selection.end)
+    const nextCaret = selection.start + symbol.length
+
+    hasTyped.current = true
+    pendingSelectionRef.current = { start: nextCaret, end: nextCaret }
+    setQuery(nextQuery)
+    setIsFocused(true)
+    focusEditorAt(nextCaret)
+  }
+
+  const handleEditorInput = () => {
+    if (!editorRef.current) return
+
+    const nextQuery = readRawQuery(editorRef.current)
+    const nextSelection = getSelectionRange(editorRef.current)
+
+    hasTyped.current = true
+    pendingSelectionRef.current = nextSelection
+    setQuery(nextQuery)
+  }
+
+  const updateSymbolScrollState = () => {
+    const rail = symbolRailRef.current
+    if (!rail) {
+      setCanScrollSymbolsLeft(false)
+      setCanScrollSymbolsRight(false)
+      return
+    }
+
+    const maxScrollLeft = rail.scrollWidth - rail.clientWidth
+    setCanScrollSymbolsLeft(rail.scrollLeft > 4)
+    setCanScrollSymbolsRight(rail.scrollLeft < maxScrollLeft - 4)
+  }
+
+  const scrollSymbols = (direction: 'left' | 'right') => {
+    const rail = symbolRailRef.current
+    if (!rail) return
+
+    rail.scrollBy({
+      left: direction === 'left' ? -SYMBOL_SCROLL_STEP : SYMBOL_SCROLL_STEP,
+      behavior: 'smooth',
+    })
   }
 
   const hasDropdownContent =
@@ -134,17 +391,147 @@ export function UnifiedSearchBox({
     onDropdownChange?.(showDropdown)
   }, [showDropdown, onDropdownChange])
 
+  useEffect(() => {
+    onFocusChange?.(isFocused)
+  }, [isFocused, onFocusChange])
+
+  useEffect(() => {
+    if (!isFocused) return
+
+    updateSymbolScrollState()
+
+    const rail = symbolRailRef.current
+    if (!rail) return
+
+    const handleScroll = () => updateSymbolScrollState()
+    const handleResize = () => updateSymbolScrollState()
+
+    rail.addEventListener('scroll', handleScroll)
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      rail.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [isFocused])
+
+  useLayoutEffect(() => {
+    if (!editorRef.current) return
+
+    buildEditableContent(editorRef.current, query)
+
+    if (document.activeElement === editorRef.current) {
+      const selection = pendingSelectionRef.current ?? {
+        start: query.length,
+        end: query.length,
+      }
+      setSelectionRange(editorRef.current, selection.start, selection.end)
+    }
+  }, [query])
+
   const displayQuery = query.length > 22 ? `${query.slice(0, 22)}…` : query
   const isCompact = size === 'compact'
   const isTopBar = size === 'topBar'
   const isSmall = isCompact || isTopBar
+  const placeholder = isSmall
+    ? 'search…'
+    : 'search for a card or describe what it does…'
 
   return (
     <div ref={wrapperRef} className={cn('relative', className)}>
-      {/* Input */}
-      <div
+      {isFocused && (
+        <div
+          className={cn(
+            'absolute bottom-full left-0 right-0 z-[1001] border-2 border-b-0 border-[#111111] bg-[#F0EDE6]',
+            isTopBar && '-left-[2px] -right-[2px]'
+          )}
+        >
+          <div className="relative flex items-center px-3 py-1.5">
+            <div
+              className={cn(
+                'pointer-events-none absolute left-0 top-0 bottom-0 z-[1] w-10 bg-gradient-to-r from-[#F0EDE6] via-[#F0EDE6] to-transparent transition-opacity',
+                canScrollSymbolsLeft ? 'opacity-100' : 'opacity-0'
+              )}
+            />
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                scrollSymbols('left')
+              }}
+              className={cn(
+                'absolute left-1.5 top-1/2 z-[2] -translate-y-1/2 text-[#111111] transition-opacity',
+                canScrollSymbolsLeft
+                  ? 'opacity-55 hover:opacity-100'
+                  : 'pointer-events-none opacity-0'
+              )}
+              aria-label="Show previous symbols"
+            >
+              <CaretLeftIcon size={12} weight="bold" />
+            </button>
+            <div
+              ref={symbolRailRef}
+              className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {SYMBOL_RAIL_ITEMS.map((item, index) =>
+                item === '.' ? (
+                  <span
+                    key={`divider-${index}`}
+                    className="shrink-0 text-[10px] text-[#111111]/25"
+                    aria-hidden="true"
+                  >
+                    •
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleInsertSymbol(item)
+                    }}
+                    className="flex h-5 shrink-0 items-center justify-center text-[#111111] opacity-30 transition-opacity hover:opacity-100"
+                    aria-label={`Insert ${item}`}
+                    title={item}
+                  >
+                    <SymbolText
+                      text={item}
+                      className="flex-nowrap items-center text-[13px]"
+                    />
+                  </button>
+                )
+              )}
+            </div>
+            <div
+              className={cn(
+                'pointer-events-none absolute right-0 top-0 bottom-0 z-[1] w-10 bg-gradient-to-l from-[#F0EDE6] via-[#F0EDE6] to-transparent transition-opacity',
+                canScrollSymbolsRight ? 'opacity-100' : 'opacity-0'
+              )}
+            />
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                scrollSymbols('right')
+              }}
+              className={cn(
+                'absolute right-1.5 top-1/2 z-[2] -translate-y-1/2 text-[#111111] transition-opacity',
+                canScrollSymbolsRight
+                  ? 'opacity-55 hover:opacity-100'
+                  : 'pointer-events-none opacity-0'
+              )}
+              aria-label="Show more symbols"
+            >
+              <CaretRightIcon size={12} weight="bold" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <label
         className={cn(
-          'flex items-center gap-3',
+          'flex cursor-text items-center gap-3',
           isTopBar
             ? 'h-full bg-[#F0EDE6] px-3'
             : cn(
@@ -152,6 +539,14 @@ export function UnifiedSearchBox({
                 isCompact ? 'px-3 py-[10px]' : 'px-4 py-[18px]'
               )
         )}
+        onMouseDown={(e) => {
+          if (!editorRef.current) return
+          if (e.target === editorRef.current || editorRef.current.contains(e.target as Node)) {
+            return
+          }
+          e.preventDefault()
+          focusEditorAt(query.length)
+        }}
       >
         <MagnifyingGlassIcon
           className={cn(
@@ -160,26 +555,41 @@ export function UnifiedSearchBox({
           )}
           weight="bold"
         />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => { hasTyped.current = true; setQuery(e.target.value) }}
-          onKeyDown={handleKeyDown}
-          onFocus={() => hasDropdownContent && setIsOpen(true)}
-          placeholder={
-            isSmall
-              ? 'search…'
-              : 'search for a card or describe what it does…'
-          }
-          autoFocus={autoFocus}
-          className={cn(
-            'font-mono w-full bg-transparent text-[#111111] placeholder-[#ABABAB] outline-none',
-            isSmall ? 'text-[13px]' : 'text-[15px]'
+        <div className="relative min-w-0 flex-1">
+          {!query && (
+            <span
+              className={cn(
+                'pointer-events-none absolute inset-0 font-mono text-[#ABABAB]',
+                isSmall ? 'text-[13px]' : 'text-[15px]'
+              )}
+            >
+              {placeholder}
+            </span>
           )}
-        />
-      </div>
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
+            aria-label="Search"
+            spellCheck={false}
+            onInput={handleEditorInput}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              setIsFocused(true)
+              if (hasDropdownContent) setIsOpen(true)
+            }}
+            onBlur={() => {
+              pendingSelectionRef.current = null
+            }}
+            className={cn(
+              'font-mono relative w-full overflow-hidden whitespace-nowrap bg-transparent text-[#111111] caret-[#111111] outline-none',
+              isSmall ? 'text-[13px]' : 'text-[15px]'
+            )}
+          />
+        </div>
+      </label>
 
-      {/* Dropdown */}
       {showDropdown && (
         <div
           className={cn(
@@ -187,7 +597,6 @@ export function UnifiedSearchBox({
             isTopBar ? '-left-[2px] -right-[2px]' : 'left-0 right-0'
           )}
         >
-          {/* Name section */}
           {nameMatches.length > 0 && (
             <>
               <div className="border-b border-[#E8E5DE] px-4 py-2">
@@ -207,13 +616,11 @@ export function UnifiedSearchBox({
             </>
           )}
 
-          {/* Yellow divider between sections */}
           {nameMatches.length > 0 &&
             (semanticMatches.length > 0 || isSemanticLoading) && (
               <div className="h-[2px] bg-[#F5C400]" />
             )}
 
-          {/* Semantic section */}
           {(semanticMatches.length > 0 || isSemanticLoading) && (
             <>
               <div className="flex items-center justify-between border-b border-[#E8E5DE] px-4 py-2">
@@ -243,7 +650,6 @@ export function UnifiedSearchBox({
             </>
           )}
 
-          {/* See all results footer */}
           {(semanticMatches.length > 0 ||
             (nameMatches.length > 0 && !isSemanticLoading)) && (
             <>

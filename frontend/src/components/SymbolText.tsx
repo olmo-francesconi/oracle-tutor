@@ -1,25 +1,5 @@
 import { cn } from '../lib/cn'
-
-const TOKEN_RE = /\{([^}]*)\}/g
-
-const SPECIAL: Record<string, string> = {
-  t: 'ms ms-tap',
-  q: 'ms ms-untap',
-  s: 'ms ms-s',
-  c: 'ms ms-c',
-  e: 'ms ms-e',
-  infinity: 'ms ms-infinity',
-  '1/2': 'ms ms-half',
-  acorn: 'ms ms-acorn',
-}
-
-function getManaClass(symbol: string): string | null {
-  const content = symbol.replace(/^\{|\}$/g, '').toLowerCase()
-  if (SPECIAL[content]) return SPECIAL[content]
-  const normalized = content.replace(/\//g, '')
-  if (/^[a-z0-9]+$/.test(normalized)) return `ms ms-${normalized}`
-  return null
-}
+import { getManaClass, TOKEN_RE } from '../lib/manaSymbols'
 
 export type SymbolTextProps = {
   text?: string | null
