@@ -292,7 +292,6 @@ function SearchInputEditor({
   onTextAreaWidthChange,
   registerInsertSymbolHandler,
 }: SearchInputEditorProps) {
-  const wrapperRef = useRef<HTMLLabelElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
   const textAreaRef = useRef<HTMLDivElement>(null)
   const resizeFrameRef = useRef<number | null>(null)
@@ -310,18 +309,6 @@ function SearchInputEditor({
       setSelectionRange(editorRef.current, position, position)
     })
   }
-
-  useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        onOpenChange(false)
-        onFocusChange(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onFocusChange, onOpenChange])
 
   useEffect(() => {
     if (!autoFocus || !editorRef.current) return
@@ -439,7 +426,6 @@ function SearchInputEditor({
 
   return (
     <label
-      ref={wrapperRef}
       className={cn(
         'flex cursor-text items-center gap-3',
         isTopBar
@@ -549,6 +535,22 @@ export function UnifiedSearchBox({
   const placeholderMeasureRef = useRef<HTMLSpanElement>(null)
   const insertSymbolHandlerRef = useRef<(symbol: string) => void>(() => {})
   const [textAreaWidth, setTextAreaWidth] = useState(0)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+        setIsFocused(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleDocumentMouseDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown)
+    }
+  }, [])
 
   useEffect(() => {
     if (query.length < 2) {
@@ -709,6 +711,7 @@ export function UnifiedSearchBox({
 
   return (
     <div
+      ref={rootRef}
       className={cn('relative', (isFocused || showDropdown) && 'z-20', className)}
     >
       {isFocused && (
