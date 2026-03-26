@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CaretLeftIcon, CaretRightIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { searchCards, searchOracleText } from '../api'
@@ -15,6 +15,29 @@ interface UnifiedSearchBoxProps {
   heroScale?: number
   onDropdownChange?: (open: boolean) => void
   onFocusChange?: (focused: boolean) => void
+}
+
+interface SearchInputEditorProps {
+  query: string
+  autoFocus?: boolean
+  initialCaret: number
+  hasDropdownContent: boolean
+  size: UnifiedSearchBoxProps['size']
+  heroHorizontalPadding: number
+  heroVerticalPadding: number
+  heroTextSize: number
+  heroIconSize: number
+  placeholder: string
+  placeholderMeasureFontSize?: string
+  placeholderMeasureRef: React.RefObject<HTMLSpanElement | null>
+  className?: string
+  onFocusChange: (focused: boolean) => void
+  onOpenChange: (open: boolean) => void
+  onQueryChange: (query: string) => void
+  onSubmit: () => void
+  onEscape: () => void
+  onTextAreaWidthChange: (width: number) => void
+  registerInsertSymbolHandler: (handler: (symbol: string) => void) => void
 }
 
 const SYMBOL_SCROLL_STEP = 240
@@ -247,55 +270,68 @@ function setSelectionRange(root: HTMLDivElement, start: number, end: number) {
   selection.addRange(range)
 }
 
-export function UnifiedSearchBox({
-  className,
+function SearchInputEditor({
+  query,
   autoFocus,
-  initialValue = '',
+  initialCaret,
+  hasDropdownContent,
   size = 'default',
-  heroScale = 1,
-  onDropdownChange,
+  heroHorizontalPadding,
+  heroVerticalPadding,
+  heroTextSize,
+  heroIconSize,
+  placeholder,
+  placeholderMeasureFontSize,
+  placeholderMeasureRef,
+  className,
   onFocusChange,
-}: UnifiedSearchBoxProps) {
-  const [query, setQuery] = useState(initialValue)
-  const [nameMatches, setNameMatches] = useState<CardMatch[]>([])
-  const [semanticMatches, setSemanticMatches] = useState<SimilarCard[]>([])
-  const [isSemanticLoading, setIsSemanticLoading] = useState(false)
-  const [isOpen, setIsOpen] = useState(false)
-  const [isFocused, setIsFocused] = useState(false)
-  const [canScrollSymbolsLeft, setCanScrollSymbolsLeft] = useState(false)
-  const [canScrollSymbolsRight, setCanScrollSymbolsRight] = useState(false)
-  const hasTyped = useRef(false)
-  const initialCaretRef = useRef(initialValue.length)
-  const navigate = useNavigate()
-  const wrapperRef = useRef<HTMLDivElement>(null)
+  onOpenChange,
+  onQueryChange,
+  onSubmit,
+  onEscape,
+  onTextAreaWidthChange,
+  registerInsertSymbolHandler,
+}: SearchInputEditorProps) {
+  const wrapperRef = useRef<HTMLLabelElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
-  const symbolRailRef = useRef<HTMLDivElement>(null)
-  const pendingSelectionRef = useRef<SelectionRange | null>(null)
   const textAreaRef = useRef<HTMLDivElement>(null)
-  const placeholderMeasureRef = useRef<HTMLSpanElement>(null)
   const resizeFrameRef = useRef<number | null>(null)
-  const [textAreaWidth, setTextAreaWidth] = useState(0)
+  const pendingSelectionRef = useRef<SelectionRange | null>(null)
+
+  const isCompact = size === 'compact'
+  const isTopBar = size === 'topBar'
+  const isHero = size === 'hero'
+  const isSmall = isCompact || isTopBar
+
+  const focusEditorAt = (position: number) => {
+    requestAnimationFrame(() => {
+      if (!editorRef.current) return
+      editorRef.current.focus()
+      setSelectionRange(editorRef.current, position, position)
+    })
+  }
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-        setIsFocused(false)
+    const handler = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        onOpenChange(false)
+        onFocusChange(false)
       }
     }
+
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [])
+  }, [onFocusChange, onOpenChange])
 
   useEffect(() => {
     if (!autoFocus || !editorRef.current) return
     editorRef.current.focus()
-    setSelectionRange(editorRef.current, initialCaretRef.current, initialCaretRef.current)
-  }, [autoFocus])
+    setSelectionRange(editorRef.current, initialCaret, initialCaret)
+  }, [autoFocus, initialCaret])
 
   useEffect(() => {
     const updateTextAreaWidth = () => {
-      setTextAreaWidth(textAreaRef.current?.clientWidth ?? 0)
+      onTextAreaWidthChange(textAreaRef.current?.clientWidth ?? 0)
     }
 
     const scheduleUpdate = () => {
@@ -325,7 +361,194 @@ export function UnifiedSearchBox({
         window.cancelAnimationFrame(resizeFrameRef.current)
       }
     }
-  }, [])
+  }, [onTextAreaWidthChange])
+
+  useLayoutEffect(() => {
+    if (!editorRef.current) return
+
+    buildEditableContent(editorRef.current, query)
+
+    if (document.activeElement === editorRef.current) {
+      const selection = pendingSelectionRef.current ?? {
+        start: query.length,
+        end: query.length,
+      }
+      setSelectionRange(editorRef.current, selection.start, selection.end)
+    }
+  }, [query])
+
+  const handleInsertSymbol = useCallback((symbol: string) => {
+    const selection = editorRef.current
+      ? getSelectionRange(editorRef.current)
+      : { start: query.length, end: query.length }
+    const nextQuery =
+      query.slice(0, selection.start) + symbol + query.slice(selection.end)
+    const nextCaret = selection.start + symbol.length
+
+    pendingSelectionRef.current = { start: nextCaret, end: nextCaret }
+    onQueryChange(nextQuery)
+    onFocusChange(true)
+    focusEditorAt(nextCaret)
+  }, [onFocusChange, onQueryChange, query])
+
+  useEffect(() => {
+    registerInsertSymbolHandler((symbol) => {
+      handleInsertSymbol(symbol)
+    })
+  }, [handleInsertSymbol, registerInsertSymbolHandler])
+
+  const handleEditorInput = () => {
+    if (!editorRef.current) return
+
+    const nextQuery = readRawQuery(editorRef.current)
+    const nextSelection = getSelectionRange(editorRef.current)
+
+    pendingSelectionRef.current = nextSelection
+    onQueryChange(nextQuery)
+  }
+
+  const handleEditorPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    event.preventDefault()
+
+    const pastedText = normalizePastedText(event.clipboardData.getData('text/plain'))
+    if (!pastedText) return
+
+    const selection = editorRef.current
+      ? getSelectionRange(editorRef.current)
+      : { start: query.length, end: query.length }
+    const nextQuery =
+      query.slice(0, selection.start) + pastedText + query.slice(selection.end)
+    const nextCaret = selection.start + pastedText.length
+
+    pendingSelectionRef.current = { start: nextCaret, end: nextCaret }
+    onQueryChange(nextQuery)
+    focusEditorAt(nextCaret)
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      onSubmit()
+    } else if (event.key === 'Escape') {
+      onOpenChange(false)
+      onFocusChange(false)
+      editorRef.current?.blur()
+      onEscape()
+    }
+  }
+
+  return (
+    <label
+      ref={wrapperRef}
+      className={cn(
+        'flex cursor-text items-center gap-3',
+        isTopBar
+          ? 'h-full bg-[#F0EDE6] px-3'
+          : cn(
+            'border-2 border-[#111111] bg-white',
+            isCompact ? 'px-3 py-[10px]' : isHero ? '' : 'px-4 py-[18px]'
+          ),
+        className
+      )}
+      style={
+        isHero
+          ? {
+              paddingInline: `${heroHorizontalPadding}px`,
+              paddingBlock: `${heroVerticalPadding}px`,
+            }
+          : undefined
+      }
+      onMouseDown={(event) => {
+        if (!editorRef.current) return
+        if (
+          event.target === editorRef.current ||
+          editorRef.current.contains(event.target as Node)
+        ) {
+          return
+        }
+        event.preventDefault()
+        focusEditorAt(query.length)
+      }}
+    >
+      <MagnifyingGlassIcon
+        className={cn(
+          'shrink-0 text-[#111111]',
+          isSmall || isHero ? '' : 'h-5 w-5'
+        )}
+        size={isHero ? heroIconSize : undefined}
+        weight="bold"
+      />
+      <div ref={textAreaRef} className="relative min-w-0 flex-1">
+        {isHero && (
+          <span
+            ref={placeholderMeasureRef}
+            aria-hidden="true"
+            className="pointer-events-none absolute invisible inset-0 overflow-hidden whitespace-nowrap font-mono"
+            style={{ fontSize: placeholderMeasureFontSize }}
+          />
+        )}
+        {!query && (
+          <span
+            className={cn(
+              'pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[#ABABAB]',
+              isHero ? '' : isSmall ? 'text-[13px]' : 'text-[15px]'
+            )}
+            style={isHero ? { fontSize: `${heroTextSize}px` } : undefined}
+          >
+            {placeholder}
+          </span>
+        )}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-label="Search"
+          spellCheck={false}
+          onInput={handleEditorInput}
+          onPaste={handleEditorPaste}
+          onKeyDown={handleKeyDown}
+          onFocus={() => {
+            onFocusChange(true)
+            if (hasDropdownContent) onOpenChange(true)
+          }}
+          onBlur={() => {
+            pendingSelectionRef.current = null
+          }}
+          className={cn(
+            'font-mono relative w-full overflow-hidden whitespace-nowrap bg-transparent text-[#111111] caret-[#111111] outline-none',
+            isHero ? '' : isSmall ? 'text-[13px]' : 'text-[15px]'
+          )}
+          style={isHero ? { fontSize: `${heroTextSize}px` } : undefined}
+        />
+      </div>
+    </label>
+  )
+}
+
+export function UnifiedSearchBox({
+  className,
+  autoFocus,
+  initialValue = '',
+  size = 'default',
+  heroScale = 1,
+  onDropdownChange,
+  onFocusChange,
+}: UnifiedSearchBoxProps) {
+  const [query, setQuery] = useState(initialValue)
+  const [nameMatches, setNameMatches] = useState<CardMatch[]>([])
+  const [semanticMatches, setSemanticMatches] = useState<SimilarCard[]>([])
+  const [isSemanticLoading, setIsSemanticLoading] = useState(false)
+  const [isOpen, setIsOpen] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
+  const [canScrollSymbolsLeft, setCanScrollSymbolsLeft] = useState(false)
+  const [canScrollSymbolsRight, setCanScrollSymbolsRight] = useState(false)
+  const initialCaretRef = useRef(initialValue.length)
+  const navigate = useNavigate()
+  const symbolRailRef = useRef<HTMLDivElement>(null)
+  const placeholderMeasureRef = useRef<HTMLSpanElement>(null)
+  const insertSymbolHandlerRef = useRef<(symbol: string) => void>(() => {})
+  const [textAreaWidth, setTextAreaWidth] = useState(0)
 
   useEffect(() => {
     if (query.length < 2) {
@@ -339,7 +562,7 @@ export function UnifiedSearchBox({
         const results = await searchCards(query, 6, 0, controller.signal)
         if (!controller.signal.aborted) {
           setNameMatches(results)
-          if (hasTyped.current) setIsOpen(true)
+          setIsOpen(true)
         }
       } catch {
         // silently ignore aborted requests
@@ -366,7 +589,7 @@ export function UnifiedSearchBox({
         const results = await searchOracleText(query, 0, 4, undefined, controller.signal)
         if (!controller.signal.aborted) {
           setSemanticMatches(results.items)
-          if (hasTyped.current) setIsOpen(true)
+          setIsOpen(true)
         }
       } catch {
         // silently ignore
@@ -400,77 +623,6 @@ export function UnifiedSearchBox({
       setIsOpen(false)
       navigate(`/search?q=${encodeURIComponent(query.trim())}`)
     }
-  }
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const exact = nameMatches.find(
-        (c) => c.name.toLowerCase() === query.trim().toLowerCase()
-      )
-      if (exact) {
-        handleNameSelect(exact)
-      } else {
-        handleSemanticSearch()
-      }
-    } else if (e.key === 'Escape') {
-      setIsOpen(false)
-      setIsFocused(false)
-      editorRef.current?.blur()
-    }
-  }
-
-  const focusEditorAt = (position: number) => {
-    requestAnimationFrame(() => {
-      if (!editorRef.current) return
-      editorRef.current.focus()
-      setSelectionRange(editorRef.current, position, position)
-    })
-  }
-
-  const handleInsertSymbol = (symbol: string) => {
-    const selection = editorRef.current
-      ? getSelectionRange(editorRef.current)
-      : { start: query.length, end: query.length }
-    const nextQuery =
-      query.slice(0, selection.start) + symbol + query.slice(selection.end)
-    const nextCaret = selection.start + symbol.length
-
-    hasTyped.current = true
-    pendingSelectionRef.current = { start: nextCaret, end: nextCaret }
-    setQuery(nextQuery)
-    setIsFocused(true)
-    focusEditorAt(nextCaret)
-  }
-
-  const handleEditorInput = () => {
-    if (!editorRef.current) return
-
-    const nextQuery = readRawQuery(editorRef.current)
-    const nextSelection = getSelectionRange(editorRef.current)
-
-    hasTyped.current = true
-    pendingSelectionRef.current = nextSelection
-    setQuery(nextQuery)
-  }
-
-  const handleEditorPaste = (event: ClipboardEvent<HTMLDivElement>) => {
-    event.preventDefault()
-
-    const pastedText = normalizePastedText(event.clipboardData.getData('text/plain'))
-    if (!pastedText) return
-
-    const selection = editorRef.current
-      ? getSelectionRange(editorRef.current)
-      : { start: query.length, end: query.length }
-    const nextQuery =
-      query.slice(0, selection.start) + pastedText + query.slice(selection.end)
-    const nextCaret = selection.start + pastedText.length
-
-    hasTyped.current = true
-    pendingSelectionRef.current = { start: nextCaret, end: nextCaret }
-    setQuery(nextQuery)
-    focusEditorAt(nextCaret)
   }
 
   const updateSymbolScrollState = () => {
@@ -528,20 +680,6 @@ export function UnifiedSearchBox({
     }
   }, [isFocused])
 
-  useLayoutEffect(() => {
-    if (!editorRef.current) return
-
-    buildEditableContent(editorRef.current, query)
-
-    if (document.activeElement === editorRef.current) {
-      const selection = pendingSelectionRef.current ?? {
-        start: query.length,
-        end: query.length,
-      }
-      setSelectionRange(editorRef.current, selection.start, selection.end)
-    }
-  }, [query])
-
   const displayQuery = query.length > 22 ? `${query.slice(0, 22)}…` : query
   const isCompact = size === 'compact'
   const isTopBar = size === 'topBar'
@@ -571,7 +709,6 @@ export function UnifiedSearchBox({
 
   return (
     <div
-      ref={wrapperRef}
       className={cn('relative', (isFocused || showDropdown) && 'z-20', className)}
     >
       {isFocused && (
@@ -624,7 +761,7 @@ export function UnifiedSearchBox({
                     type="button"
                     onMouseDown={(e) => {
                       e.preventDefault()
-                      handleInsertSymbol(item)
+                      insertSymbolHandlerRef.current(item)
                     }}
                     className="flex h-5 shrink-0 items-center justify-center text-[#111111] opacity-30 transition-opacity hover:opacity-100"
                     aria-label={`Insert ${item}`}
@@ -664,86 +801,41 @@ export function UnifiedSearchBox({
         </div>
       )}
 
-      <label
-          className={cn(
-            'flex cursor-text items-center gap-3',
-            isTopBar
-              ? 'h-full bg-[#F0EDE6] px-3'
-              : cn(
-                'border-2 border-[#111111] bg-white',
-                isCompact ? 'px-3 py-[10px]' : isHero ? '' : 'px-4 py-[18px]'
-              )
-          )}
-          style={
-            isHero
-              ? {
-                  paddingInline: `${heroHorizontalPadding}px`,
-                  paddingBlock: `${heroVerticalPadding}px`,
-                }
-              : undefined
+      <SearchInputEditor
+        query={query}
+        autoFocus={autoFocus}
+        initialCaret={initialCaretRef.current}
+        hasDropdownContent={hasDropdownContent}
+        size={size}
+        heroHorizontalPadding={heroHorizontalPadding}
+        heroVerticalPadding={heroVerticalPadding}
+        heroTextSize={heroTextSize}
+        heroIconSize={heroIconSize}
+        placeholder={placeholder}
+        placeholderMeasureFontSize={placeholderMeasureFontSize}
+        placeholderMeasureRef={placeholderMeasureRef}
+        onFocusChange={setIsFocused}
+        onOpenChange={setIsOpen}
+        onQueryChange={setQuery}
+        onSubmit={() => {
+          const exact = nameMatches.find(
+            (card) => card.name.toLowerCase() === query.trim().toLowerCase()
+          )
+          if (exact) {
+            handleNameSelect(exact)
+          } else {
+            handleSemanticSearch()
           }
-          onMouseDown={(e) => {
-            if (!editorRef.current) return
-            if (e.target === editorRef.current || editorRef.current.contains(e.target as Node)) {
-            return
-          }
-          e.preventDefault()
-          focusEditorAt(query.length)
         }}
-      >
-        <MagnifyingGlassIcon
-          className={cn(
-            'shrink-0 text-[#111111]',
-            isSmall || isHero ? '' : 'h-5 w-5'
-          )}
-          size={isHero ? heroIconSize : undefined}
-          weight="bold"
-        />
-        <div ref={textAreaRef} className="relative min-w-0 flex-1">
-          {isHero && (
-            <span
-              ref={placeholderMeasureRef}
-              aria-hidden="true"
-              className="pointer-events-none absolute invisible inset-0 overflow-hidden whitespace-nowrap font-mono"
-              style={{ fontSize: placeholderMeasureFontSize }}
-            />
-          )}
-          {!query && (
-            <span
-              className={cn(
-                'pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[#ABABAB]',
-                isHero ? '' : isSmall ? 'text-[13px]' : 'text-[15px]'
-              )}
-              style={isHero ? { fontSize: `${heroTextSize}px` } : undefined}
-            >
-              {placeholder}
-            </span>
-          )}
-          <div
-            ref={editorRef}
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-label="Search"
-            spellCheck={false}
-            onInput={handleEditorInput}
-            onPaste={handleEditorPaste}
-            onKeyDown={handleKeyDown}
-            onFocus={() => {
-              setIsFocused(true)
-              if (hasDropdownContent) setIsOpen(true)
-            }}
-            onBlur={() => {
-              pendingSelectionRef.current = null
-            }}
-            className={cn(
-              'font-mono relative w-full overflow-hidden whitespace-nowrap bg-transparent text-[#111111] caret-[#111111] outline-none',
-              isHero ? '' : isSmall ? 'text-[13px]' : 'text-[15px]'
-            )}
-            style={isHero ? { fontSize: `${heroTextSize}px` } : undefined}
-          />
-        </div>
-      </label>
+        onEscape={() => {
+          setIsOpen(false)
+          setIsFocused(false)
+        }}
+        onTextAreaWidthChange={setTextAreaWidth}
+        registerInsertSymbolHandler={(handler) => {
+          insertSymbolHandlerRef.current = handler
+        }}
+      />
 
       {showDropdown && (
         <div
