@@ -124,7 +124,8 @@ export const searchOracleText = async (
   query: string,
   offset: number = 0,
   limit: number = 24,
-  filters?: FilterState
+  filters?: FilterState,
+  signal?: AbortSignal
 ): Promise<SimilarCardsPage> => {
   const params: OracleSearchParams = { q: query, limit, offset }
   if (filters) {
@@ -140,6 +141,7 @@ export const searchOracleText = async (
 
   const response = await api.get<ApiSimilarCardsPage>('/similar-cards', {
     params,
+    signal,
   })
   return {
     items: response.data.items.map(normalizeSimilarCard),

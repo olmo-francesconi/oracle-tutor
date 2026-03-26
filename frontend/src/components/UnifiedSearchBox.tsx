@@ -319,20 +319,26 @@ export function UnifiedSearchBox({
     }
 
     setIsSemanticLoading(true)
+    const controller = new AbortController()
     const timer = setTimeout(async () => {
       try {
-        const results = await searchOracleText(query, 0, 4)
-        setSemanticMatches(results.items)
-        if (hasTyped.current) setIsOpen(true)
+        const results = await searchOracleText(query, 0, 4, undefined, controller.signal)
+        if (!controller.signal.aborted) {
+          setSemanticMatches(results.items)
+          if (hasTyped.current) setIsOpen(true)
+        }
       } catch {
         // silently ignore
       } finally {
-        setIsSemanticLoading(false)
+        if (!controller.signal.aborted) {
+          setIsSemanticLoading(false)
+        }
       }
     }, 600)
 
     return () => {
       clearTimeout(timer)
+      controller.abort()
       setIsSemanticLoading(false)
     }
   }, [query])
