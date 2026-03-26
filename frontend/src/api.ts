@@ -73,6 +73,29 @@ function normalizeSimilarCard(card: ApiSimilarCard): SimilarCard {
   }
 }
 
+function buildSimilarCardsParams(
+  limit: number,
+  offset: number,
+  filters?: FilterState
+): SimilarCardsParams {
+  const params: SimilarCardsParams = { limit, offset }
+
+  if (!filters) return params
+
+  if (filters.cardType) params.card_type = filters.cardType
+  if (filters.colors) params.colors = filters.colors
+  if (filters.format) params.format = filters.format
+  if (filters.cmcMin !== undefined) params.cmc_min = filters.cmcMin
+  if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
+  if (filters.rarities?.length) {
+    params.rarity = filters.rarities.map((rarity) => rarity[0]).join('')
+  }
+  if (filters.matchMode) params.match_mode = filters.matchMode
+  if (filters.colorFeature) params.color_feature = filters.colorFeature
+
+  return params
+}
+
 export const searchCards = async (
   query: string,
   limit: number = 10,
@@ -99,17 +122,7 @@ export const getSimilarCards = async (
   limit: number = 24,
   filters?: FilterState
 ): Promise<SimilarCardsPage> => {
-  const params: SimilarCardsParams = { limit, offset }
-  if (filters) {
-    if (filters.cardType) params.card_type = filters.cardType
-    if (filters.colors) params.colors = filters.colors
-    if (filters.format) params.format = filters.format
-    if (filters.cmcMin !== undefined) params.cmc_min = filters.cmcMin
-    if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
-    if (filters.rarities?.length) params.rarity = filters.rarities.map((r) => r[0]).join('')
-    if (filters.matchMode) params.match_mode = filters.matchMode
-    if (filters.colorFeature) params.color_feature = filters.colorFeature
-  }
+  const params = buildSimilarCardsParams(limit, offset, filters)
 
   const response = await api.get<ApiSimilarCardsPage>('/similar-cards', {
     params: { ...params, oracle_id: id, face_ix: faceIx },
@@ -127,16 +140,9 @@ export const searchOracleText = async (
   filters?: FilterState,
   signal?: AbortSignal
 ): Promise<SimilarCardsPage> => {
-  const params: OracleSearchParams = { q: query, limit, offset }
-  if (filters) {
-    if (filters.cardType) params.card_type = filters.cardType
-    if (filters.colors) params.colors = filters.colors
-    if (filters.format) params.format = filters.format
-    if (filters.cmcMin !== undefined) params.cmc_min = filters.cmcMin
-    if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
-    if (filters.rarities?.length) params.rarity = filters.rarities.map((r) => r[0]).join('')
-    if (filters.matchMode) params.match_mode = filters.matchMode
-    if (filters.colorFeature) params.color_feature = filters.colorFeature
+  const params: OracleSearchParams = {
+    q: query,
+    ...buildSimilarCardsParams(limit, offset, filters),
   }
 
   const response = await api.get<ApiSimilarCardsPage>('/similar-cards', {
