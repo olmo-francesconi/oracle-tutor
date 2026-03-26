@@ -96,6 +96,13 @@ Branch: `semantic-api`
 - `production` — alternative production channel
 - Feature branches: `feat/<name>`, fixes: `fix/<name>`
 
+## Git commits
+
+- Use `type: message` commit subjects
+- Allowed types: `feat`, `fix`, `docs`, `refactor`, `chore`, `test`
+- Keep subjects imperative, concise, and without a trailing period
+- Example: `fix: handle empty oracle query`
+
 ## Environment variables
 
 **Backend:**
