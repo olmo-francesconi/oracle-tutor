@@ -24,6 +24,18 @@ def test_search(client):
     assert "Shock" in names
 
 
+def test_oracle_samples_include_terms_from_keywords_and_ability_words(client):
+    res = client.get("/oracle-samples", params={"n": 60})
+    assert res.status_code == 200
+    data = res.json()
+    assert "texts" in data
+    assert "terms" in data
+    assert "Deathtouch" in data["terms"]
+    assert "Trample" in data["terms"]
+    assert "Vigilance" in data["terms"]
+    assert "Landfall" in data["terms"]
+
+
 def test_search_returns_multiple_faces_for_multi_face_name_matches(client):
     res = client.get("/search", params={"q": "aang", "limit": 10})
     assert res.status_code == 200
@@ -78,6 +90,8 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
             "rarity": "common",
             "legalities": {},
             "uniqueness": None,
+            "border_color": None,
+            "set_code": "tst",
         }
     ]
 

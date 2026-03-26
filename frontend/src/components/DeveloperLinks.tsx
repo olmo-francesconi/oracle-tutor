@@ -111,44 +111,55 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
   }
 
   return (
-    <div className={cn('flex flex-col gap-2', className)}>
-      <div
+    <div
+      className={cn(
+        'pointer-events-auto flex items-center justify-end gap-4 text-right',
+        className
+      )}
+    >
+      <span
         className={cn(
           'font-mono text-[9px] font-medium tracking-[0.1em]',
           textColor
         )}
       >
         Data from Scryfall
-      </div>
-      <div className="pointer-events-auto flex items-center gap-4">
+      </span>
+      <span
+        className={cn(
+          'font-mono text-[10px] font-medium tracking-[0.2em]',
+          textColor
+        )}
+      >
+        Built by Olmo
+      </span>
+      <div className="flex items-center justify-end gap-3">
         <span
           className={cn(
-            'font-mono text-[10px] font-medium tracking-[0.2em]',
-            textColor
+            textColor,
+            'text-[9px] font-medium tracking-[0.1em]'
           )}
         >
-          Built by Olmo
+          ·
         </span>
-        <div className="flex gap-3">
-          <a
-            href="https://github.com/olmo-francesconi"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(textColor, hoverColor, 'transition-colors')}
-            title="GitHub"
-          >
-            <GithubLogoIcon className="h-3.5 w-3.5" />
-          </a>
-          <a
-            href="https://www.linkedin.com/in/olmo-francesconi/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(textColor, hoverColor, 'transition-colors')}
-            title="LinkedIn"
-          >
-            <LinkedinLogoIcon className="h-3.5 w-3.5" />
-          </a>
-        </div>
+        <a
+          href="https://github.com/olmo-francesconi"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(textColor, hoverColor, 'transition-colors')}
+          title="GitHub"
+        >
+          <GithubLogoIcon className="h-3.5 w-3.5" />
+        </a>
+        <a
+          href="https://www.linkedin.com/in/olmo-francesconi/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(textColor, hoverColor, 'transition-colors')}
+          title="LinkedIn"
+        >
+          <LinkedinLogoIcon className="h-3.5 w-3.5" />
+        </a>
       </div>
     </div>
   )

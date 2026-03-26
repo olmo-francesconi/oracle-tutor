@@ -26,6 +26,7 @@ def _make_card_raw(
     name: str,
     collector_number: str,
     layout: str = "normal",
+    keywords: list[str] | None = None,
 ) -> CardRaw:
     return CardRaw(
         id=scryfall_id,
@@ -34,7 +35,7 @@ def _make_card_raw(
         lang="en",
         layout=layout,
         color_identity=[],
-        keywords=[],
+        keywords=keywords or [],
         legalities={},
         rarity="common",
         set_code="tst",
@@ -59,8 +60,8 @@ def _seed_db() -> None:
         db.add_all(
             [
                 _make_card_raw(scryfall_id="s1", oracle_id="o1", name="Lightning Bolt", collector_number="1"),
-                _make_card_raw(scryfall_id="s2", oracle_id="o2", name="Shock", collector_number="2"),
-                _make_card_raw(scryfall_id="s3", oracle_id="o3", name="Giant Growth", collector_number="3"),
+                _make_card_raw(scryfall_id="s2", oracle_id="o2", name="Shock", collector_number="2", keywords=["Deathtouch"]),
+                _make_card_raw(scryfall_id="s3", oracle_id="o3", name="Giant Growth", collector_number="3", keywords=["Trample", "Vigilance"]),
                 _make_card_raw(scryfall_id="s4", oracle_id="o4", name="Verbose Shock", collector_number="4"),
                 _make_card_raw(scryfall_id="s5", oracle_id="o5", name="Red Artifact", collector_number="5"),
                 _make_card_raw(
@@ -140,7 +141,7 @@ def _seed_db() -> None:
                     face_ix=0,
                     name="Red Artifact",
                     type_line="Artifact",
-                    oracle_text="{R}: Deal 1 damage.",
+                    oracle_text="Landfall — {R}: Deal 1 damage.",
                     colors=[],
                 ),
                 CardFace(

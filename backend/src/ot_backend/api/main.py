@@ -4,9 +4,10 @@ import importlib.metadata
 import logging
 import os
 import random
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Annotated, Final, Literal, Protocol, cast
+from typing import Final, Literal, Protocol, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,7 @@ from ..core.config import SCHEMA_WAIT_INTERVAL_SECONDS, SCHEMA_WAIT_TIMEOUT_SECO
 from ..core.database import get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
-from ..core.models import Card, CardFace
+from ..core.models import Card, CardFace, CardRaw
 
 try:
     from ..embed.index import get_semantic_index
@@ -90,8 +91,12 @@ DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
     }
 )
 _RARITY_MAP: Final = {"c": "common", "u": "uncommon", "r": "rare", "m": "mythic"}
+ORACLE_TEXT_POOL_LIMIT: Final[int] = 300
+HOME_TERM_POOL_LIMIT: Final[int] = 300
+ABILITY_WORD_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*([A-Za-z][A-Za-z' -]{1,40}?)\s+[—-]\s+", re.MULTILINE)
 _schema_ready: bool = False
 _oracle_text_pool: list[str] = []
+_home_term_pool: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +124,33 @@ def _image_side_for_face(layout: str | None, face_ix: int) -> Literal["front", "
     if layout in DOUBLE_SIDED_LAYOUTS and face_ix > 0:
         return "back"
     return "front"
+
+
+def _normalize_home_term(term: str) -> str:
+    return " ".join(term.split()).strip(" -\u2014")
+
+
+def _extract_ability_words(text: str | None) -> list[str]:
+    if not text or not text.strip():
+        return []
+    return [_normalize_home_term(match.group(1)) for match in ABILITY_WORD_PATTERN.finditer(text)]
+
+
+def _build_home_term_pool(keyword_rows: list[tuple[list[str] | None]], oracle_rows: list[tuple[str | None]]) -> list[str]:
+    deduped_terms: dict[str, str] = {}
+
+    for keywords, in keyword_rows:
+        for keyword in keywords or []:
+            normalized = _normalize_home_term(keyword)
+            if normalized:
+                deduped_terms.setdefault(normalized.casefold(), normalized)
+
+    for oracle_text, in oracle_rows:
+        for ability_word in _extract_ability_words(oracle_text):
+            if ability_word:
+                deduped_terms.setdefault(ability_word.casefold(), ability_word)
+
+    return list(deduped_terms.values())
 
 
 def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session) -> list[SimilarCard]:
@@ -211,28 +243,36 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.error("Semantic model failed to load: %s", exc, exc_info=True)
 
-    global _oracle_text_pool
+    global _home_term_pool, _oracle_text_pool
     try:
         db = next(get_db())
         try:
-            rows = (
+            oracle_rows = (
                 db.query(CardFace.oracle_text)
                 .filter(
                     CardFace.oracle_text.isnot(None),
                     CardFace.oracle_text != "",
                 )
                 .order_by(func.random())
-                .limit(300)
+                .limit(ORACLE_TEXT_POOL_LIMIT)
                 .all()
             )
             _oracle_text_pool.extend(
-                row[0] for row in rows if row[0] and row[0].strip()
+                row[0] for row in oracle_rows if row[0] and row[0].strip()
             )
-            logger.info("Oracle text pool loaded: %d texts", len(_oracle_text_pool))
+            keyword_rows = (
+                db.query(CardRaw.keywords)
+                .filter(CardRaw.keywords.isnot(None))
+                .order_by(func.random())
+                .limit(HOME_TERM_POOL_LIMIT)
+                .all()
+            )
+            _home_term_pool.extend(_build_home_term_pool(keyword_rows, oracle_rows))
+            logger.info("Oracle home pools loaded: %d texts, %d terms", len(_oracle_text_pool), len(_home_term_pool))
         finally:
             db.close()
     except Exception as exc:
-        logger.warning("Oracle text pool failed to load: %s", exc)
+        logger.warning("Oracle home pools failed to load: %s", exc)
 
     yield
 
@@ -300,12 +340,11 @@ def favicon() -> Response:
 
 @app.get("/oracle-samples", response_model=OracleSamplesResponse, tags=["meta"])
 def oracle_samples(
-    n: Annotated[int, Query(ge=1, le=100)] = 60,
+    n: int = Query(60, ge=1, le=100),
 ) -> OracleSamplesResponse:
-    if not _oracle_text_pool:
-        return OracleSamplesResponse(texts=[])
-    count = min(n, len(_oracle_text_pool))
-    return OracleSamplesResponse(texts=random.sample(_oracle_text_pool, count))
+    texts = random.sample(_oracle_text_pool, min(n, len(_oracle_text_pool))) if _oracle_text_pool else []
+    terms = random.sample(_home_term_pool, min(n, len(_home_term_pool))) if _home_term_pool else []
+    return OracleSamplesResponse(texts=texts, terms=terms)
 
 
 # ---------------------------------------------------------------------------
@@ -318,8 +357,8 @@ def oracle_samples(
 def search_cards(
     q: str,
     db: Session = Depends(get_db),
-    limit: Annotated[int, Query(ge=1, le=MAX_SEARCH_LIMIT)] = 10,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: int = Query(10, ge=1, le=MAX_SEARCH_LIMIT),
+    offset: int = Query(0, ge=0),
 ) -> list[CardMatch]:
     _ensure_schema_ready()
     if not q.strip():
@@ -378,10 +417,10 @@ def _parse_rarity(rarity: str | None) -> list[str] | None:
 def get_similar_cards(
     db: Session = Depends(get_db),
     oracle_id: str | None = None,
-    face_ix: Annotated[int, Query(ge=0)] = 0,
+    face_ix: int = Query(0, ge=0),
     q: str | None = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_SIMILAR_CARDS_LIMIT)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: int = Query(20, ge=1, le=MAX_SIMILAR_CARDS_LIMIT),
+    offset: int = Query(0, ge=0),
     card_type: str | None = None,
     colors: str | None = None,
     cmc_min: float | None = None,

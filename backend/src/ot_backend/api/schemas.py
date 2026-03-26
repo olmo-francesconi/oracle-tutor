@@ -40,3 +40,4 @@ class SimilarCard(BaseModel):
 
 class OracleSamplesResponse(BaseModel):
     texts: list[str]
+    terms: list[str]

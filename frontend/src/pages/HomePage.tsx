@@ -19,21 +19,18 @@ const PHRASE_SLOTS: Array<{ style: React.CSSProperties; color: string; opacity: 
   { style: { top: '33%',   left: '38%',  fontSize: 'clamp(13px,1.5vw,18px)' },                     color: '#F5C400', opacity: 0.28 },
 ]
 
-// Monumental keywords — each one a Bauhaus primary, partially cropped at viewport edges
-const MONUMENTS = [
+const MONUMENT_SLOTS = [
   {
-    word: 'DEATHTOUCH',
     style: { color: '#CC1100', fontSize: 'clamp(110px,17vw,230px)', opacity: 0.085, top: '-2%',    left: '-6px'  } as React.CSSProperties,
   },
   {
-    word: 'VIGILANCE',
     style: { color: '#F5C400', fontSize: 'clamp(75px,10vw,140px)',  opacity: 0.14,  top: '37%',    right: '-24px' } as React.CSSProperties,
   },
   {
-    word: 'INDESTRUCTIBLE',
     style: { color: '#0E2150', fontSize: 'clamp(88px,12.5vw,165px)', opacity: 0.10, bottom: '-4%', left: '-4px'  } as React.CSSProperties,
   },
 ]
+const MAX_MONUMENT_TERM_LENGTH = 18
 
 const SHOW_HOME_BACKGROUND_DEBUG_PANEL = false
 
@@ -65,7 +62,8 @@ export default function HomePage() {
     gcTime: Infinity,
   })
 
-  const texts = useMemo(() => oracleSamples ?? [], [oracleSamples])
+  const texts = useMemo(() => oracleSamples?.texts ?? [], [oracleSamples])
+  const terms = useMemo(() => oracleSamples?.terms ?? [], [oracleSamples])
   const isLoaded = isSuccess && texts.length > 0
 
   // Medium phrases: pick up to 6 short texts (< 90 chars) from the random pool
@@ -75,6 +73,12 @@ export default function HomePage() {
     const pool = short.length >= 6 ? short : [...short, ...texts]
     return pool.slice(0, 6)
   }, [texts])
+
+  const monumentTerms = useMemo(() => {
+    const safeTerms = terms.filter((term) => term.length > 0 && term.length <= MAX_MONUMENT_TERM_LENGTH)
+    const uniqueTerms = Array.from(new Set(safeTerms))
+    return uniqueTerms.slice(0, MONUMENT_SLOTS.length)
+  }, [terms])
 
   return (
     <>
@@ -105,9 +109,9 @@ export default function HomePage() {
           transition: 'opacity 0.75s cubic-bezier(0.22, 0.03, 0.36, 1) 0.35s',
         }}
       >
-        {MONUMENTS.map(({ word, style }) => (
+        {MONUMENT_SLOTS.map(({ style }, index) => (
           <span
-            key={word}
+            key={monumentTerms[index] ?? `monument-${index}`}
             style={{
               position: 'absolute',
               fontFamily: "'Big Shoulders Display', sans-serif",
@@ -119,7 +123,7 @@ export default function HomePage() {
               ...style,
             }}
           >
-            {word}
+            {monumentTerms[index] ?? ''}
           </span>
         ))}
       </div>
@@ -155,6 +159,7 @@ export default function HomePage() {
               text={phraseTexts[i] ?? ''}
               className="inline"
               symbolClassName="align-[-0.08em]"
+              preserveLineBreaks
             />
           </div>
         ))}
@@ -196,7 +201,7 @@ export default function HomePage() {
           </div>
         </motion.div>
 
-        <div className="fixed bottom-5 left-10">
+        <div className="fixed bottom-5 right-10">
           <DeveloperLinks variant="dark" />
         </div>
 

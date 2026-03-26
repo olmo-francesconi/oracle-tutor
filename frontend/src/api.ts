@@ -29,6 +29,10 @@ type OracleSearchParams = SimilarCardsParams & {
 type ApiCardMatch = Omit<CardMatch, 'id'>
 type ApiCard = Omit<Card, 'id'>
 type ApiSimilarCard = Omit<SimilarCard, 'id'>
+type OracleSamples = {
+  texts: string[]
+  terms: string[]
+}
 
 function normalizeCardMatch(card: ApiCardMatch): CardMatch {
   return {
@@ -127,13 +131,13 @@ export const searchOracleText = async (
   return response.data.map(normalizeSimilarCard)
 }
 
-export const getOracleSamples = async (): Promise<string[]> => {
+export const getOracleSamples = async (): Promise<OracleSamples> => {
   try {
-    const response = await api.get<{ texts: string[] }>('/oracle-samples', {
+    const response = await api.get<OracleSamples>('/oracle-samples', {
       params: { n: 60 },
     })
-    return response.data.texts
+    return response.data
   } catch {
-    return []
+    return { texts: [], terms: [] }
   }
 }

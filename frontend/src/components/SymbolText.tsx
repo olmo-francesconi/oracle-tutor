@@ -5,17 +5,18 @@ export type SymbolTextProps = {
   text?: string | null
   className?: string
   symbolClassName?: string
+  preserveLineBreaks?: boolean
   /** Unused — kept for API compatibility. */
   sizeEm?: number
 }
 
-export function SymbolText({ text, className, symbolClassName }: SymbolTextProps) {
+export function SymbolText({ text, className, symbolClassName, preserveLineBreaks = false }: SymbolTextProps) {
   if (!text) return null
 
   const parts = text.split(TOKEN_RE.source ? /(\{[^}]*\})/g : /(\{[^}]*\})/g)
 
   return (
-    <span className={cn('inline-flex flex-wrap items-baseline gap-0.5', className)}>
+    <span className={cn('inline-flex flex-wrap items-baseline gap-0.5', preserveLineBreaks && 'whitespace-pre-line', className)}>
       {parts.map((part, i) => {
         if (part.startsWith('{') && part.endsWith('}')) {
           const cls = getManaClass(part)
@@ -31,7 +32,7 @@ export function SymbolText({ text, className, symbolClassName }: SymbolTextProps
             )
           }
         }
-        return <span key={i}>{part}</span>
+        return <span key={i} className={cn(preserveLineBreaks && 'whitespace-pre-line')}>{part}</span>
       })}
     </span>
   )
