@@ -177,7 +177,7 @@ export function CardOverlay({
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-[#111111]/55"
         onClick={onClose}
       />
 
@@ -188,7 +188,7 @@ export function CardOverlay({
             e.stopPropagation()
             onPrev()
           }}
-          className="absolute top-1/2 left-2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white hover:bg-[#333] focus-visible:outline-none sm:left-4"
+          className="absolute left-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-[#111111] bg-[#F0EDE6] p-3 text-[#111111] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6] focus-visible:outline-none sm:left-4"
           aria-label="Previous card"
         >
           <CaretLeftIcon className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
@@ -200,7 +200,7 @@ export function CardOverlay({
             e.stopPropagation()
             onNext()
           }}
-          className="absolute top-1/2 right-2 z-[110] -translate-y-1/2 border-2 border-white bg-[#111111] p-3 text-white hover:bg-[#333] focus-visible:outline-none sm:right-4"
+          className="absolute right-2 top-1/2 z-[110] -translate-y-1/2 border-2 border-[#111111] bg-[#F0EDE6] p-3 text-[#111111] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6] focus-visible:outline-none sm:right-4"
           aria-label="Next card"
         >
           <CaretRightIcon className="h-8 w-8 sm:h-10 sm:w-10" weight="bold" />
@@ -212,7 +212,7 @@ export function CardOverlay({
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 z-10 border-2 border-[#111111] bg-[#111111] p-2 text-white hover:bg-[#333] focus-visible:outline-none"
+          className="absolute right-3 top-3 z-10 border-2 border-[#111111] bg-[#F0EDE6] p-2 text-[#111111] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6] focus-visible:outline-none"
           aria-label="Close"
         >
           <XIcon className="h-5 w-5" weight="bold" />
@@ -255,7 +255,7 @@ export function CardOverlay({
         </div>
 
         {/* Details Section */}
-        <div className="flex w-full flex-col bg-white p-6 text-[#111111] md:w-1/2 md:overflow-y-auto md:p-8">
+        <div className="flex w-full flex-col border-t-2 border-[#111111] bg-white p-6 text-[#111111] md:w-1/2 md:overflow-y-auto md:border-l-2 md:border-t-0 md:p-8">
           <div className="flex-1">
             {/* Header: name + badge */}
             <div className="mb-5">
@@ -292,7 +292,7 @@ export function CardOverlay({
                 isFlipping ? 'opacity-0' : 'opacity-100'
               )}
             >
-              <div className="border-t border-[#E8E5DE] pt-6">
+              <div className="border-t-2 border-[#111111] pt-6">
                 <span className="font-display mb-3 block text-[10px] font-bold tracking-[0.16em] text-[#7A7670] uppercase">
                   Oracle Text
                 </span>
@@ -303,7 +303,7 @@ export function CardOverlay({
                       <div
                         key={idx}
                         className={
-                          idx > 0 ? 'mt-6 border-t border-[#E8E5DE] pt-6' : ''
+                          idx > 0 ? 'mt-6 border-t-2 border-[#111111] pt-6' : ''
                         }
                       >
                         <p className="font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-[#111111]">
@@ -324,12 +324,12 @@ export function CardOverlay({
               </div>
 
               {(fullCard?.uniqueness ?? initialCard.uniqueness) != null && (
-                <div className="border-t border-[#E8E5DE] pt-6">
+                <div className="border-t-2 border-[#111111] pt-6">
                   <span className="font-display mb-3 block text-[10px] font-bold tracking-[0.16em] text-[#7A7670] uppercase">
                     Uniqueness
                   </span>
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 flex-1 bg-[#F0EDE6]">
+                    <div className="h-2 flex-1 border-2 border-[#111111] bg-[#F0EDE6]">
                       <div
                         className="h-full bg-[#111111]"
                         style={{
@@ -386,7 +386,7 @@ export function CardOverlay({
             </div>
 
             {/* Action Button - Separator moved here */}
-            <div className="border-t border-[#E8E5DE] pt-6">
+            <div className="border-t-2 border-[#111111] pt-6">
               <Link
                 to={
                   initialCard.face_ix > 0
@@ -394,7 +394,7 @@ export function CardOverlay({
                     : `/card/${initialCard.oracle_id}`
                 }
                 onClick={onClose}
-                className="font-display flex w-full items-center justify-center gap-2 border-2 border-[#111111] bg-[#111111] px-6 py-3 text-[13px] font-bold tracking-[0.08em] text-white uppercase hover:bg-[#333]"
+                className="font-display flex w-full items-center justify-center gap-2 border-2 border-[#111111] bg-[#111111] px-6 py-3 text-[13px] font-bold tracking-[0.08em] text-[#F0EDE6] uppercase transition-colors hover:bg-[#F0EDE6] hover:text-[#111111]"
               >
                 <MagnifyingGlassIcon className="h-4 w-4" />
                 Find Similar Cards

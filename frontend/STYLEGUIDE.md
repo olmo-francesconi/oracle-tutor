@@ -18,6 +18,23 @@ Bauhaus/brutalist design system. Every new UI element must follow these rules.
 
 No other colors for UI chrome. `--ot-cobalt` is reserved for the home-page art composition, not general-purpose interface accents. No gradients. No opacity tricks for text color — use `#7A7670` for muted.
 
+### Semantic MTG Colors
+
+These colors are approved for card-domain semantics inside filter chips only. Do not reuse them for general chrome, layout accents, or call-to-action styling.
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--ot-mtg-white` | `#C8A96E` | White color identity chip |
+| `--ot-mtg-blue` | `#1E5094` | Blue color identity chip |
+| `--ot-mtg-black` | `#111111` | Black color identity chip |
+| `--ot-mtg-red` | `#CC1100` | Red color identity chip |
+| `--ot-mtg-green` | `#2E6840` | Green color identity chip |
+| `--ot-mtg-colorless` | `#7A7670` | Colorless chip |
+| `--ot-rarity-common` | `#333333` | Common rarity chip |
+| `--ot-rarity-uncommon` | `#8499A8` | Uncommon rarity chip |
+| `--ot-rarity-rare` | `#C8A96E` | Rare rarity chip |
+| `--ot-rarity-mythic` | `#C96428` | Mythic rarity chip |
+
 ---
 
 ## Typography
