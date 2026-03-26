@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.metadata
 import logging
 import os
+import random
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Annotated, Final, Literal, Protocol, cast
@@ -10,6 +11,7 @@ from typing import Annotated, Final, Literal, Protocol, cast
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import func
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session, joinedload
@@ -25,7 +27,7 @@ try:
 except ImportError:
     get_semantic_index = None
 
-from .schemas import CardMatch, SimilarCard
+from .schemas import CardMatch, OracleSamplesResponse, SimilarCard
 
 logger = logging.getLogger("ot_backend.api")
 
@@ -89,6 +91,7 @@ DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
 )
 _RARITY_MAP: Final = {"c": "common", "u": "uncommon", "r": "rare", "m": "mythic"}
 _schema_ready: bool = False
+_oracle_text_pool: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +211,29 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.error("Semantic model failed to load: %s", exc, exc_info=True)
 
+    global _oracle_text_pool
+    try:
+        db = next(get_db())
+        try:
+            rows = (
+                db.query(CardFace.oracle_text)
+                .filter(
+                    CardFace.oracle_text.isnot(None),
+                    CardFace.oracle_text != "",
+                )
+                .order_by(func.random())
+                .limit(300)
+                .all()
+            )
+            _oracle_text_pool.extend(
+                row[0] for row in rows if row[0] and row[0].strip()
+            )
+            logger.info("Oracle text pool loaded: %d texts", len(_oracle_text_pool))
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Oracle text pool failed to load: %s", exc)
+
     yield
 
     logger.info("API shutting down...")
@@ -270,6 +296,16 @@ def version() -> dict[str, str]:
 @app.get("/favicon.ico")
 def favicon() -> Response:
     return Response(status_code=204)
+
+
+@app.get("/oracle-samples", response_model=OracleSamplesResponse, tags=["meta"])
+def oracle_samples(
+    n: Annotated[int, Query(ge=1, le=100)] = 60,
+) -> OracleSamplesResponse:
+    if not _oracle_text_pool:
+        return OracleSamplesResponse(texts=[])
+    count = min(n, len(_oracle_text_pool))
+    return OracleSamplesResponse(texts=random.sample(_oracle_text_pool, count))
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oracle Tutor — Concept A: The Scroll</title>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:ital,wght@0,800;0,900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #F0EDE6;
+      --surface: #FFFFFF;
+      --ink: #111111;
+      --red: #CC1100;
+      --yellow: #F5C400;
+      --muted: #7A7670;
+    }
+
+    body {
+      background: var(--bg);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Left stripe ── */
+    .stripe {
+      position: fixed;
+      left: 0; top: 0;
+      width: 6px; height: 100%;
+      background: var(--red);
+      z-index: 50;
+    }
+
+    /* ── Scrolling text columns ── */
+    .columns-bg {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      gap: 0;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .col {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .col-inner {
+      display: flex;
+      flex-direction: column;
+      animation: scrollUp linear infinite;
+      will-change: transform;
+    }
+
+    @keyframes scrollUp {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-50%); }
+    }
+
+    .oracle-line {
+      display: block;
+      font-family: 'DM Mono', monospace;
+      font-size: 10.5px;
+      line-height: 1.55;
+      color: var(--ink);
+      opacity: 0.072;
+      padding: 2px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: opacity 0.1s, color 0.1s;
+      user-select: none;
+      border-bottom: 1px solid transparent;
+      letter-spacing: 0.01em;
+    }
+
+    .oracle-line:hover {
+      opacity: 1;
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: var(--red);
+      text-underline-offset: 2px;
+    }
+
+    .oracle-line.clicked {
+      color: var(--red);
+      opacity: 1;
+    }
+
+    /* Even columns go slightly slower, odd slightly faster — set per-column below */
+
+    /* ── Foreground ── */
+    .foreground {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      padding-left: 6px; /* stripe */
+    }
+
+    .center-slab {
+      background: rgba(240, 237, 230, 0.93);
+      padding: 52px 60px 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 580px;
+      position: relative;
+    }
+
+    /* ── Wordmark ── */
+    .wordmark {
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 900;
+      font-size: clamp(64px, 12vw, 96px);
+      line-height: 0.92;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      color: var(--ink);
+      text-align: center;
+      margin-bottom: 0;
+    }
+
+    .wordmark-rule {
+      width: 100%;
+      height: 2px;
+      background: var(--ink);
+      margin: 14px 0;
+    }
+
+    .wordmark-sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      margin-bottom: 40px;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Search box ── */
+    .search-wrap {
+      width: 100%;
+      position: relative;
+    }
+
+    .search-input {
+      width: 100%;
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--surface);
+      border: 2px solid var(--ink);
+      border-radius: 0;
+      padding: 14px 52px 14px 16px;
+      outline: none;
+      caret-color: var(--red);
+      letter-spacing: 0.01em;
+    }
+
+    .search-input::placeholder {
+      color: var(--muted);
+    }
+
+    .search-input:focus {
+      border-color: var(--ink);
+    }
+
+    .search-btn {
+      position: absolute;
+      right: 0; top: 0; bottom: 0;
+      width: 48px;
+      background: var(--ink);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.1s;
+    }
+
+    .search-btn:hover {
+      background: var(--red);
+    }
+
+    .search-btn svg {
+      stroke: var(--bg);
+      fill: none;
+      width: 18px; height: 18px;
+    }
+
+    /* ── Hint text ── */
+    .hint {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 12px;
+      text-align: center;
+      letter-spacing: 0.015em;
+    }
+
+    .hint span {
+      color: var(--red);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="stripe"></div>
+
+  <!-- Background: scrolling oracle text columns -->
+  <div class="columns-bg" id="columns-bg"></div>
+
+  <!-- Foreground: wordmark + search -->
+  <div class="foreground">
+    <div class="center-slab">
+      <div class="wordmark">Oracle<br>Tutor</div>
+      <div class="wordmark-rule"></div>
+      <p class="wordmark-sub">find cards by meaning, not keywords.</p>
+
+      <div class="search-wrap">
+        <input
+          id="search"
+          class="search-input"
+          type="text"
+          placeholder="draw a card whenever a creature dies..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="search-btn" title="Search">
+          <svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="16.5" y1="16.5" x2="22" y2="22"/>
+          </svg>
+        </button>
+      </div>
+
+      <p class="hint">click any background text to use it as a query &nbsp;·&nbsp; <span>hover to preview</span></p>
+    </div>
+  </div>
+
+  <script>
+    const ORACLE_TEXTS = [
+      "When {this} enters, draw a card.",
+      "Whenever a creature you control dies, create a 1/1 white Spirit token with flying.",
+      "At the beginning of your upkeep, put a +1/+1 counter on {this}.",
+      "When {this} enters, exile target nonland permanent until {this} leaves.",
+      "Whenever {this} deals combat damage to a player, you may draw a card.",
+      "When {this} dies, return it to your hand.",
+      "Whenever you cast an instant or sorcery spell, {this} gets +1/+0 until end of turn.",
+      "At the beginning of each end step, if you gained life this turn, draw a card.",
+      "Whenever {this} attacks, create a 1/1 white Soldier token that's tapped and attacking.",
+      "When {this} enters, target opponent discards two cards.",
+      "Whenever you draw a card, you may pay {1}. If you do, create a 1/1 blue Faerie token.",
+      "Whenever a land enters under your control, you gain 1 life.",
+      "When {this} is put into a graveyard, shuffle it into its owner's library.",
+      "Whenever you cast your second spell each turn, draw a card.",
+      "{T}: Add {G}.",
+      "{2}, {T}: Draw a card.",
+      "{T}: Add one mana of any color.",
+      "{3}{B}: Destroy target creature. It can't be regenerated.",
+      "{1}{T}: Create a 1/1 green Saproling creature token.",
+      "{X}{R}: {This} deals X damage to any target.",
+      "{2}{W}: Exile target attacking creature.",
+      "{B}{B}: Target player loses 2 life.",
+      "Flying. Trample.",
+      "Deathtouch. Lifelink.",
+      "Protection from black and from white.",
+      "Hexproof from instants and sorceries.",
+      "All creatures you control have vigilance.",
+      "Spells you cast cost {1} less to cast.",
+      "You have no maximum hand size.",
+      "Indestructible.",
+      "Flash. Ward {2}.",
+      "Menace. First strike.",
+      "Reach. When {this} blocks a creature with flying, destroy that creature.",
+      "Counter target spell. Its controller draws a card.",
+      "Destroy all creatures. They can't be regenerated.",
+      "Each player sacrifices two creatures.",
+      "Return target creature from your graveyard to the battlefield.",
+      "Exile all cards from target player's graveyard.",
+      "Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+      "Target player mills ten cards.",
+      "Tap target creature. It doesn't untap during its controller's next untap step.",
+      "Scry 2, then draw a card.",
+      "Proliferate.",
+      "Choose one — Draw two cards; or target player discards two cards.",
+      "Create two 1/1 white Soldier creature tokens with lifelink.",
+      "Target creature gets +3/+3 until end of turn.",
+      "Prevent all combat damage that would be dealt this turn.",
+      "Each opponent loses 3 life and you gain 3 life.",
+      "Look at the top seven cards of your library. Put two into your hand, rest on bottom.",
+      "Exile target creature. Its controller creates a 3/3 green Beast token.",
+      "Flashback {3}{U}.",
+      "Escape — {4}{G}{G}, exile four other cards from your graveyard.",
+      "Cascade.",
+      "Convoke.",
+      "When {this} leaves the battlefield, return all cards exiled with it to the battlefield.",
+      "Whenever an opponent casts a noncreature spell, you may draw a card.",
+      "At the beginning of your draw step, you may draw an additional card. If you do, discard a card.",
+      "Whenever {this} becomes the target of a spell, put a +1/+1 counter on it.",
+      "Other creatures you control get +1/+1.",
+      "Creatures can't attack you unless their controller pays {2} for each attacking creature.",
+      "If a source would deal damage to you, prevent 1 of that damage.",
+      "Sacrifice {this}: Add three mana of any one color.",
+    ];
+
+    // Column configurations: [speed (seconds), delay offset (seconds), text size tweak]
+    const COL_CONFIG = [
+      { speed: 75, delay: -12, opacity: 0.065 },
+      { speed: 52, delay: -30, opacity: 0.080 },
+      { speed: 90, delay: -5,  opacity: 0.060 },
+      { speed: 63, delay: -45, opacity: 0.075 },
+      { speed: 48, delay: -20, opacity: 0.085 },
+      { speed: 82, delay: -8,  opacity: 0.068 },
+      { speed: 57, delay: -38, opacity: 0.072 },
+      { speed: 95, delay: -15, opacity: 0.058 },
+      { speed: 68, delay: -55, opacity: 0.078 },
+      { speed: 44, delay: -25, opacity: 0.070 },
+      { speed: 85, delay: -42, opacity: 0.062 },
+      { speed: 60, delay: -18, opacity: 0.082 },
+    ];
+
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function prefill(text) {
+      const input = document.getElementById('search');
+      input.value = text;
+      input.focus();
+      // Flash previously clicked lines back
+      document.querySelectorAll('.oracle-line.clicked').forEach(el => el.classList.remove('clicked'));
+      // Mark the clicked line
+      event.target.classList.add('clicked');
+    }
+
+    const container = document.getElementById('columns-bg');
+    const numCols = COL_CONFIG.length;
+
+    COL_CONFIG.forEach((cfg, ci) => {
+      const col = document.createElement('div');
+      col.className = 'col';
+
+      const inner = document.createElement('div');
+      inner.className = 'col-inner';
+      inner.style.animationDuration = cfg.speed + 's';
+      inner.style.animationDelay = cfg.delay + 's';
+
+      // Shuffle texts for each column differently
+      const seed = ci * 7;
+      const shuffled = shuffle(ORACLE_TEXTS);
+      // Repeat enough to fill 2 viewport heights (for seamless loop we double)
+      const repeated = [];
+      while (repeated.length < 120) repeated.push(...shuffled);
+      // Double copy for seamless loop
+      const fullList = [...repeated.slice(0, 60), ...repeated.slice(0, 60)];
+
+      fullList.forEach(text => {
+        const line = document.createElement('span');
+        line.className = 'oracle-line';
+        line.textContent = text;
+        line.style.opacity = cfg.opacity;
+        line.onclick = (e) => prefill(text);
+        line.onmouseenter = () => { line.style.opacity = '1'; };
+        line.onmouseleave = () => {
+          if (!line.classList.contains('clicked')) line.style.opacity = cfg.opacity;
+        };
+        inner.appendChild(line);
+      });
+
+      col.appendChild(inner);
+      container.appendChild(col);
+    });
+  </script>
+</body>
+</html>

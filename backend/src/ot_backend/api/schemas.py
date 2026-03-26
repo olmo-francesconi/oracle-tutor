@@ -36,3 +36,7 @@ class SimilarCard(BaseModel):
     uniqueness: float | None = None
     border_color: str | None = None
     set_code: str | None = None
+
+
+class OracleSamplesResponse(BaseModel):
+    texts: list[str]

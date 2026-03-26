@@ -126,3 +126,14 @@ export const searchOracleText = async (
   })
   return response.data.map(normalizeSimilarCard)
 }
+
+export const getOracleSamples = async (): Promise<string[]> => {
+  try {
+    const response = await api.get<{ texts: string[] }>('/oracle-samples', {
+      params: { n: 60 },
+    })
+    return response.data.texts
+  } catch {
+    return []
+  }
+}

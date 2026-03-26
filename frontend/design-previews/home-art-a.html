@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oracle Tutor — Art A: The Colophon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #F0EDE6;
+      --surface: #FFFFFF;
+      --ink:     #111111;
+      --red:     #CC1100;
+      --yellow:  #F5C400;
+      --muted:   #7A7670;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'DM Mono', monospace;
+      overflow: hidden;
+    }
+
+    /* ── Red left stripe ── */
+    .left-stripe {
+      position: fixed;
+      left: 0; top: 0;
+      width: 6px; height: 100%;
+      background: var(--red);
+      z-index: 100;
+    }
+
+    /* ─────────────────────────────────────────────
+       LAYER 1: Dense micro oracle text
+       Fills the entire canvas at very low opacity.
+       Pure texture — not meant to be read.
+    ───────────────────────────────────────────── */
+    .micro-layer {
+      position: fixed;
+      inset: 0;
+      left: 6px;
+      padding: 18px 20px;
+      overflow: hidden;
+      z-index: 1;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .micro-layer p {
+      font-family: 'DM Mono', monospace;
+      font-size: 9.5px;
+      line-height: 1.62;
+      color: var(--ink);
+      opacity: 0.095;
+      letter-spacing: 0.008em;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    /* ─────────────────────────────────────────────
+       LAYER 2: Giant keyword letterforms
+       Barely visible — used as geometric shape, not text.
+       Each word is a visual mass, an abstract form.
+    ───────────────────────────────────────────── */
+    .keyword-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      user-select: none;
+      overflow: hidden;
+    }
+
+    .kw {
+      position: absolute;
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 900;
+      text-transform: uppercase;
+      color: var(--ink);
+      line-height: 0.88;
+      letter-spacing: -0.025em;
+      white-space: nowrap;
+    }
+
+    /* FLYING — top-left, large, extends off right edge */
+    .kw-flying {
+      font-size: clamp(160px, 22vw, 300px);
+      opacity: 0.036;
+      top: 6%;
+      left: -8px;
+    }
+
+    /* HASTE — bottom right, extends off screen */
+    .kw-haste {
+      font-size: clamp(100px, 16vw, 210px);
+      opacity: 0.030;
+      bottom: -2%;
+      right: -14px;
+    }
+
+    /* TRAMPLE — middle-left, smaller, tucked */
+    .kw-trample {
+      font-size: clamp(68px, 9vw, 130px);
+      opacity: 0.028;
+      top: 51%;
+      left: 4%;
+    }
+
+    /* LIFELINK — far top right, very faint, smaller */
+    .kw-lifelink {
+      font-size: clamp(50px, 7vw, 95px);
+      opacity: 0.022;
+      top: 1%;
+      right: 2%;
+    }
+
+    /* ─────────────────────────────────────────────
+       LAYER 3: Horizontal rules (Bauhaus structure)
+       Two thin rules divide the canvas.
+    ───────────────────────────────────────────── */
+    .rule-red {
+      position: fixed;
+      left: 0; right: 0;
+      height: 2px;
+      background: var(--red);
+      opacity: 0.55;
+      z-index: 3;
+      pointer-events: none;
+      top: 42%;
+    }
+
+    .rule-ink {
+      position: fixed;
+      left: 6px; right: 0;
+      height: 1px;
+      background: var(--ink);
+      opacity: 0.10;
+      z-index: 3;
+      pointer-events: none;
+      top: 72%;
+    }
+
+    /* Yellow accent block (echoing existing home page) */
+    .yellow-block {
+      position: fixed;
+      right: 20px;
+      bottom: 32px;
+      width: 8px;
+      height: 100px;
+      background: var(--yellow);
+      opacity: 0.65;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    /* ─────────────────────────────────────────────
+       LAYER 4: Foreground — search panel
+       Floats over the composition. Clean, stark.
+       The white box is the only surface on the page.
+    ───────────────────────────────────────────── */
+    .foreground {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      padding-left: 6px;
+    }
+
+    .search-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 560px;
+    }
+
+    /* Wordmark sits directly on the art — no slab behind it */
+    .wordmark {
+      text-align: center;
+      margin-bottom: 36px;
+      mix-blend-mode: multiply; /* ink stays ink on warm newsprint */
+    }
+
+    .wordmark h1 {
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 900;
+      font-size: clamp(64px, 11vw, 96px);
+      line-height: 0.92;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      text-transform: uppercase;
+    }
+
+    .wordmark .rule {
+      width: 100%;
+      height: 2px;
+      background: var(--ink);
+      margin: 14px 0 12px;
+    }
+
+    .wordmark p {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.015em;
+    }
+
+    /* Search box — white surface, hard border, the one surface on the page */
+    .search-box {
+      width: 100%;
+      display: flex;
+      align-items: stretch;
+      border: 2px solid var(--ink);
+      background: var(--surface);
+    }
+
+    .search-box input {
+      flex: 1;
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      color: var(--ink);
+      background: transparent;
+      border: none;
+      outline: none;
+      padding: 15px 16px;
+      caret-color: var(--red);
+      letter-spacing: 0.01em;
+    }
+
+    .search-box input::placeholder { color: var(--muted); }
+
+    .search-box button {
+      width: 52px;
+      background: var(--ink);
+      border: none;
+      border-left: 2px solid var(--ink);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.1s;
+    }
+
+    .search-box button:hover { background: var(--red); }
+
+    .search-box button svg {
+      stroke: var(--bg);
+      fill: none;
+      width: 18px; height: 18px;
+    }
+
+    /* Preview label */
+    .badge {
+      position: fixed;
+      top: 10px; right: 14px;
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 800;
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      background: var(--ink);
+      color: var(--bg);
+      padding: 4px 10px;
+      z-index: 200;
+    }
+
+    .label-a {
+      position: fixed;
+      bottom: 16px;
+      left: 16px;
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      z-index: 200;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="left-stripe"></div>
+  <div class="badge">A — The Colophon</div>
+  <div class="label-a">oracle text as typographic ground</div>
+
+  <!-- Layer 1: Micro oracle text field -->
+  <div class="micro-layer" id="micro-layer"></div>
+
+  <!-- Layer 2: Giant keyword letterforms -->
+  <div class="keyword-layer">
+    <span class="kw kw-flying">FLYING</span>
+    <span class="kw kw-haste">HASTE</span>
+    <span class="kw kw-trample">TRAMPLE</span>
+    <span class="kw kw-lifelink">LIFELINK</span>
+  </div>
+
+  <!-- Layer 3: Structural rules -->
+  <div class="rule-red"></div>
+  <div class="rule-ink"></div>
+  <div class="yellow-block"></div>
+
+  <!-- Layer 4: Search foreground -->
+  <div class="foreground">
+    <div class="search-panel">
+      <div class="wordmark">
+        <h1>Oracle<br>Tutor</h1>
+        <div class="rule"></div>
+        <p>find cards by meaning, not keywords.</p>
+      </div>
+
+      <div class="search-box">
+        <input
+          type="text"
+          placeholder="draw a card whenever a creature dies..."
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <button>
+          <svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="16.5" y1="16.5" x2="22" y2="22"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Oracle text — fills the micro layer
+    const TEXTS = [
+      "When {this} enters, draw a card.",
+      "Whenever a creature you control dies, create a 1/1 white Spirit token with flying.",
+      "At the beginning of your upkeep, put a +1/+1 counter on {this}.",
+      "When {this} enters, exile target nonland permanent until {this} leaves the battlefield.",
+      "Whenever {this} deals combat damage to a player, you may draw a card.",
+      "When {this} dies, return it to your hand.",
+      "Whenever you cast an instant or sorcery spell, {this} gets +1/+0 until end of turn.",
+      "At the beginning of each end step, if you gained life this turn, draw a card.",
+      "Whenever {this} attacks, create a 1/1 white Soldier token that's tapped and attacking.",
+      "{T}: Add {G}. {T}: Add one mana of any color.",
+      "{3}{B}: Destroy target creature. It can't be regenerated.",
+      "{1}{T}: Create a 1/1 green Saproling creature token.",
+      "{X}{R}: {This} deals X damage to any target.",
+      "Flying. Trample. Haste.",
+      "Deathtouch. Lifelink.",
+      "Protection from black and from white.",
+      "Hexproof from instants and sorceries.",
+      "All creatures you control have vigilance. Spells you cast cost {1} less.",
+      "Indestructible. Flash. Ward {2}.",
+      "Menace. First strike. Reach.",
+      "Counter target spell. Its controller draws a card.",
+      "Destroy all creatures. They can't be regenerated.",
+      "Each player sacrifices two creatures.",
+      "Return target creature from your graveyard to the battlefield.",
+      "Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+      "Target player mills ten cards.",
+      "Scry 2, then draw a card. Proliferate.",
+      "Choose one — Draw two cards; or target player discards two cards.",
+      "Create two 1/1 white Soldier creature tokens with lifelink.",
+      "Each opponent loses 3 life and you gain 3 life.",
+      "Look at the top seven cards of your library. Put two into your hand.",
+      "Exile target creature. Its controller creates a 3/3 green Beast token.",
+      "Flashback {3}{U}. Escape — {4}{G}{G}, exile four other cards from your graveyard.",
+      "Whenever an opponent casts a noncreature spell, you may draw a card.",
+      "At the beginning of your draw step, draw an additional card. Then discard a card.",
+      "Sacrifice {this}: Add three mana of any one color.",
+      "You may cast spells as though they had flash. Land cards you own enter untapped.",
+      "Creatures can't attack you unless their controller pays {2} for each attacking creature.",
+      "{this} can't be countered. Cycling {2}. Cascade.",
+      "Morph {2}{G}: Turn this face up. Affinity for artifacts.",
+    ];
+
+    const layer = document.getElementById('micro-layer');
+    const lineH = 15.3; // px
+    const rows = Math.ceil(window.innerHeight / lineH) + 4;
+
+    // Build repeated text string that fills one row
+    const joined = TEXTS.join('  ·  ');
+    // Each row gets a different offset into the text
+    for (let i = 0; i < rows; i++) {
+      const p = document.createElement('p');
+      // Rotate through the joined string for variety per row
+      const offset = (i * 37) % joined.length;
+      p.textContent = (joined.slice(offset) + '  ·  ' + joined).repeat(3);
+      layer.appendChild(p);
+    }
+  </script>
+</body>
+</html>

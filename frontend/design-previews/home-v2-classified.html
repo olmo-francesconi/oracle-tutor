@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oracle Tutor — Concept B: Classified</title>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:ital,wght@0,800;0,900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #F0EDE6;
+      --surface: #FFFFFF;
+      --ink: #111111;
+      --red: #CC1100;
+      --yellow: #F5C400;
+      --muted: #7A7670;
+    }
+
+    body {
+      background: var(--bg);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Red left column (label stripe) ── */
+    .left-col {
+      position: fixed;
+      left: 0; top: 0;
+      width: 48px; height: 100%;
+      background: var(--red);
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .left-col-label {
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 900;
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--bg);
+      white-space: nowrap;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    /* ── Static text wall ── */
+    .text-wall {
+      position: fixed;
+      inset: 0;
+      left: 48px; /* after red col */
+      z-index: 0;
+      padding: 20px 20px 20px 24px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      gap: 0;
+      column-gap: 0;
+    }
+
+    /* Grid of dense oracle text lines */
+    .wall-inner {
+      column-count: 4;
+      column-gap: 0;
+      width: 100%;
+    }
+
+    .oracle-line {
+      display: block;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      line-height: 1.6;
+      color: var(--ink);
+      opacity: 0.14;
+      padding: 1px 14px 1px 4px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: opacity 0.12s ease, border-color 0.12s ease;
+      border-left: 2px solid transparent;
+      letter-spacing: 0.005em;
+      break-inside: avoid;
+    }
+
+    .oracle-line:hover {
+      opacity: 0.9;
+      border-left-color: var(--ink);
+    }
+
+    .oracle-line.suggested {
+      opacity: 0.8;
+      border-left-color: var(--yellow);
+      color: var(--ink);
+    }
+
+    .oracle-line.suggested:hover {
+      opacity: 1;
+      border-left-color: var(--red);
+    }
+
+    /* ── Foreground: punched slab ── */
+    .foreground {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      padding-left: 48px; /* red col */
+    }
+
+    .center-slab {
+      background: var(--surface);
+      border: 2px solid var(--ink);
+      padding: 48px 56px 52px;
+      width: 560px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    /* Slab shadow: hard offset, no blur — brutalist */
+    .center-slab::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border: 2px solid var(--ink);
+      transform: translate(5px, 5px);
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    /* ── Wordmark ── */
+    .wordmark {
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 900;
+      font-size: clamp(60px, 10vw, 90px);
+      line-height: 0.92;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      color: var(--ink);
+      text-align: center;
+    }
+
+    .wordmark-rule {
+      width: 100%;
+      height: 2px;
+      background: var(--ink);
+      margin: 14px 0;
+    }
+
+    .wordmark-sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 11.5px;
+      color: var(--muted);
+      text-align: center;
+      margin-bottom: 36px;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Search box ── */
+    .search-wrap {
+      width: 100%;
+      position: relative;
+    }
+
+    .search-input {
+      width: 100%;
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--bg);
+      border: 2px solid var(--ink);
+      border-radius: 0;
+      padding: 13px 50px 13px 14px;
+      outline: none;
+      caret-color: var(--red);
+      letter-spacing: 0.01em;
+      transition: background 0.12s;
+    }
+
+    .search-input::placeholder { color: var(--muted); }
+
+    .search-input:focus {
+      background: var(--surface);
+    }
+
+    .search-btn {
+      position: absolute;
+      right: 0; top: 0; bottom: 0;
+      width: 46px;
+      background: var(--ink);
+      border: none;
+      border-left: 2px solid var(--ink);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.1s;
+    }
+
+    .search-btn:hover { background: var(--red); }
+
+    .search-btn svg {
+      stroke: var(--bg);
+      fill: none;
+      width: 17px; height: 17px;
+    }
+
+    /* ── Suggestions list (appears on focus) ── */
+    .suggestions-bar {
+      width: 100%;
+      margin-top: 16px;
+      border-top: 1px solid rgba(17,17,17,0.12);
+      padding-top: 12px;
+      display: none;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .suggestions-bar.visible { display: flex; }
+
+    .suggestions-label {
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 800;
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .suggestion-item {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--ink);
+      padding: 5px 8px;
+      border-left: 3px solid var(--yellow);
+      cursor: pointer;
+      transition: background 0.08s, border-color 0.08s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: 0.01em;
+    }
+
+    .suggestion-item:hover {
+      background: var(--ink);
+      color: var(--bg);
+      border-left-color: var(--red);
+    }
+
+    /* ── Bottom label ── */
+    .bottom-label {
+      position: fixed;
+      bottom: 20px;
+      left: 58px;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+      z-index: 20;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Red left column -->
+  <div class="left-col">
+    <span class="left-col-label">Oracle Texts — Semantic Index</span>
+  </div>
+
+  <!-- Static text wall -->
+  <div class="text-wall">
+    <div class="wall-inner" id="wall-inner"></div>
+  </div>
+
+  <!-- Foreground slab -->
+  <div class="foreground">
+    <div class="center-slab">
+      <div class="wordmark">Oracle<br>Tutor</div>
+      <div class="wordmark-rule"></div>
+      <p class="wordmark-sub">find cards by meaning, not keywords.</p>
+
+      <div class="search-wrap">
+        <input
+          id="search"
+          class="search-input"
+          type="text"
+          placeholder="whenever a creature enters the battlefield..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="search-btn" title="Search">
+          <svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="16.5" y1="16.5" x2="22" y2="22"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Suggested queries, shown on focus -->
+      <div class="suggestions-bar" id="suggestions-bar">
+        <span class="suggestions-label">Suggested queries from the oracle index</span>
+        <div id="suggestion-items"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-label">background text is searchable &nbsp;·&nbsp; focus to see suggestions</div>
+
+  <script>
+    const ORACLE_TEXTS = [
+      "When {this} enters, draw a card.",
+      "Whenever a creature you control dies, create a 1/1 white Spirit token with flying.",
+      "At the beginning of your upkeep, put a +1/+1 counter on {this}.",
+      "When {this} enters, exile target nonland permanent until {this} leaves.",
+      "Whenever {this} deals combat damage to a player, you may draw a card.",
+      "When {this} dies, return it to your hand.",
+      "Whenever you cast an instant or sorcery spell, {this} gets +1/+0 until end of turn.",
+      "At the beginning of each end step, if you gained life this turn, draw a card.",
+      "Whenever {this} attacks, create a 1/1 white Soldier token that's tapped and attacking.",
+      "When {this} enters, target opponent discards two cards.",
+      "Whenever you draw a card, you may pay {1}. If you do, create a 1/1 blue Faerie token.",
+      "Whenever a land enters under your control, you gain 1 life.",
+      "When {this} is put into a graveyard, shuffle it into its owner's library.",
+      "Whenever you cast your second spell each turn, draw a card.",
+      "{T}: Add {G}.",
+      "{2}, {T}: Draw a card, then discard a card.",
+      "{T}: Add one mana of any color.",
+      "{3}{B}: Destroy target creature. It can't be regenerated.",
+      "{1}{T}: Create a 1/1 green Saproling creature token.",
+      "{X}{R}: {This} deals X damage to any target.",
+      "{2}{W}: Exile target attacking creature.",
+      "{B}{B}: Target player loses 2 life.",
+      "Flying. Trample.",
+      "Deathtouch. Lifelink.",
+      "Protection from black and from white.",
+      "Hexproof from instants and sorceries.",
+      "All creatures you control have vigilance.",
+      "Spells you cast cost {1} less to cast.",
+      "You have no maximum hand size.",
+      "Indestructible.",
+      "Flash. Ward {2}.",
+      "Menace. First strike.",
+      "Reach. When {this} blocks a creature with flying, destroy that creature.",
+      "Counter target spell. Its controller draws a card.",
+      "Destroy all creatures. They can't be regenerated.",
+      "Each player sacrifices two creatures.",
+      "Return target creature from your graveyard to the battlefield.",
+      "Exile all cards from target player's graveyard.",
+      "Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+      "Target player mills ten cards.",
+      "Tap target creature. It doesn't untap during its controller's next untap step.",
+      "Scry 2, then draw a card.",
+      "Proliferate.",
+      "Choose one — Draw two cards; or target player discards two cards.",
+      "Create two 1/1 white Soldier creature tokens with lifelink.",
+      "Target creature gets +3/+3 until end of turn.",
+      "Prevent all combat damage that would be dealt this turn.",
+      "Each opponent loses 3 life and you gain 3 life.",
+      "Look at the top seven cards. Put two into your hand, rest on the bottom in any order.",
+      "Exile target creature. Its controller creates a 3/3 green Beast token.",
+      "Flashback {3}{U}.",
+      "Escape — {4}{G}{G}, exile four other cards from your graveyard.",
+      "Convoke.",
+      "When {this} leaves the battlefield, return all exiled cards to the battlefield.",
+      "Whenever an opponent casts a noncreature spell, you may draw a card.",
+      "At the beginning of your draw step, draw an additional card, then discard a card.",
+      "Whenever {this} becomes the target of a spell, put a +1/+1 counter on it.",
+      "Other creatures you control get +1/+1.",
+      "Creatures can't attack you unless their controller pays {2} per creature.",
+      "If a source would deal damage to you, prevent 1 of that damage.",
+      "Sacrifice {this}: Add three mana of any one color.",
+      "You may cast spells as though they had flash.",
+      "Land cards you own enter untapped.",
+      "Whenever you attack, scry 1.",
+      "{this} can't be countered.",
+      "Cycling {2}.",
+      "Kicker {3}: If {this} was kicked, create two additional tokens.",
+      "Morph {2}{G}: Turn this face up.",
+      "Affinity for artifacts.",
+      "Modular 1.",
+      "Bloodthirst 2.",
+      "Echo {2}{W}.",
+    ];
+
+    // Suggested queries (shown on input focus)
+    const SUGGESTIONS = [
+      "draw a card whenever a creature dies",
+      "enters the battlefield exile target creature",
+      "create a token at the beginning of upkeep",
+      "protection from all colors",
+      "counter target spell and draw a card",
+      "destroy all creatures at end of turn",
+      "sacrifice to add three mana",
+      "deals damage equal to its toughness",
+    ];
+
+    // Build the wall
+    const wall = document.getElementById('wall-inner');
+    // Repeat oracle texts to fill the page
+    const texts = [];
+    while (texts.length < 500) texts.push(...ORACLE_TEXTS);
+
+    texts.slice(0, 480).forEach((text, i) => {
+      const line = document.createElement('span');
+      line.className = 'oracle-line';
+      line.textContent = text;
+      line.title = 'Click to search';
+      line.onclick = () => {
+        document.getElementById('search').value = text;
+        document.getElementById('search').focus();
+      };
+      wall.appendChild(line);
+    });
+
+    // Build suggestions
+    const suggBar = document.getElementById('suggestions-bar');
+    const suggItems = document.getElementById('suggestion-items');
+    SUGGESTIONS.forEach(s => {
+      const item = document.createElement('div');
+      item.className = 'suggestion-item';
+      item.textContent = s;
+      item.onclick = () => {
+        document.getElementById('search').value = s;
+        document.getElementById('search').focus();
+      };
+      suggItems.appendChild(item);
+    });
+
+    // Toggle suggestions + highlight wall lines on focus
+    const input = document.getElementById('search');
+
+    input.addEventListener('focus', () => {
+      suggBar.classList.add('visible');
+      // Highlight some wall lines as "suggested"
+      const lines = wall.querySelectorAll('.oracle-line');
+      let count = 0;
+      const step = Math.floor(lines.length / 10);
+      for (let i = 0; i < lines.length && count < 14; i += step) {
+        lines[i].classList.add('suggested');
+        count++;
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => {
+        suggBar.classList.remove('visible');
+        wall.querySelectorAll('.oracle-line.suggested').forEach(el => el.classList.remove('suggested'));
+      }, 200);
+    });
+  </script>
+</body>
+</html>
