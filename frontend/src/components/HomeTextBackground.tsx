@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getManaClass, TOKEN_RE } from '../lib/manaSymbols'
+import { getManaClass, splitSymbolParts } from '../lib/manaSymbols'
 
 type HomeTextBackgroundProps = {
   texts: string[]
   isLoaded: boolean
   leftInset?: number
   minTotalWidth?: number
+  fitToParent?: boolean
   onStatsChange?: (stats: HomeTextBackgroundStats) => void
 }
 
@@ -79,7 +80,7 @@ function estimateMetrics(text: string): TextMetrics {
 }
 
 function renderBackgroundText(text: string) {
-  const parts = text.split(TOKEN_RE)
+  const parts = splitSymbolParts(text)
 
   return parts.map((part, index) => {
     if (part.startsWith('{') && part.endsWith('}')) {
@@ -111,6 +112,7 @@ export function HomeTextBackground({
   isLoaded,
   leftInset = 0,
   minTotalWidth = 0,
+  fitToParent = false,
   onStatsChange,
 }: HomeTextBackgroundProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -118,11 +120,38 @@ export function HomeTextBackground({
   const [viewport, setViewport] = useState<ViewportSize>(DEFAULT_VIEWPORT)
 
   useEffect(() => {
+    if (fitToParent) {
+      const node = containerRef.current
+      if (!node) return
+
+      const updateViewport = () => {
+        const parent = node.parentElement
+        if (!parent) return
+
+        const totalWidth = Math.max(parent.clientWidth, minTotalWidth)
+        setViewport({
+          width: Math.max(totalWidth - leftInset, 0),
+          height: Math.max(parent.clientHeight, 0),
+        })
+      }
+
+      updateViewport()
+
+      const observer = new ResizeObserver(() => updateViewport())
+      observer.observe(node.parentElement ?? node)
+
+      return () => observer.disconnect()
+    }
+
     const updateViewport = () => {
-      const totalWidth = Math.max(window.innerWidth, minTotalWidth)
+      const vw = window.innerWidth
+      // Use screen.height to match 100lvh (full physical screen) so text fills
+      // edge-to-edge, regardless of browser chrome visibility.
+      const vh = Math.max(window.innerHeight, window.screen?.height ?? 0)
+      const totalWidth = Math.max(vw, minTotalWidth)
       setViewport({
         width: Math.max(totalWidth - leftInset, 0),
-        height: Math.max(window.innerHeight, 0),
+        height: Math.max(vh, 0),
       })
     }
 
@@ -145,7 +174,7 @@ export function HomeTextBackground({
         window.cancelAnimationFrame(frameRef.current)
       }
     }
-  }, [leftInset, minTotalWidth])
+  }, [fitToParent, leftInset, minTotalWidth])
 
   const metrics = useMemo(() => {
     return estimateMetrics(buildRepeatedText(texts))

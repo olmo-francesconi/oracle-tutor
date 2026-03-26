@@ -1,6 +1,9 @@
+import { useQuery } from '@tanstack/react-query'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { getOracleSamples } from '../api'
 import { CardImage } from './CardImage'
 import { FilterBar } from './FilterBar'
+import { HomeTextBackground } from './HomeTextBackground'
 import { getCardImageUrl, getCardBorderColor, getCardRadiusStyle } from '../utils'
 import type { SimilarCard, FilterState } from '../types'
 import { cn } from '../lib/cn'
@@ -33,6 +36,8 @@ const SECTION_COLORS: Record<string, string> = {
   default: 'bg-[#DDDDDD]',
 }
 
+const HOME_LEFT_INSET = 6
+const MIN_HOME_COMPOSITION_WIDTH = 360
 
 function AnimatedCount({ value }: { value: number }) {
   const [display, setDisplay] = useState(value)
@@ -155,6 +160,15 @@ export function CardGrid({
 }: CardGridProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const { data: oracleSamples, isSuccess: hasOracleSamples } = useQuery({
+    queryKey: ['oracle-samples'],
+    queryFn: getOracleSamples,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+
+  const backgroundTexts = oracleSamples?.texts ?? []
+  const isBackgroundLoaded = hasOracleSamples && backgroundTexts.length > 0
 
   // Scroll to top when search query changes
   useEffect(() => {
@@ -202,61 +216,76 @@ export function CardGrid({
       )}
 
       {cards.length > 0 && (
-        <div className="p-4 pb-10 md:p-6">
-          {sections.map(({ key, cards: sectionCards }) => (
-            <div key={key} className="mb-8">
-              {/* Section header */}
-              <div className="mb-6 flex items-center gap-3 border-b-2 border-[#111111] pb-3">
-                <span className="font-display text-[13px] font-bold uppercase tracking-[0.14em] text-[#111111]">
-                  {SECTION_LABELS[key]}
+        <div className="pointer-events-none sticky top-0 z-0 h-0 overflow-visible">
+          <div className="relative h-[100dvh]">
+            <HomeTextBackground
+              texts={backgroundTexts}
+              isLoaded={isBackgroundLoaded}
+              leftInset={HOME_LEFT_INSET}
+              minTotalWidth={MIN_HOME_COMPOSITION_WIDTH}
+            />
+          </div>
+        </div>
+      )}
+
+      {cards.length > 0 && (
+        <div className="relative p-4 pb-10 md:p-6">
+          <div className="relative z-10">
+            {sections.map(({ key, cards: sectionCards }) => (
+              <div key={key} className="mb-8">
+                {/* Section header */}
+                <div className="mb-6 flex items-center gap-3 border-b-2 border-[#111111] pb-3">
+                  <span className="font-display text-[13px] font-bold uppercase tracking-[0.14em] text-[#111111]">
+                    {SECTION_LABELS[key]}
+                  </span>
+                  <span className="text-[11px] text-[#7A7670]">
+                    <AnimatedCount value={sectionCards.length} />
+                  </span>
+                  <div className={cn('h-[2px] flex-1', SECTION_COLORS[key])} />
+                </div>
+
+                {/* Card grid */}
+                <div
+                  className="grid gap-3 md:gap-4"
+                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
+                >
+                  {sectionCards.map((card) => (
+                    <CardGridItem
+                      key={`${card.oracle_id}:${card.face_ix}`}
+                      card={card}
+                      isSelected={selectedCardId === `${card.oracle_id}:${card.face_ix}`}
+                      onCardClick={onCardClick}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {/* Infinite scroll sentinel */}
+            <div ref={sentinelRef} />
+
+            {isFetchingNextPage && (
+              <div className="flex justify-center py-6">
+                <div className="flex gap-2 text-[#7A7670]">
+                  {BOUNCE_DELAYS.map((d) => (
+                    <div
+                      key={d}
+                      className="h-2 w-2 animate-bounce bg-[#111111]"
+                      style={{ animationDelay: d }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!hasNextPage && !isFetchingNextPage && (
+              <div className="flex flex-col items-center gap-1 pb-6 pt-6">
+                <span className="font-display text-[11px] uppercase tracking-[0.12em] text-[#7A7670]">
+                  {cards.length >= 1000 ? 'Showing the best 1,000 cards' : 'End of results'}
                 </span>
-                <span className="text-[11px] text-[#7A7670]">
-                  <AnimatedCount value={sectionCards.length} />
-                </span>
-                <div className={cn('h-[2px] flex-1', SECTION_COLORS[key])} />
               </div>
-
-              {/* Card grid */}
-              <div
-                className="grid gap-3 md:gap-4"
-                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
-              >
-                {sectionCards.map((card) => (
-                  <CardGridItem
-                    key={`${card.oracle_id}:${card.face_ix}`}
-                    card={card}
-                    isSelected={selectedCardId === `${card.oracle_id}:${card.face_ix}`}
-                    onCardClick={onCardClick}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {/* Infinite scroll sentinel */}
-          <div ref={sentinelRef} />
-
-          {isFetchingNextPage && (
-            <div className="flex justify-center py-6">
-              <div className="flex gap-2 text-[#7A7670]">
-                {BOUNCE_DELAYS.map((d) => (
-                  <div
-                    key={d}
-                    className="h-2 w-2 animate-bounce bg-[#111111]"
-                    style={{ animationDelay: d }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!hasNextPage && !isFetchingNextPage && (
-            <div className="flex flex-col items-center gap-1 pb-6 pt-6">
-              <span className="font-display text-[11px] uppercase tracking-[0.12em] text-[#7A7670]">
-                {cards.length >= 1000 ? 'Showing the best 1,000 cards' : 'End of results'}
-              </span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>
