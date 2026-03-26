@@ -60,11 +60,15 @@ export function getCardBorderColor(borderColor: string | undefined | null): stri
   return (borderColor && BORDER_COLOR_MAP[borderColor]) ?? '#111111'
 }
 
+export function isDoubleSidedLayout(layout: string | undefined): boolean {
+  return !!layout && DOUBLE_SIDED_LAYOUTS.has(layout)
+}
+
 export function getImageSideForFace(
   layout: string | undefined,
   faceIx: number
 ): 'front' | 'back' {
-  if (layout && DOUBLE_SIDED_LAYOUTS.has(layout) && faceIx > 0) {
+  if (isDoubleSidedLayout(layout) && faceIx > 0) {
     return 'back'
   }
   return 'front'

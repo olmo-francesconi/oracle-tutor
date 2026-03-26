@@ -11,7 +11,12 @@ import { Link } from 'react-router-dom'
 import { getCard } from '../api'
 import { cn } from '../lib/cn'
 import type { SimilarCard } from '../types'
-import { getCardImageUrl, getCardBorderColor, getCardRadiusStyle } from '../utils'
+import {
+  getCardImageUrl,
+  getCardBorderColor,
+  getCardRadiusStyle,
+  isDoubleSidedLayout,
+} from '../utils'
 import { CardImage } from './CardImage'
 import { SymbolText } from './SymbolText'
 
@@ -83,16 +88,7 @@ export function CardOverlay({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [hasPrev, hasNext, onPrev, onNext])
 
-  const doubleSidedLayouts = [
-    'transform',
-    'modal_dfc',
-    'meld',
-    'double_faced_token',
-    'art_series',
-  ]
-  const isDoubleSided = fullCard?.layout
-    ? doubleSidedLayouts.includes(fullCard.layout)
-    : false
+  const isDoubleSided = isDoubleSidedLayout(fullCard?.layout)
 
   // Logic for Shared Face cards (Split, Adventure, Flip)
   // These have multiple faces but exist on one physical side.
