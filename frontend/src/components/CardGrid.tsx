@@ -5,8 +5,6 @@ import { getCardImageUrl, getCardBorderColor, getCardRadiusStyle } from '../util
 import type { SimilarCard, FilterState } from '../types'
 import { cn } from '../lib/cn'
 
-const BOUNCE_DELAYS = ['0s', '0.2s', '0.4s'] as const
-
 function getSectionKey(
   similarity: number
 ): 'perfect' | 'great' | 'good' | 'poor' | 'default' {
@@ -253,14 +251,11 @@ export function CardGrid({
 
             {isFetchingNextPage && (
               <div className="flex justify-center py-6">
-                <div className="flex gap-2 text-[#7A7670]">
-                  {BOUNCE_DELAYS.map((d) => (
-                    <div
-                      key={d}
-                      className="h-2 w-2 animate-bounce bg-[#111111]"
-                      style={{ animationDelay: d }}
-                    />
-                  ))}
+                <div className="flex min-w-[12rem] items-center gap-3 border-2 border-[#111111] bg-[#F0EDE6] px-4 py-2">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-[#111111]">
+                    Loading more
+                  </span>
+                  <div className="h-[2px] flex-1 bg-[#111111]" aria-hidden />
                 </div>
               </div>
             )}
