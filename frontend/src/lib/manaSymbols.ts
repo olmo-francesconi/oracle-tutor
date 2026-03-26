@@ -1,4 +1,5 @@
 export const TOKEN_RE = /\{([^}]*)\}/g
+const TOKEN_SPLIT_RE = /(\{[^}]*\})/g
 
 const SPECIAL: Record<string, string> = {
   t: 'ms ms-tap',
@@ -19,4 +20,8 @@ export function getManaClass(symbol: string): string | null {
   const normalized = content.replace(/\//g, '')
   if (/^[a-z0-9]+$/.test(normalized)) return `ms ms-${normalized}`
   return null
+}
+
+export function splitSymbolParts(text: string): string[] {
+  return text.split(TOKEN_SPLIT_RE).filter((part) => part.length > 0)
 }
