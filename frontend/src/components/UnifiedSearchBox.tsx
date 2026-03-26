@@ -564,7 +564,9 @@ export function UnifiedSearchBox({
         const results = await searchCards(query, 6, 0, controller.signal)
         if (!controller.signal.aborted) {
           setNameMatches(results)
-          setIsOpen(true)
+          if (isFocused) {
+            setIsOpen(true)
+          }
         }
       } catch {
         // silently ignore aborted requests
@@ -575,7 +577,7 @@ export function UnifiedSearchBox({
       clearTimeout(timer)
       controller.abort()
     }
-  }, [query])
+  }, [isFocused, query])
 
   useEffect(() => {
     if (query.length < 3) {
@@ -591,7 +593,9 @@ export function UnifiedSearchBox({
         const results = await searchOracleText(query, 0, 4, undefined, controller.signal)
         if (!controller.signal.aborted) {
           setSemanticMatches(results.items)
-          setIsOpen(true)
+          if (isFocused) {
+            setIsOpen(true)
+          }
         }
       } catch {
         // silently ignore
@@ -607,7 +611,7 @@ export function UnifiedSearchBox({
       controller.abort()
       setIsSemanticLoading(false)
     }
-  }, [query])
+  }, [isFocused, query])
 
   const handleNameSelect = (card: CardMatch) => {
     setIsOpen(false)
