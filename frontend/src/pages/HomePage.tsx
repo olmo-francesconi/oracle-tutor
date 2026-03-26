@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { DeveloperLinks } from '../components/DeveloperLinks'
@@ -10,27 +10,65 @@ import { DEFAULT_DESCRIPTION, DEFAULT_TITLE } from '../lib/seo'
 import { getOracleSamples } from '../api'
 
 // Six hand-placed oracle phrase positions — Bauhaus primary triad: red, yellow, cobalt blue
-const PHRASE_SLOTS: Array<{ style: React.CSSProperties; color: string; opacity: number }> = [
+const PHRASE_SLOTS: Array<{ style: React.CSSProperties; color: string; opacity: number; baseFontSize?: number }> = [
   { style: { top: '7%',    left:  '2%'  },                                                          color: '#CC1100', opacity: 0.22 },
   { style: { top: '18%',   right: '3%',  textAlign: 'right' },                                      color: '#0E2150', opacity: 0.20 },
   { style: { top: '55%',   left:  '2.5%' },                                                         color: '#F5C400', opacity: 0.28 },
-  { style: { top: '68%',   right: '4%',  textAlign: 'right', fontSize: 'clamp(16px,1.9vw,24px)' }, color: '#CC1100', opacity: 0.22 },
-  { style: { bottom: '6%', left:  '2%',  fontSize: 'clamp(14px,1.7vw,21px)' },                     color: '#0E2150', opacity: 0.20 },
-  { style: { top: '33%',   left: '38%',  fontSize: 'clamp(13px,1.5vw,18px)' },                     color: '#F5C400', opacity: 0.28 },
+  { style: { top: '68%',   right: '4%',  textAlign: 'right' },                                      color: '#CC1100', opacity: 0.22, baseFontSize: 20 },
+  { style: { bottom: '6%', left:  '2%' },                                                           color: '#0E2150', opacity: 0.20, baseFontSize: 17 },
+  { style: { top: '33%',   left: '38%' },                                                           color: '#F5C400', opacity: 0.28, baseFontSize: 15 },
 ]
 
-const MONUMENT_SLOTS = [
+const MONUMENT_SLOTS: Array<{ style: React.CSSProperties; baseFontSize: number }> = [
   {
-    style: { color: '#CC1100', fontSize: 'clamp(110px,17vw,230px)', opacity: 0.085, top: '-2%',    left: '-6px'  } as React.CSSProperties,
+    style: { color: '#CC1100', opacity: 0.085, top: '-2%',    left: '-6px'  } as React.CSSProperties,
+    baseFontSize: 175,
   },
   {
-    style: { color: '#F5C400', fontSize: 'clamp(75px,10vw,140px)',  opacity: 0.14,  top: '37%',    right: '-24px' } as React.CSSProperties,
+    style: { color: '#F5C400', opacity: 0.14,  top: '37%',    right: '-24px' } as React.CSSProperties,
+    baseFontSize: 108,
   },
   {
-    style: { color: '#0E2150', fontSize: 'clamp(88px,12.5vw,165px)', opacity: 0.10, bottom: '-4%', left: '-4px'  } as React.CSSProperties,
+    style: { color: '#0E2150', opacity: 0.10, bottom: '-4%', left: '-4px'  } as React.CSSProperties,
+    baseFontSize: 126,
   },
 ]
 const MAX_MONUMENT_TERM_LENGTH = 18
+const HOME_LEFT_INSET = 6
+const DESIGN_VIEWPORT_WIDTH = 1440
+const DESIGN_VIEWPORT_HEIGHT = 900
+const MIN_COMPOSITION_SCALE = 0.78
+const MAX_COMPOSITION_SCALE = 1.18
+const WORDMARK_BASE_FONT_SIZE = 92
+const WORDMARK_MIN_FONT_SIZE = 72
+const WORDMARK_MAX_FONT_SIZE = 109
+const HERO_MAX_WIDTH = 560
+const HERO_STACK_GAP = 40
+const HERO_DROPDOWN_OFFSET = 56
+const HERO_FOCUS_OFFSET = 28
+const HERO_TITLE_OFFSET = 18
+const HERO_DIVIDER_MARGIN = 14
+const HERO_DIVIDER_HEIGHT = 2
+const HERO_SUBTITLE_FONT_SIZE = 13
+const HERO_PHRASE_FONT_SIZE = 24
+const FOOTER_RIGHT_INSET = 40
+const FOOTER_BOTTOM_INSET = 20
+const FOOTER_SCALE_MIN = 0.92
+const FOOTER_SCALE_MAX = 1.05
+
+type HomeViewport = {
+  width: number
+  height: number
+}
+
+const DEFAULT_VIEWPORT: HomeViewport = {
+  width: DESIGN_VIEWPORT_WIDTH - HOME_LEFT_INSET,
+  height: DESIGN_VIEWPORT_HEIGHT,
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
 
 const SHOW_HOME_BACKGROUND_DEBUG_PANEL = false
 
@@ -53,6 +91,35 @@ export default function HomePage() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [backgroundStats, setBackgroundStats] = useState<HomeTextBackgroundStats | null>(null)
+  const [viewport, setViewport] = useState<HomeViewport>(DEFAULT_VIEWPORT)
+  const frameRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const updateViewport = () => {
+      setViewport({
+        width: Math.max(window.innerWidth - HOME_LEFT_INSET, 0),
+        height: Math.max(window.innerHeight, 0),
+      })
+    }
+
+    const scheduleUpdate = () => {
+      if (frameRef.current !== null) return
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null
+        updateViewport()
+      })
+    }
+
+    updateViewport()
+    window.addEventListener('resize', scheduleUpdate)
+
+    return () => {
+      window.removeEventListener('resize', scheduleUpdate)
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current)
+      }
+    }
+  }, [])
 
   // Fetch once per session. No fallback — layers are invisible until data arrives.
   const { data: oracleSamples, isSuccess } = useQuery({
@@ -80,6 +147,29 @@ export default function HomePage() {
     return uniqueTerms.slice(0, MONUMENT_SLOTS.length)
   }, [terms])
 
+  const compositionScale = useMemo(() => {
+    const widthRatio = viewport.width / DESIGN_VIEWPORT_WIDTH
+    const heightRatio = viewport.height / DESIGN_VIEWPORT_HEIGHT
+    return clamp(Math.min(widthRatio, heightRatio), MIN_COMPOSITION_SCALE, MAX_COMPOSITION_SCALE)
+  }, [viewport])
+
+  const wordmarkFontSize = clamp(
+    WORDMARK_BASE_FONT_SIZE * compositionScale,
+    WORDMARK_MIN_FONT_SIZE,
+    WORDMARK_MAX_FONT_SIZE
+  )
+  const heroWidth = HERO_MAX_WIDTH * compositionScale
+  const heroStackGap = HERO_STACK_GAP * compositionScale
+  const dropdownOffset = HERO_DROPDOWN_OFFSET * compositionScale
+  const focusOffset = HERO_FOCUS_OFFSET * compositionScale
+  const titleOffset = HERO_TITLE_OFFSET * compositionScale
+  const dividerMargin = HERO_DIVIDER_MARGIN * compositionScale
+  const dividerHeight = HERO_DIVIDER_HEIGHT * compositionScale
+  const subtitleFontSize = HERO_SUBTITLE_FONT_SIZE * compositionScale
+  const footerRightInset = FOOTER_RIGHT_INSET * compositionScale
+  const footerBottomInset = FOOTER_BOTTOM_INSET * compositionScale
+  const footerScale = clamp(compositionScale, FOOTER_SCALE_MIN, FOOTER_SCALE_MAX)
+
   return (
     <>
       <PageSEO
@@ -94,7 +184,7 @@ export default function HomePage() {
       <HomeTextBackground
         texts={texts}
         isLoaded={isLoaded}
-        leftInset={6}
+        leftInset={HOME_LEFT_INSET}
         onStatsChange={setBackgroundStats}
       />
 
@@ -103,13 +193,13 @@ export default function HomePage() {
       <div
         className="pointer-events-none fixed inset-0 z-[3] select-none overflow-hidden"
         style={{
-          left: 6,
+          left: HOME_LEFT_INSET,
           contain: 'layout style',
           opacity: isLoaded ? 1 : 0,
           transition: 'opacity 0.75s cubic-bezier(0.22, 0.03, 0.36, 1) 0.35s',
         }}
       >
-        {MONUMENT_SLOTS.map(({ style }, index) => (
+        {MONUMENT_SLOTS.map(({ style, baseFontSize }, index) => (
           <span
             key={monumentTerms[index] ?? `monument-${index}`}
             style={{
@@ -120,6 +210,7 @@ export default function HomePage() {
               lineHeight: 0.88,
               letterSpacing: '-0.025em',
               whiteSpace: 'nowrap',
+              fontSize: `${baseFontSize * compositionScale}px`,
               ...style,
             }}
           >
@@ -133,7 +224,7 @@ export default function HomePage() {
       <div
         className="pointer-events-none fixed inset-0 z-[2] select-none overflow-hidden"
         style={{
-          left: 6,
+          left: HOME_LEFT_INSET,
           contain: 'layout style',
           opacity: isLoaded ? 1 : 0,
           transition: 'opacity 0.75s cubic-bezier(0.22, 0.03, 0.36, 1) 0.75s',
@@ -146,7 +237,7 @@ export default function HomePage() {
               position: 'absolute',
               fontFamily: "'DM Mono', monospace",
               fontWeight: 500,
-              fontSize: 'clamp(19px,2.3vw,29px)',
+              fontSize: `${(slot.baseFontSize ?? HERO_PHRASE_FONT_SIZE) * compositionScale}px`,
               lineHeight: '1.28',
               letterSpacing: '-0.008em',
               maxWidth: '45%',
@@ -168,23 +259,24 @@ export default function HomePage() {
       {/* Foreground: wordmark + search — always visible, independent of oracle loading */}
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center pl-[6px]">
         <motion.div
-          className="flex w-full max-w-[560px] flex-col items-center"
-          animate={{ y: isDropdownOpen ? -56 : isSearchFocused ? -28 : 0 }}
+          className="flex w-full flex-col items-center"
+          style={{ maxWidth: `${heroWidth}px`, gap: `${heroStackGap}px` }}
+          animate={{ y: isDropdownOpen ? -dropdownOffset : isSearchFocused ? -focusOffset : 0 }}
           transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
         >
           <motion.div
-            className="mb-10 w-fit animate-[fadeIn_0.4s_ease-out] text-center"
-            animate={{ y: isSearchFocused ? -18 : 0 }}
+            className="w-fit animate-[fadeIn_0.4s_ease-out] text-center"
+            animate={{ y: isSearchFocused ? -titleOffset : 0 }}
             transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
           >
             <h1
               className="font-display font-[900] uppercase leading-[0.92] tracking-[-0.02em] text-[#111111]"
-              style={{ fontSize: 'clamp(64px, 12vw, 108px)' }}
+              style={{ fontSize: `${wordmarkFontSize}px` }}
             >
               Oracle<br />Tutor
             </h1>
-            <div className="my-[14px] h-[2px] w-full bg-[#111111]" />
-            <p className="font-mono text-[13px] text-[#7A7670]">
+            <div className="w-full bg-[#111111]" style={{ marginBlock: `${dividerMargin}px`, height: `${dividerHeight}px` }} />
+            <p className="font-mono text-[#7A7670]" style={{ fontSize: `${subtitleFontSize}px` }}>
               find cards by meaning, not keywords.
             </p>
           </motion.div>
@@ -195,13 +287,23 @@ export default function HomePage() {
           >
             <UnifiedSearchBox
               autoFocus
+              size="hero"
+              heroScale={compositionScale}
               onDropdownChange={setIsDropdownOpen}
               onFocusChange={setIsSearchFocused}
             />
           </div>
         </motion.div>
 
-        <div className="fixed bottom-5 right-10">
+        <div
+          className="fixed"
+          style={{
+            bottom: `${footerBottomInset}px`,
+            right: `${footerRightInset}px`,
+            transform: `scale(${footerScale})`,
+            transformOrigin: 'bottom right',
+          }}
+        >
           <DeveloperLinks variant="dark" />
         </div>
 

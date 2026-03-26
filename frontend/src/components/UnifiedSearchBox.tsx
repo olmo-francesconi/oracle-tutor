@@ -11,7 +11,8 @@ interface UnifiedSearchBoxProps {
   className?: string
   autoFocus?: boolean
   initialValue?: string
-  size?: 'default' | 'compact' | 'topBar'
+  size?: 'default' | 'compact' | 'topBar' | 'hero'
+  heroScale?: number
   onDropdownChange?: (open: boolean) => void
   onFocusChange?: (focused: boolean) => void
 }
@@ -203,6 +204,7 @@ export function UnifiedSearchBox({
   autoFocus,
   initialValue = '',
   size = 'default',
+  heroScale = 1,
   onDropdownChange,
   onFocusChange,
 }: UnifiedSearchBoxProps) {
@@ -432,10 +434,15 @@ export function UnifiedSearchBox({
   const displayQuery = query.length > 22 ? `${query.slice(0, 22)}…` : query
   const isCompact = size === 'compact'
   const isTopBar = size === 'topBar'
+  const isHero = size === 'hero'
   const isSmall = isCompact || isTopBar
   const placeholder = isSmall
     ? 'search…'
     : 'search for a card or describe what it does…'
+  const heroHorizontalPadding = 16 * heroScale
+  const heroVerticalPadding = 18 * heroScale
+  const heroTextSize = 15 * heroScale
+  const heroIconSize = 20 * heroScale
 
   return (
     <div ref={wrapperRef} className={cn('relative', className)}>
@@ -530,18 +537,26 @@ export function UnifiedSearchBox({
       )}
 
       <label
-        className={cn(
-          'flex cursor-text items-center gap-3',
-          isTopBar
-            ? 'h-full bg-[#F0EDE6] px-3'
-            : cn(
+          className={cn(
+            'flex cursor-text items-center gap-3',
+            isTopBar
+              ? 'h-full bg-[#F0EDE6] px-3'
+              : cn(
                 'border-2 border-[#111111] bg-white',
-                isCompact ? 'px-3 py-[10px]' : 'px-4 py-[18px]'
+                isCompact ? 'px-3 py-[10px]' : isHero ? '' : 'px-4 py-[18px]'
               )
-        )}
-        onMouseDown={(e) => {
-          if (!editorRef.current) return
-          if (e.target === editorRef.current || editorRef.current.contains(e.target as Node)) {
+          )}
+          style={
+            isHero
+              ? {
+                  paddingInline: `${heroHorizontalPadding}px`,
+                  paddingBlock: `${heroVerticalPadding}px`,
+                }
+              : undefined
+          }
+          onMouseDown={(e) => {
+            if (!editorRef.current) return
+            if (e.target === editorRef.current || editorRef.current.contains(e.target as Node)) {
             return
           }
           e.preventDefault()
@@ -551,8 +566,9 @@ export function UnifiedSearchBox({
         <MagnifyingGlassIcon
           className={cn(
             'shrink-0 text-[#111111]',
-            isSmall ? 'h-4 w-4' : 'h-5 w-5'
+            isSmall || isHero ? '' : 'h-5 w-5'
           )}
+          size={isHero ? heroIconSize : undefined}
           weight="bold"
         />
         <div className="relative min-w-0 flex-1">
@@ -560,8 +576,9 @@ export function UnifiedSearchBox({
             <span
               className={cn(
                 'pointer-events-none absolute inset-0 font-mono text-[#ABABAB]',
-                isSmall ? 'text-[13px]' : 'text-[15px]'
+                isHero ? '' : isSmall ? 'text-[13px]' : 'text-[15px]'
               )}
+              style={isHero ? { fontSize: `${heroTextSize}px` } : undefined}
             >
               {placeholder}
             </span>
@@ -584,8 +601,9 @@ export function UnifiedSearchBox({
             }}
             className={cn(
               'font-mono relative w-full overflow-hidden whitespace-nowrap bg-transparent text-[#111111] caret-[#111111] outline-none',
-              isSmall ? 'text-[13px]' : 'text-[15px]'
+              isHero ? '' : isSmall ? 'text-[13px]' : 'text-[15px]'
             )}
+            style={isHero ? { fontSize: `${heroTextSize}px` } : undefined}
           />
         </div>
       </label>
