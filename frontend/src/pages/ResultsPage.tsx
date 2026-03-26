@@ -543,7 +543,7 @@ function TopBar({
 }) {
   return (
     <div
-      className="relative z-20 flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]"
+      className="relative z-30 flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]"
       style={{ height: 56 }}
     >
       <Link
@@ -587,7 +587,7 @@ function FilterStrip({
   onFilterChange: (f: FilterState) => void
 }) {
   return (
-    <div className="relative z-20 flex shrink-0 items-center border-b-2 border-[#111111] bg-white px-4">
+    <div className="relative z-30 flex shrink-0 items-center border-b-2 border-[#111111] bg-white px-4">
       <FilterBar
         filters={filters}
         onFilterChange={onFilterChange}
