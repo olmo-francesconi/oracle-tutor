@@ -25,3 +25,14 @@ export function getCardImageUrl(
   const side = card.image_side ?? 'front'
   return `https://cards.scryfall.io/${size}/${side}/${id[0]}/${id[1]}/${id}.jpg`
 }
+
+export function getDisplayFace(card: Card | SimilarCard) {
+  if (!Array.isArray(card.faces) || card.faces.length === 0) {
+    return null
+  }
+
+  const faceIndex =
+    'image_side' in card && card.image_side === 'back' && card.faces.length > 1 ? 1 : 0
+
+  return card.faces[faceIndex] ?? card.faces[0]
+}

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { CardOverlay } from '../components/CardOverlay'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
 import { searchOracleText } from '../lib/api'
@@ -147,6 +148,13 @@ export function SearchShell() {
     }))
   }
 
+  const handleCloseOverlay = () => {
+    setState((current) => ({
+      ...current,
+      selectedCard: null,
+    }))
+  }
+
   const handleReset = () => {
     activeRequestRef.current?.abort()
     setState((current) => ({
@@ -226,14 +234,19 @@ export function SearchShell() {
                 <p className="view-copy">No cards matched this search.</p>
               ) : null}
               {state.results.length > 0 ? (
-                <ResultsGrid
-                  cards={state.results}
-                  hasMore={state.hasMore}
-                  isLoadingMore={state.isLoadingMore}
-                  selectedCardId={state.selectedCard?.id ?? null}
-                  onCardSelect={handleSelectCard}
-                  onLoadMore={handleLoadMore}
-                />
+                <div className="results-layout">
+                  <ResultsGrid
+                    cards={state.results}
+                    hasMore={state.hasMore}
+                    isLoadingMore={state.isLoadingMore}
+                    selectedCardId={state.selectedCard?.id ?? null}
+                    onCardSelect={handleSelectCard}
+                    onLoadMore={handleLoadMore}
+                  />
+                  {state.selectedCard ? (
+                    <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
+                  ) : null}
+                </div>
               ) : null}
             </section>
           ) : null}

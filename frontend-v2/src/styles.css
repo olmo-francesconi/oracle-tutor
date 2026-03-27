@@ -135,6 +135,17 @@ select {
   vertical-align: middle;
 }
 
+.symbol-token {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.symbol-token-icon {
+  line-height: 1;
+  vertical-align: middle;
+}
+
 .mana-rail {
   display: flex;
   flex-wrap: wrap;
@@ -240,6 +251,14 @@ select {
   gap: 16px;
 }
 
+.results-layout {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
 .result-card {
   display: grid;
   gap: 12px;
@@ -315,6 +334,91 @@ select {
   text-transform: uppercase;
 }
 
+.card-overlay {
+  position: sticky;
+  top: 24px;
+  display: grid;
+  gap: 16px;
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-surface);
+  padding: 16px;
+}
+
+.card-overlay-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.card-overlay-heading {
+  display: grid;
+  gap: 0;
+}
+
+.card-overlay-title {
+  margin: 0;
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-size: 2.2rem;
+  font-weight: 900;
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+.card-overlay-close {
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-surface);
+  color: var(--ot-ink);
+  padding: 8px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.card-overlay-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.card-overlay-chip {
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-bg);
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.card-overlay-image {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  border: 2px solid var(--ot-ink);
+  background: #d8d2c8;
+}
+
+.card-overlay-body {
+  display: grid;
+  gap: 12px;
+}
+
+.card-overlay-type,
+.card-overlay-text,
+.card-overlay-stats,
+.card-overlay-loading {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.card-overlay-type,
+.card-overlay-stats,
+.card-overlay-loading {
+  color: var(--ot-muted);
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 12px;
@@ -322,5 +426,13 @@ select {
 
   .shell-panel {
     padding: 16px;
+  }
+
+  .results-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .card-overlay {
+    position: static;
   }
 }

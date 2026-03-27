@@ -360,11 +360,11 @@ Definition of done:
 
 ### Phase 5
 
-- [ ] Build card overlay
-- [ ] Support card detail fetch
-- [ ] Support close behavior
+- [x] Build card overlay
+- [x] Support card detail fetch
+- [x] Support close behavior
 - [ ] Decide on next/prev navigation
-- [ ] Add symbol-rich card header
+- [x] Add symbol-rich card header
 
 ### Phase 6
 
