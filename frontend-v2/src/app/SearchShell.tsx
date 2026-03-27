@@ -276,9 +276,7 @@ export function SearchShell() {
               Oracle <span className="wordmark-divider">/</span> Tutor
             </h1>
             <div className="home-rule" />
-            <p className="home-copy">
-              Search for cards by meaning, then move straight into the grid.
-            </p>
+            <p className="home-kicker">Semantic card search for Magic players who want speed.</p>
           </div>
 
           <div className="home-search-stage">
@@ -290,9 +288,7 @@ export function SearchShell() {
             />
           </div>
 
-          <p className="home-hint">
-            Inline mana syntax, fast suggestions, brutalist catalog results.
-          </p>
+          <p className="home-hint">Type a card idea. Insert mana symbols. Move straight into the catalog.</p>
         </section>
       ) : (
         <>
@@ -331,7 +327,7 @@ export function SearchShell() {
                   {state.hasMore || state.isLoadingMore ? '+' : ''} cards
                 </span>
               ) : null}
-              <span className="query-hint">Click any card to inspect it.</span>
+              <span className="query-hint">Select a card to open the detail rail.</span>
             </div>
           </section>
 

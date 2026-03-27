@@ -53,8 +53,9 @@ button {
 .eyebrow {
   margin: 0;
   color: var(--ot-muted);
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
@@ -63,7 +64,8 @@ button {
   font-family: 'Big Shoulders Display', sans-serif;
   font-size: clamp(4.5rem, 11vw, 7rem);
   font-weight: 900;
-  line-height: 0.9;
+  line-height: 0.88;
+  letter-spacing: -0.025em;
   text-transform: uppercase;
 }
 
@@ -85,7 +87,7 @@ button {
 
 .home-wordmark {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .home-rule {
@@ -93,13 +95,20 @@ button {
   background: var(--ot-ink);
 }
 
-.home-copy,
+.home-kicker,
 .home-hint {
   margin: 0;
-  max-width: 42rem;
+  max-width: 36rem;
   color: var(--ot-muted);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.home-kicker {
+  max-width: 28rem;
+  color: var(--ot-ink);
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .home-search-stage {
@@ -130,7 +139,7 @@ button {
   font-family: 'Big Shoulders Display', sans-serif;
   font-size: 18px;
   font-weight: 800;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -183,21 +192,22 @@ button {
 
 .query-band-main {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .query-title {
   margin: 0;
   font-family: 'Big Shoulders Display', sans-serif;
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: clamp(2.2rem, 4.4vw, 3.35rem);
   font-weight: 900;
-  line-height: 0.92;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
   text-transform: uppercase;
 }
 
 .query-band-meta {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   justify-items: end;
 }
 
@@ -206,8 +216,8 @@ button {
 .results-feedback {
   margin: 0;
   color: var(--ot-muted);
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 
@@ -240,6 +250,8 @@ button {
   background: var(--ot-surface);
   color: var(--ot-ink);
   padding: 16px 18px;
+  font-size: 1rem;
+  line-height: 1.45;
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
@@ -328,9 +340,9 @@ button {
 
 .suggestion-meta {
   color: var(--ot-muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
 }
 
 .results-grid {
@@ -374,8 +386,8 @@ button {
   justify-content: space-between;
   gap: 12px;
   color: var(--ot-muted);
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -388,16 +400,17 @@ button {
 
 .result-card-title {
   font-family: 'Big Shoulders Display', sans-serif;
-  font-size: 1.45rem;
+  font-size: 1.62rem;
   font-weight: 900;
-  line-height: 0.95;
+  line-height: 0.92;
+  letter-spacing: -0.015em;
   text-transform: uppercase;
 }
 
 .result-card-subtitle,
 .result-card-text {
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 .result-card-text {
@@ -409,8 +422,8 @@ button {
   border-top: 2px solid var(--ot-ink);
   padding-top: 12px;
   text-align: left;
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--ot-muted);
 }
@@ -434,15 +447,16 @@ button {
 
 .card-overlay-heading {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .card-overlay-title {
   margin: 0;
   font-family: 'Big Shoulders Display', sans-serif;
-  font-size: 2rem;
+  font-size: clamp(2.1rem, 4vw, 2.65rem);
   font-weight: 900;
-  line-height: 0.92;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
   text-transform: uppercase;
 }
 
@@ -471,9 +485,10 @@ button {
   border: 2px solid var(--ot-ink);
   background: var(--ot-bg);
   padding: 6px 8px;
-  font-size: 11px;
+  font-size: 0.6875rem;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -495,14 +510,27 @@ button {
 .card-overlay-stats,
 .card-overlay-loading {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 0.875rem;
+  line-height: 1.65;
 }
 
 .card-overlay-type,
 .card-overlay-stats,
 .card-overlay-loading {
   color: var(--ot-muted);
+}
+
+.card-overlay-type {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.card-overlay-stats {
+  color: var(--ot-ink);
+  font-size: 0.8125rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 @media (max-width: 900px) {

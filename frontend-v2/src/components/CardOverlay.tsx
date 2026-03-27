@@ -69,7 +69,7 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
     <aside className="card-overlay" aria-label="Card details">
       <div className="card-overlay-header">
         <div className="card-overlay-heading">
-          <p className="eyebrow">Card Detail</p>
+          <p className="eyebrow">Detail Rail</p>
           <h2 className="card-overlay-title">{display.name}</h2>
         </div>
         <button type="button" onClick={onClose} className="card-overlay-close">
@@ -100,12 +100,12 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
           <p className="card-overlay-type">{display.typeLine}</p>
         ) : null}
         {display.oracleText ? (
-          <p className="card-overlay-text">
+          <p className="card-overlay-text" aria-label="Oracle text">
             <SymbolText text={display.oracleText} />
           </p>
         ) : null}
         {hasStats ? (
-          <p className="card-overlay-stats">
+          <p className="card-overlay-stats" aria-label="Power and toughness">
             {display.power}
             {' / '}
             {display.toughness}
