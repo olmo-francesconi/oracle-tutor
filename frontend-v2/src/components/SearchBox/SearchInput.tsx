@@ -15,10 +15,15 @@ type SelectionRange = {
 interface SearchInputProps {
   value: string
   autoFocus?: boolean
+  pendingInsert: {
+    id: number
+    symbol: string
+  } | null
   onChange: (value: string) => void
   onSubmit: () => void
   onArrowNavigate: (direction: 'up' | 'down') => void
   onFocusChange: (focused: boolean) => void
+  onInsertHandled: () => void
 }
 
 function getNodeRawLength(node: Node): number {
@@ -49,7 +54,7 @@ function buildEditableContent(root: HTMLDivElement, text: string) {
         token.className = 'search-token'
 
         const icon = document.createElement('i')
-        icon.className = `${manaClass} search-token-icon`
+        icon.className = `${manaClass} ms-cost search-token-icon`
         icon.setAttribute('title', part)
         icon.setAttribute('aria-label', part)
 
@@ -214,19 +219,35 @@ function normalizePastedText(text: string): string {
 export function SearchInput({
   value,
   autoFocus = false,
+  pendingInsert,
   onChange,
   onSubmit,
   onArrowNavigate,
   onFocusChange,
+  onInsertHandled,
 }: SearchInputProps) {
   const editorRef = useRef<HTMLDivElement>(null)
   const pendingSelectionRef = useRef<SelectionRange | null>(null)
 
+  const restoreSelection = () => {
+    if (!editorRef.current) return
+
+    const selection = pendingSelectionRef.current ?? {
+      start: value.length,
+      end: value.length,
+    }
+
+    setSelectionRange(editorRef.current, selection.start, selection.end)
+  }
+
   useEffect(() => {
     if (!autoFocus || !editorRef.current) return
     editorRef.current.focus()
-    const end = value.length
-    setSelectionRange(editorRef.current, end, end)
+    pendingSelectionRef.current = {
+      start: value.length,
+      end: value.length,
+    }
+    restoreSelection()
   }, [autoFocus, value.length])
 
   useLayoutEffect(() => {
@@ -235,13 +256,28 @@ export function SearchInput({
     buildEditableContent(editorRef.current, value)
 
     if (document.activeElement === editorRef.current) {
-      const selection = pendingSelectionRef.current ?? {
-        start: value.length,
-        end: value.length,
-      }
-      setSelectionRange(editorRef.current, selection.start, selection.end)
+      restoreSelection()
     }
   }, [value])
+
+  useEffect(() => {
+    if (!pendingInsert || !editorRef.current) return
+
+    const editor = editorRef.current
+    const selection =
+      document.activeElement === editor
+        ? getSelectionRange(editor)
+        : { start: value.length, end: value.length }
+    const nextValue =
+      value.slice(0, selection.start) + pendingInsert.symbol + value.slice(selection.end)
+    const nextCaret = selection.start + pendingInsert.symbol.length
+
+    pendingSelectionRef.current = { start: nextCaret, end: nextCaret }
+    editor.focus()
+    onChange(nextValue)
+    onFocusChange(true)
+    onInsertHandled()
+  }, [onChange, onFocusChange, onInsertHandled, pendingInsert, value])
 
   const handleInput = () => {
     if (!editorRef.current) return
@@ -297,13 +333,18 @@ export function SearchInput({
         onInput={handleInput}
         onPaste={handlePaste}
         onKeyDown={handleKeyDown}
-        onFocus={() => onFocusChange(true)}
+        onFocus={() => {
+          restoreSelection()
+          onFocusChange(true)
+        }}
         onBlur={() => {
-          pendingSelectionRef.current = null
+          if (editorRef.current) {
+            pendingSelectionRef.current = getSelectionRange(editorRef.current)
+          }
           onFocusChange(false)
         }}
         className="search-editor"
-        data-placeholder="type card text or insert mana symbols"
+        data-placeholder="search for a card or describe what it does…"
       />
     </label>
   )

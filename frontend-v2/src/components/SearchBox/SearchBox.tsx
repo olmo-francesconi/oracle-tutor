@@ -6,27 +6,31 @@ import { SearchInput } from './SearchInput'
 import { SearchSuggestions } from './SearchSuggestions'
 
 interface SearchBoxProps {
+  className?: string
   value: string
   onChange: (value: string) => void
   onSubmit: (submittedValue?: string) => void
   autoFocus?: boolean
-}
-
-function autoWrapManaSymbols(text: string): string {
-  return text.replace(/(?<!\{)(W|U|B|R|G|C|S|X|Y|Z|T|Q|E|P)(?!\})/g, '{$1}')
+  showManaRail?: boolean
 }
 
 export function SearchBox({
+  className,
   value,
   onChange,
   onSubmit,
   autoFocus = false,
+  showManaRail = true,
 }: SearchBoxProps) {
   const [suggestions, setSuggestions] = useState<CardMatch[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [pendingInsert, setPendingInsert] = useState<{ id: number; symbol: string } | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const blurFrameRef = useRef<number | null>(null)
+  const internalPointerActiveRef = useRef(false)
 
   useEffect(() => {
     const trimmed = value.trim()
@@ -45,7 +49,7 @@ export function SearchBox({
         const results = await searchCards(trimmed, 6, 0, controller.signal)
         if (!controller.signal.aborted) {
           setSuggestions(results)
-          setIsOpen(true)
+          setIsOpen(isFocused && results.length > 0)
         }
       } catch {
         if (!controller.signal.aborted) {
@@ -63,7 +67,7 @@ export function SearchBox({
       controller.abort()
       setIsLoading(false)
     }
-  }, [value])
+  }, [isFocused, value])
 
   useEffect(() => {
     setActiveIndex(-1)
@@ -73,20 +77,27 @@ export function SearchBox({
     const handlePointerDown = (event: PointerEvent) => {
       if (rootRef.current?.contains(event.target as Node)) return
       setIsOpen(false)
+      setIsFocused(false)
     }
 
     window.addEventListener('pointerdown', handlePointerDown)
     return () => window.removeEventListener('pointerdown', handlePointerDown)
   }, [])
 
-  const handleInsert = (symbol: string) => {
-    const nextValue = value ? `${value}${symbol}` : symbol
-    onChange(nextValue)
-    setIsOpen(true)
-  }
+  useEffect(() => {
+    return () => {
+      if (blurFrameRef.current !== null) {
+        window.cancelAnimationFrame(blurFrameRef.current)
+      }
+    }
+  }, [])
 
-  const handleEditorChange = (nextValue: string) => {
-    onChange(autoWrapManaSymbols(nextValue))
+  const handleInsert = (symbol: string) => {
+    setPendingInsert({
+      id: Date.now(),
+      symbol,
+    })
+    setIsOpen(true)
   }
 
   const handleSelect = (card: CardMatch) => {
@@ -121,22 +132,58 @@ export function SearchBox({
   return (
     <div
       ref={rootRef}
-      className={`search-box ${isOpen ? 'search-box-open' : ''}`}
+      className={`search-box ${isOpen ? 'search-box-open' : ''} ${className ?? ''}`.trim()}
       data-state={isOpen ? 'open' : 'closed'}
+      onPointerDownCapture={() => {
+        internalPointerActiveRef.current = true
+      }}
+      onPointerUpCapture={() => {
+        window.requestAnimationFrame(() => {
+          internalPointerActiveRef.current = false
+        })
+      }}
     >
+      {showManaRail && isFocused ? <ManaSymbolRail onInsert={handleInsert} /> : null}
+
       <SearchInput
         value={value}
         autoFocus={autoFocus}
-        onChange={handleEditorChange}
+        pendingInsert={pendingInsert}
+        onChange={onChange}
         onSubmit={handleSubmit}
         onArrowNavigate={handleArrowNavigate}
         onFocusChange={(focused) => {
-          if (!focused) return
+          if (blurFrameRef.current !== null) {
+            window.cancelAnimationFrame(blurFrameRef.current)
+            blurFrameRef.current = null
+          }
+
+          setIsFocused(focused)
+
+          if (!focused) {
+            blurFrameRef.current = window.requestAnimationFrame(() => {
+              blurFrameRef.current = null
+
+              if (internalPointerActiveRef.current) {
+                setIsFocused(true)
+                return
+              }
+
+              if (rootRef.current?.contains(document.activeElement)) {
+                setIsFocused(true)
+                return
+              }
+
+              setIsFocused(false)
+              setIsOpen(false)
+            })
+            return
+          }
+
           if (value.trim()) setIsOpen(true)
         }}
+        onInsertHandled={() => setPendingInsert(null)}
       />
-
-      <ManaSymbolRail onInsert={handleInsert} />
 
       {isOpen ? (
         <SearchSuggestions

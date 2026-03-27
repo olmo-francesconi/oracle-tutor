@@ -14,7 +14,7 @@ export function SymbolText({ text }: SymbolTextProps) {
           if (manaClass) {
             return (
               <span key={`${part}-${index}`} className="symbol-token" aria-label={part}>
-                <i className={`${manaClass} symbol-token-icon`} aria-hidden="true" />
+                <i className={`${manaClass} ms-cost symbol-token-icon`} aria-hidden="true" />
               </span>
             )
           }

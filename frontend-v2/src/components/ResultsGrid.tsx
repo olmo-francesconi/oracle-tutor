@@ -27,8 +27,8 @@ function getCardSubtitle(card: SimilarCard): string {
 function getCardExcerpt(card: SimilarCard): string {
   if (!card.oracle_text) return 'Oracle text unavailable.'
 
-  return card.oracle_text.length > 180
-    ? `${card.oracle_text.slice(0, 177).trimEnd()}...`
+  return card.oracle_text.length > 156
+    ? `${card.oracle_text.slice(0, 153).trimEnd()}...`
     : card.oracle_text
 }
 

@@ -18,21 +18,21 @@ export function SearchSuggestions({
   if (isLoading) {
     return (
       <div className="search-suggestions">
-        <p className="eyebrow">Loading</p>
+        <p className="search-suggestions-state">Loading card names...</p>
       </div>
     )
   }
 
   if (items.length === 0) {
-    return (
-      <div className="search-suggestions">
-        <p className="eyebrow">No Matches</p>
-      </div>
-    )
+    return null
   }
 
   return (
-    <div className="search-suggestions" role="listbox" aria-label="Card name suggestions">
+    <div
+      className="search-suggestions"
+      role="listbox"
+      aria-label="Card name suggestions"
+    >
       {items.map((item, index) => (
         <button
           key={`${item.oracle_id ?? item.name}-${item.face_ix}`}

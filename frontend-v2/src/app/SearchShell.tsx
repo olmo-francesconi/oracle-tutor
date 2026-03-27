@@ -292,12 +292,12 @@ export function SearchShell() {
       {isHome ? (
         <section className="home-shell" aria-label="Home state">
           <div className="home-wordmark">
-            <p className="eyebrow">Oracle Tutor</p>
             <h1 className="wordmark">
-              Oracle <span className="wordmark-divider">/</span> Tutor
+              <span className="wordmark-line">Oracle</span>
+              <span className="wordmark-line">Tutor</span>
             </h1>
             <div className="home-rule" />
-            <p className="home-kicker">Semantic card search for Magic players who want speed.</p>
+            <p className="home-kicker">find cards by meaning, not keywords.</p>
           </div>
 
           <div className="home-search-stage">
@@ -306,35 +306,28 @@ export function SearchShell() {
               onChange={handleDraftChange}
               onSubmit={handleSubmit}
               autoFocus
+              showManaRail
             />
           </div>
-
-          <p className="home-hint">Type a card idea. Insert mana symbols. Move straight into the catalog.</p>
         </section>
       ) : (
         <>
           <header className="topbar">
             <button type="button" className="topbar-logo" onClick={handleReset}>
-              Oracle Tutor
+              <span className="topbar-logo-text topbar-logo-text-full">Oracle Tutor</span>
+              <span className="topbar-logo-text topbar-logo-text-compact">OT</span>
             </button>
             <div className="topbar-status">
-              <span className="eyebrow">Semantic Search</span>
-            </div>
-            <button type="button" className="topbar-action" onClick={handleReset}>
-              New Search
-            </button>
-          </header>
-
-          <section className="search-strip" aria-label="Search controls">
-            <div className="search-strip-inner">
               <SearchBox
+                className="topbar-search-box"
                 value={state.draftQuery}
                 onChange={handleDraftChange}
                 onSubmit={handleSubmit}
-                autoFocus
+                autoFocus={false}
+                showManaRail={false}
               />
             </div>
-          </section>
+          </header>
 
           <section className="query-band" aria-label="Results summary">
             <div className="query-band-main">
