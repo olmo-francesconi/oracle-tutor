@@ -95,7 +95,6 @@ export function SearchShell() {
   const skipNextUrlWriteRef = useRef(state.submittedQuery !== null)
 
   const isHome = state.submittedQuery === null
-  const isResults = !isHome
 
   const handleDraftChange = (value: string) => {
     setState((current) => ({
@@ -105,13 +104,7 @@ export function SearchShell() {
   }
 
   const fetchFirstPage = useCallback(async (query: string, signal: AbortSignal) => {
-    return searchOracleText(
-      query,
-      0,
-      RESULTS_PAGE_SIZE,
-      state.filters,
-      signal
-    )
+    return searchOracleText(query, 0, RESULTS_PAGE_SIZE, state.filters, signal)
   }, [state.filters])
 
   const runSearch = useCallback(async (query: string) => {
@@ -272,91 +265,99 @@ export function SearchShell() {
   }, [state.submittedQuery])
 
   return (
-    <main className="app-shell">
-      <section className="shell-panel">
-        <header className="shell-header">
-          <p className="eyebrow">Frontend V2</p>
-          <h1 className="wordmark">
-            Oracle <span className="wordmark-divider">/</span> Tutor
-          </h1>
-          <p className="shell-copy">
-            One shell, one state owner, one complex subsystem. The rest stays intentionally plain.
-          </p>
-        </header>
+    <main className={`app-shell ${isHome ? 'app-shell-home' : 'app-shell-results'}`}>
+      <div className="app-stripe" aria-hidden="true" />
 
-        <section className="state-switcher" aria-label="Search controls">
-          <SearchBox
-            value={state.draftQuery}
-            onChange={handleDraftChange}
-            onSubmit={handleSubmit}
-            autoFocus
-          />
-
-          <div className="control-actions">
-            <button type="button" onClick={() => handleSubmit()} className="shell-button">
-              Show Results
-            </button>
-            <button type="button" onClick={handleReset} className="shell-button shell-button-secondary">
-              Reset
-            </button>
+      {isHome ? (
+        <section className="home-shell" aria-label="Home state">
+          <div className="home-wordmark">
+            <p className="eyebrow">Oracle Tutor</p>
+            <h1 className="wordmark">
+              Oracle <span className="wordmark-divider">/</span> Tutor
+            </h1>
+            <div className="home-rule" />
+            <p className="home-copy">
+              Search for cards by meaning, then move straight into the grid.
+            </p>
           </div>
-        </section>
 
-        <section className="shell-stage">
-          {isHome ? (
-            <section className="view-panel" aria-label="Home state">
-              <p className="eyebrow">Home State</p>
-              <p className="view-copy">
-                The search box owns the specialized UX. The shell just moves from prompt to results.
-              </p>
-              <p className="view-copy">
-                Mana symbols still frame the interface:
-                {' '}
-                <span className="mana-sample">
-                  <i className="ms ms-w" aria-hidden="true" />
-                  <i className="ms ms-u" aria-hidden="true" />
-                  <i className="ms ms-b" aria-hidden="true" />
-                  <i className="ms ms-r" aria-hidden="true" />
-                  <i className="ms ms-g" aria-hidden="true" />
+          <div className="home-search-stage">
+            <SearchBox
+              value={state.draftQuery}
+              onChange={handleDraftChange}
+              onSubmit={handleSubmit}
+              autoFocus
+            />
+          </div>
+
+          <p className="home-hint">
+            Inline mana syntax, fast suggestions, brutalist catalog results.
+          </p>
+        </section>
+      ) : (
+        <>
+          <header className="topbar">
+            <button type="button" className="topbar-logo" onClick={handleReset}>
+              Oracle Tutor
+            </button>
+            <div className="topbar-status">
+              <span className="eyebrow">Semantic Search</span>
+            </div>
+            <button type="button" className="topbar-action" onClick={handleReset}>
+              New Search
+            </button>
+          </header>
+
+          <section className="search-strip" aria-label="Search controls">
+            <div className="search-strip-inner">
+              <SearchBox
+                value={state.draftQuery}
+                onChange={handleDraftChange}
+                onSubmit={handleSubmit}
+                autoFocus
+              />
+            </div>
+          </section>
+
+          <section className="query-band" aria-label="Results summary">
+            <div className="query-band-main">
+              <p className="eyebrow">Results</p>
+              <h2 className="query-title">{state.submittedQuery}</h2>
+            </div>
+            <div className="query-band-meta">
+              {!state.isLoading ? (
+                <span className="query-count">
+                  {state.results.length}
+                  {state.hasMore || state.isLoadingMore ? '+' : ''} cards
                 </span>
-              </p>
-            </section>
-          ) : null}
+              ) : null}
+              <span className="query-hint">Click any card to inspect it.</span>
+            </div>
+          </section>
 
-          {isResults ? (
-            <section className="view-panel" aria-label="Results state">
-              <p className="eyebrow">Results State</p>
-              <p className="view-copy">
-                Submitted query:
-                {' '}
-                <strong>{state.submittedQuery}</strong>
-              </p>
-              {!state.isLoading && state.results.length > 0 ? (
-                <p className="results-summary">Click any card to inspect it in the side panel.</p>
-              ) : null}
-              {state.isLoading ? <p className="view-copy">Loading results...</p> : null}
-              {!state.isLoading && state.results.length === 0 ? (
-                <p className="view-copy">No cards matched this search.</p>
-              ) : null}
-              {state.results.length > 0 ? (
-                <div className="results-layout">
-                  <ResultsGrid
-                    cards={state.results}
-                    hasMore={state.hasMore}
-                    isLoadingMore={state.isLoadingMore}
-                    selectedCardId={state.selectedCard?.id ?? null}
-                    onCardSelect={handleSelectCard}
-                    onLoadMore={handleLoadMore}
-                  />
-                  {state.selectedCard ? (
-                    <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-        </section>
-      </section>
+          <section className="results-main" aria-label="Results state">
+            {state.isLoading ? <p className="results-feedback">Loading results...</p> : null}
+            {!state.isLoading && state.results.length === 0 ? (
+              <p className="results-feedback">No cards matched this search.</p>
+            ) : null}
+            {state.results.length > 0 ? (
+              <div className="results-layout">
+                <ResultsGrid
+                  cards={state.results}
+                  hasMore={state.hasMore}
+                  isLoadingMore={state.isLoadingMore}
+                  selectedCardId={state.selectedCard?.id ?? null}
+                  onCardSelect={handleSelectCard}
+                  onLoadMore={handleLoadMore}
+                />
+                {state.selectedCard ? (
+                  <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        </>
+      )}
     </main>
   )
 }
