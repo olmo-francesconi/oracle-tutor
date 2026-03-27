@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
+import { searchOracleText } from '../lib/api'
+import type { SimilarCard } from '../types/api'
 import type { SearchShellState } from '../types/ui'
+
+const RESULTS_PAGE_SIZE = 24
 
 const INITIAL_STATE: SearchShellState = {
   draftQuery: '',
@@ -13,16 +18,9 @@ const INITIAL_STATE: SearchShellState = {
   selectedCard: null,
 }
 
-function buildPlaceholderResults(query: string): string[] {
-  return [
-    `Placeholder result for “${query}”`,
-    `Another result for “${query}”`,
-    `A third result for “${query}”`,
-  ]
-}
-
 export function SearchShell() {
   const [state, setState] = useState<SearchShellState>(INITIAL_STATE)
+  const activeRequestRef = useRef<AbortController | null>(null)
 
   const isHome = state.submittedQuery === null
   const isResults = !isHome
@@ -34,20 +32,123 @@ export function SearchShell() {
     }))
   }
 
-  const handleSubmit = () => {
-    const nextQuery = state.draftQuery.trim()
+  const runSearch = useCallback(async (query: string) => {
+    activeRequestRef.current?.abort()
+    const controller = new AbortController()
+    activeRequestRef.current = controller
+
+    setState((current) => ({
+      ...current,
+      submittedQuery: query,
+      results: [],
+      hasMore: false,
+      isLoading: true,
+      isLoadingMore: false,
+      selectedCard: null,
+    }))
+
+    try {
+      const page = await searchOracleText(
+        query,
+        0,
+        RESULTS_PAGE_SIZE,
+        state.filters,
+        controller.signal
+      )
+
+      if (controller.signal.aborted) return
+
+      setState((current) => ({
+        ...current,
+        submittedQuery: query,
+        results: page.items,
+        hasMore: page.has_more,
+        isLoading: false,
+        isLoadingMore: false,
+        selectedCard: page.items[0] ?? null,
+      }))
+    } catch {
+      if (controller.signal.aborted) return
+
+      setState((current) => ({
+        ...current,
+        submittedQuery: query,
+        results: [],
+        hasMore: false,
+        isLoading: false,
+        isLoadingMore: false,
+        selectedCard: null,
+      }))
+    }
+  }, [state.filters])
+
+  const handleSubmit = (submittedValue?: string) => {
+    const nextQuery = (submittedValue ?? state.draftQuery).trim()
     if (!nextQuery) return
 
     setState((current) => ({
       ...current,
-      submittedQuery: nextQuery,
-      results: buildPlaceholderResults(nextQuery),
-      hasMore: true,
-      selectedCard: null,
+      draftQuery: nextQuery,
+    }))
+
+    void runSearch(nextQuery)
+  }
+
+  const handleLoadMore = useCallback(async () => {
+    if (!state.submittedQuery || state.isLoading || state.isLoadingMore || !state.hasMore) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    setState((current) => ({
+      ...current,
+      isLoadingMore: true,
+    }))
+
+    try {
+      const page = await searchOracleText(
+        state.submittedQuery,
+        state.results.length,
+        RESULTS_PAGE_SIZE,
+        state.filters,
+        controller.signal
+      )
+
+      if (controller.signal.aborted) return
+
+      setState((current) => ({
+        ...current,
+        results: [...current.results, ...page.items],
+        hasMore: page.has_more,
+        isLoadingMore: false,
+      }))
+    } catch {
+      if (controller.signal.aborted) return
+
+      setState((current) => ({
+        ...current,
+        isLoadingMore: false,
+      }))
+    }
+  }, [
+    state.filters,
+    state.hasMore,
+    state.isLoading,
+    state.isLoadingMore,
+    state.results.length,
+    state.submittedQuery,
+  ])
+
+  const handleSelectCard = (card: SimilarCard) => {
+    setState((current) => ({
+      ...current,
+      selectedCard: card,
     }))
   }
 
   const handleReset = () => {
+    activeRequestRef.current?.abort()
     setState((current) => ({
       ...current,
       draftQuery: '',
@@ -69,11 +170,11 @@ export function SearchShell() {
             Oracle <span className="wordmark-divider">/</span> Tutor
           </h1>
           <p className="shell-copy">
-            Phase 1 proves the app shape: one shell, one state owner, two visual states.
+            One shell, one state owner, one complex subsystem. The rest stays intentionally plain.
           </p>
         </header>
 
-        <section className="state-switcher" aria-label="Phase 1 shell controls">
+        <section className="state-switcher" aria-label="Search controls">
           <SearchBox
             value={state.draftQuery}
             onChange={handleDraftChange}
@@ -82,7 +183,7 @@ export function SearchShell() {
           />
 
           <div className="control-actions">
-            <button type="button" onClick={handleSubmit} className="shell-button">
+            <button type="button" onClick={() => handleSubmit()} className="shell-button">
               Show Results
             </button>
             <button type="button" onClick={handleReset} className="shell-button shell-button-secondary">
@@ -96,11 +197,10 @@ export function SearchShell() {
             <section className="view-panel" aria-label="Home state">
               <p className="eyebrow">Home State</p>
               <p className="view-copy">
-                The app starts in a single home state. The search box is now the only intentionally
-                complex subsystem in the UI.
+                The search box owns the specialized UX. The shell just moves from prompt to results.
               </p>
               <p className="view-copy">
-                Mana symbols still exist in the shell:
+                Mana symbols still frame the interface:
                 {' '}
                 <span className="mana-sample">
                   <i className="ms ms-w" aria-hidden="true" />
@@ -121,13 +221,20 @@ export function SearchShell() {
                 {' '}
                 <strong>{state.submittedQuery}</strong>
               </p>
-              <ul className="results-list">
-                {state.results.map((result) => (
-                  <li key={result} className="results-item">
-                    {result}
-                  </li>
-                ))}
-              </ul>
+              {state.isLoading ? <p className="view-copy">Loading results...</p> : null}
+              {!state.isLoading && state.results.length === 0 ? (
+                <p className="view-copy">No cards matched this search.</p>
+              ) : null}
+              {state.results.length > 0 ? (
+                <ResultsGrid
+                  cards={state.results}
+                  hasMore={state.hasMore}
+                  isLoadingMore={state.isLoadingMore}
+                  selectedCardId={state.selectedCard?.id ?? null}
+                  onCardSelect={handleSelectCard}
+                  onLoadMore={handleLoadMore}
+                />
+              ) : null}
             </section>
           ) : null}
         </section>

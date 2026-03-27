@@ -224,20 +224,6 @@ select {
   gap: 0;
 }
 
-.results-list {
-  list-style: none;
-  margin: 16px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
-}
-
-.results-item {
-  border: 2px solid var(--ot-ink);
-  background: var(--ot-bg);
-  padding: 12px 14px;
-}
-
 .mana-sample {
   display: inline-flex;
   gap: 6px;
@@ -245,4 +231,96 @@ select {
   color: var(--ot-red);
   font-size: 1.1em;
   vertical-align: middle;
+}
+
+.results-grid {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.result-card {
+  display: grid;
+  gap: 12px;
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-surface);
+  color: inherit;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.result-card-active {
+  background: var(--ot-ink);
+  color: var(--ot-bg);
+}
+
+.result-card-image {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  border: 2px solid var(--ot-ink);
+  background: #d8d2c8;
+}
+
+.result-card-body {
+  display: grid;
+  gap: 6px;
+}
+
+.result-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ot-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.result-card-active .result-card-meta {
+  color: color-mix(in srgb, var(--ot-bg) 78%, transparent);
+}
+
+.result-card-title {
+  font-family: 'Big Shoulders Display', sans-serif;
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.result-card-subtitle,
+.result-card-text {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.result-card-text {
+  color: var(--ot-muted);
+}
+
+.result-card-active .result-card-text {
+  color: color-mix(in srgb, var(--ot-bg) 72%, transparent);
+}
+
+.results-sentinel {
+  grid-column: 1 / -1;
+  border: 2px dashed var(--ot-ink);
+  padding: 12px 14px;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .shell-panel {
+    padding: 16px;
+  }
 }

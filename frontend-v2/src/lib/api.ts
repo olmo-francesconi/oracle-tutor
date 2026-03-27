@@ -93,9 +93,17 @@ function normalizeCard(card: ApiCard): Card {
 }
 
 function normalizeSimilarCard(card: ApiSimilarCard): SimilarCard {
+  const primaryFace = card.faces?.[0]
+
   return {
     ...card,
     id: card.scryfall_id,
+    mana_cost: card.mana_cost ?? primaryFace?.mana_cost,
+    type_line: card.type_line ?? primaryFace?.type_line,
+    oracle_text: card.oracle_text ?? primaryFace?.oracle_text,
+    power: card.power ?? primaryFace?.power,
+    toughness: card.toughness ?? primaryFace?.toughness,
+    colors: card.colors ?? primaryFace?.colors,
   }
 }
 

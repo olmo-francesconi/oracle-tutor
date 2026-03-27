@@ -8,7 +8,7 @@ import { SearchSuggestions } from './SearchSuggestions'
 interface SearchBoxProps {
   value: string
   onChange: (value: string) => void
-  onSubmit: () => void
+  onSubmit: (submittedValue?: string) => void
   autoFocus?: boolean
 }
 
@@ -91,7 +91,7 @@ export function SearchBox({
   const handleSelect = (card: CardMatch) => {
     onChange(card.name)
     setIsOpen(false)
-    onSubmit()
+    onSubmit(card.name)
   }
 
   const handleArrowNavigate = (direction: 'up' | 'down') => {

@@ -353,10 +353,10 @@ Definition of done:
 
 ### Phase 4
 
-- [ ] Build results grid
-- [ ] Render result cards
-- [ ] Add infinite scroll
-- [ ] Wire selection state
+- [x] Build results grid
+- [x] Render result cards
+- [x] Add infinite scroll
+- [x] Wire selection state
 
 ### Phase 5
 

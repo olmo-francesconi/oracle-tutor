@@ -1,12 +1,14 @@
-export type CardFilterState = Record<string, never>
+import type { FilterState, SimilarCard } from './api'
+
+export type CardFilterState = FilterState
 
 export type SearchShellState = {
   draftQuery: string
   submittedQuery: string | null
   filters: CardFilterState
-  results: string[]
+  results: SimilarCard[]
   hasMore: boolean
   isLoading: boolean
   isLoadingMore: boolean
-  selectedCard: string | null
+  selectedCard: SimilarCard | null
 }
