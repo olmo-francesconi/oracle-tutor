@@ -343,13 +343,13 @@ Definition of done:
 
 ### Phase 3
 
-- [ ] Build search input
-- [ ] Add mana symbol support
-- [ ] Add automatic symbol insertion
-- [ ] Add suggestions UI
-- [ ] Add keyboard navigation
-- [ ] Add submit behavior
-- [ ] Keep complexity internal
+- [x] Build search input
+- [x] Add mana symbol support
+- [x] Add automatic symbol insertion
+- [x] Add suggestions UI
+- [x] Add keyboard navigation
+- [x] Add submit behavior
+- [x] Keep complexity internal
 
 ### Phase 4
 

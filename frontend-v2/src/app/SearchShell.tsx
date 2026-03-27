@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { SearchBox } from '../components/SearchBox/SearchBox'
 import type { SearchShellState } from '../types/ui'
 
 const INITIAL_STATE: SearchShellState = {
@@ -73,16 +74,12 @@ export function SearchShell() {
         </header>
 
         <section className="state-switcher" aria-label="Phase 1 shell controls">
-          <label className="control-block">
-            <span className="control-label">Draft Query</span>
-            <input
-              type="text"
-              value={state.draftQuery}
-              onChange={(event) => handleDraftChange(event.target.value)}
-              placeholder="type a placeholder query"
-              className="shell-input"
-            />
-          </label>
+          <SearchBox
+            value={state.draftQuery}
+            onChange={handleDraftChange}
+            onSubmit={handleSubmit}
+            autoFocus
+          />
 
           <div className="control-actions">
             <button type="button" onClick={handleSubmit} className="shell-button">
@@ -99,8 +96,8 @@ export function SearchShell() {
             <section className="view-panel" aria-label="Home state">
               <p className="eyebrow">Home State</p>
               <p className="view-copy">
-                The app starts in a single home state. No page split, no route split, no search-box
-                complexity yet.
+                The app starts in a single home state. The search box is now the only intentionally
+                complex subsystem in the UI.
               </p>
               <p className="view-copy">
                 Mana symbols still exist in the shell:

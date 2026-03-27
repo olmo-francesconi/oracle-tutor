@@ -90,6 +90,11 @@ select {
   gap: 8px;
 }
 
+.search-box {
+  display: grid;
+  gap: 12px;
+}
+
 .control-label {
   color: var(--ot-muted);
   font-size: 11px;
@@ -97,12 +102,91 @@ select {
   letter-spacing: 0.14em;
 }
 
-.shell-input {
-  width: 100%;
+.search-input-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.search-editor {
+  min-height: 56px;
   border: 2px solid var(--ot-ink);
   background: var(--ot-surface);
   color: var(--ot-ink);
   padding: 12px 14px;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.search-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--ot-muted);
+}
+
+.search-token {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.search-token-icon {
+  font-size: 0.9em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.mana-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mana-rail-button {
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-surface);
+  color: var(--ot-ink);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.search-suggestions {
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-surface);
+}
+
+.suggestion-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-bottom: 2px solid var(--ot-ink);
+  background: var(--ot-surface);
+  color: var(--ot-ink);
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestion-item:last-child {
+  border-bottom: 0;
+}
+
+.suggestion-item-active {
+  background: var(--ot-ink);
+  color: var(--ot-bg);
+}
+
+.suggestion-name {
+  min-width: 0;
+}
+
+.suggestion-meta {
+  color: var(--ot-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .control-actions {
