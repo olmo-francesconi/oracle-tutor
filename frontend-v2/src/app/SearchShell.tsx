@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CardOverlay } from '../components/CardOverlay'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
 import { searchOracleText } from '../lib/api'
+import { readSubmittedQueryFromUrl, writeSubmittedQueryToUrl } from '../lib/urlState'
 import type { SimilarCard } from '../types/api'
 import type { SearchShellState } from '../types/ui'
 
@@ -19,9 +20,26 @@ const INITIAL_STATE: SearchShellState = {
   selectedCard: null,
 }
 
+function getInitialState(): SearchShellState {
+  const initialQuery = readSubmittedQueryFromUrl()
+
+  if (!initialQuery) {
+    return INITIAL_STATE
+  }
+
+  return {
+    ...INITIAL_STATE,
+    draftQuery: initialQuery,
+    submittedQuery: initialQuery,
+    isLoading: true,
+  }
+}
+
 export function SearchShell() {
-  const [state, setState] = useState<SearchShellState>(INITIAL_STATE)
+  const [state, setState] = useState<SearchShellState>(getInitialState)
   const activeRequestRef = useRef<AbortController | null>(null)
+  const hasLoadedInitialQueryRef = useRef(false)
+  const skipNextUrlWriteRef = useRef(state.submittedQuery !== null)
 
   const isHome = state.submittedQuery === null
   const isResults = !isHome
@@ -157,6 +175,7 @@ export function SearchShell() {
 
   const handleReset = () => {
     activeRequestRef.current?.abort()
+    writeSubmittedQueryToUrl(null)
     setState((current) => ({
       ...current,
       draftQuery: '',
@@ -168,6 +187,94 @@ export function SearchShell() {
       selectedCard: null,
     }))
   }
+
+  useEffect(() => {
+    if (hasLoadedInitialQueryRef.current) return
+    hasLoadedInitialQueryRef.current = true
+
+    if (!state.submittedQuery) return
+
+    activeRequestRef.current?.abort()
+    const controller = new AbortController()
+    activeRequestRef.current = controller
+
+    void (async () => {
+      try {
+        const page = await searchOracleText(
+          state.submittedQuery!,
+          0,
+          RESULTS_PAGE_SIZE,
+          state.filters,
+          controller.signal
+        )
+
+        if (controller.signal.aborted) return
+
+        setState((current) => ({
+          ...current,
+          results: page.items,
+          hasMore: page.has_more,
+          isLoading: false,
+          isLoadingMore: false,
+          selectedCard: page.items[0] ?? null,
+        }))
+      } catch {
+        if (controller.signal.aborted) return
+
+        setState((current) => ({
+          ...current,
+          results: [],
+          hasMore: false,
+          isLoading: false,
+          isLoadingMore: false,
+          selectedCard: null,
+        }))
+      }
+    })()
+  }, [state.filters, state.submittedQuery])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextQuery = readSubmittedQueryFromUrl()
+
+      if (!nextQuery) {
+        activeRequestRef.current?.abort()
+        skipNextUrlWriteRef.current = true
+        setState((current) => ({
+          ...current,
+          draftQuery: '',
+          submittedQuery: null,
+          results: [],
+          hasMore: false,
+          isLoading: false,
+          isLoadingMore: false,
+          selectedCard: null,
+        }))
+        return
+      }
+
+      skipNextUrlWriteRef.current = true
+      setState((current) => ({
+        ...current,
+        draftQuery: nextQuery,
+      }))
+
+      void runSearch(nextQuery)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [runSearch])
+
+  useEffect(() => {
+    if (skipNextUrlWriteRef.current) {
+      skipNextUrlWriteRef.current = false
+      return
+    }
+
+    if (state.submittedQuery === null) return
+    writeSubmittedQueryToUrl(state.submittedQuery)
+  }, [state.submittedQuery])
 
   return (
     <main className="app-shell">

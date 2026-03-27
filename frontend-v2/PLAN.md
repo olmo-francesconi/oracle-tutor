@@ -368,9 +368,9 @@ Definition of done:
 
 ### Phase 6
 
-- [ ] Add lightweight URL syncing
+- [x] Add lightweight URL syncing
 - [ ] Re-evaluate `/card/:id`
-- [ ] Confirm direct-link behavior
+- [x] Confirm direct-link behavior
 
 ### Phase 7
 
