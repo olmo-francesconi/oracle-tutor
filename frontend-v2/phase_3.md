@@ -8,7 +8,8 @@ Rebuild the search box as the only intentionally sophisticated subsystem.
 
 Included:
 
-- editable input
+- `contenteditable` input
+- inline rendered mana symbols instead of raw `{...}` tokens
 - mana symbol insertion
 - automatic symbol insertion behavior
 - card name suggestions
@@ -32,6 +33,8 @@ Files:
 
 The search box should own its own interaction complexity.
 
+Phase 3 should commit to the richer editor path now rather than starting with a plain input.
+
 ## Must Preserve
 
 - `mana-font`
@@ -45,6 +48,7 @@ The search box should own its own interaction complexity.
 - parent components pass simple props
 - avoid mode explosion
 - prefer clear logic over clever editing abstractions
+- do not re-import all of v1's search-box machinery; only bring over the pieces we still need
 
 ## Acceptance Criteria
 
@@ -53,6 +57,7 @@ Phase 3 is complete when:
 - the search box is usable for real searches
 - name suggestions work
 - mana symbols render correctly
+- inline symbol rendering works inside the editor itself
 - the component remains understandable despite the UX richness
 
 ## Validation
