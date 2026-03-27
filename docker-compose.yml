@@ -92,5 +92,28 @@ services:
       - api
     restart: unless-stopped
 
+  frontend-v2:
+    build:
+      context: ./frontend-v2
+      target: dev
+    ports:
+      - "5174:5173"
+    environment:
+      - VITE_API_URL=/api
+      - API_PROXY_TARGET=http://api:8000
+    volumes:
+      - ./frontend-v2/src:/app/src
+      - ./frontend-v2/index.html:/app/index.html
+      - ./frontend-v2/vite.config.ts:/app/vite.config.ts
+      - ./frontend-v2/tsconfig.json:/app/tsconfig.json
+      - ./frontend-v2/tsconfig.app.json:/app/tsconfig.app.json
+      - ./frontend-v2/tsconfig.node.json:/app/tsconfig.node.json
+      - ./frontend-v2/eslint.config.js:/app/eslint.config.js
+      - ./frontend-v2/package.json:/app/package.json
+      - ./frontend-v2/package-lock.json:/app/package-lock.json
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   postgres_data:
