@@ -40,7 +40,20 @@ export function SearchSuggestions({
   }
 
   if (items.length === 0) {
-    return null
+    return (
+      <div
+        className={[
+          'animate-ot-fade-slide-in origin-top border-2 border-t-0 border-ot-ink bg-ot-surface',
+          variant === 'topbar'
+            ? 'absolute inset-x-[-2px] top-full z-40 border-t-2'
+            : 'absolute inset-x-0 top-full z-30',
+        ].join(' ')}
+      >
+        <p className="m-0 px-[14px] py-3 text-[0.6875rem] uppercase tracking-[0.12em] text-ot-muted">
+          No matching card names
+        </p>
+      </div>
+    )
   }
 
   return (

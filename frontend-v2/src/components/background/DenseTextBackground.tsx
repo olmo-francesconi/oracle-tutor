@@ -18,13 +18,17 @@ const MIN_LINE_HEIGHT_PX = 10
 const CHARACTER_WIDTH_RATIO = 0.583
 const LETTER_SPACING_EM = 0.008
 const MIN_TEXT_LENGTH = 5000
+const MAX_TEXT_BUILD_ITERATIONS = 10000
 
 function buildRepeatedText(texts: string[]): string {
   const joined = texts.join('  ·  ').trim()
   if (!joined) return ''
 
   let output = joined
+  let iterationCount = 0
   while (output.length < MIN_TEXT_LENGTH) {
+    iterationCount += 1
+    if (iterationCount > MAX_TEXT_BUILD_ITERATIONS) break
     output += `  ·  ${joined}`
   }
 
@@ -36,7 +40,10 @@ function extendTextToLength(text: string, targetLength: number): string {
   if (text.length >= targetLength) return text
 
   let output = text
+  let iterationCount = 0
   while (output.length < targetLength) {
+    iterationCount += 1
+    if (iterationCount > MAX_TEXT_BUILD_ITERATIONS) break
     output += `  ·  ${text}`
   }
 

@@ -87,19 +87,24 @@ export function ResultsGrid({
   onLoadMore,
 }: ResultsGridProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const onLoadMoreRef = useRef(onLoadMore)
+
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore
+  }, [onLoadMore])
 
   useEffect(() => {
     if (!hasMore || isLoadingMore || !sentinelRef.current) return
 
     const observer = new IntersectionObserver((entries) => {
       if (!entries[0]?.isIntersecting) return
-      onLoadMore()
+      onLoadMoreRef.current()
     })
 
     observer.observe(sentinelRef.current)
 
     return () => observer.disconnect()
-  }, [hasMore, isLoadingMore, onLoadMore])
+  }, [hasMore, isLoadingMore])
 
   return (
     <section

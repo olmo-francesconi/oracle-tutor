@@ -41,6 +41,7 @@ export function ManaSymbolRail({
     startScrollLeft: number
     moved: boolean
   } | null>(null)
+  const isDraggingRef = useRef(false)
   const suppressClickRef = useRef(false)
 
   useEffect(() => {
@@ -72,7 +73,7 @@ export function ManaSymbolRail({
       const deltaX = event.clientX - dragState.startX
       if (Math.abs(deltaX) > 4) {
         dragState.moved = true
-        rail.dataset.dragging = 'true'
+        isDraggingRef.current = true
       }
 
       if (!dragState.moved) return
@@ -98,7 +99,7 @@ export function ManaSymbolRail({
       const deltaX = event.touches[0].clientX - dragState.startX
       if (Math.abs(deltaX) > 4) {
         dragState.moved = true
-        rail.dataset.dragging = 'true'
+        isDraggingRef.current = true
       }
 
       if (!dragState.moved) return
@@ -108,10 +109,7 @@ export function ManaSymbolRail({
     }
 
     const clearDragState = () => {
-      const rail = railRef.current
-      if (rail) {
-        delete rail.dataset.dragging
-      }
+      isDraggingRef.current = false
       dragStateRef.current = null
     }
 

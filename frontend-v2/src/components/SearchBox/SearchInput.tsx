@@ -7,6 +7,8 @@ import {
 } from 'react'
 import { getManaClass, splitSymbolParts } from '../../lib/manaSymbols'
 
+const SAFE_MANA_TOKEN_RE = /^\{[A-Z0-9/]+\}$/i
+
 type SelectionRange = {
   start: number
   end: number
@@ -46,7 +48,7 @@ function buildEditableContent(root: HTMLDivElement, text: string) {
   const fragment = document.createDocumentFragment()
 
   splitSymbolParts(text).forEach((part) => {
-    if (part.startsWith('{') && part.endsWith('}')) {
+    if (SAFE_MANA_TOKEN_RE.test(part)) {
       const manaClass = getManaClass(part)
       if (manaClass) {
         const token = document.createElement('span')

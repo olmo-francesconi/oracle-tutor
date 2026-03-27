@@ -34,6 +34,7 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
 
   useEffect(() => {
     setDetailCard(null)
+    setIsLoading(false)
 
     if (!needsDetailFetch(card)) return
 
