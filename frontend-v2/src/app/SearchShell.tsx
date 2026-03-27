@@ -188,7 +188,13 @@ export function SearchShell() {
   const handleSelectCard = (card: SimilarCard) => {
     setState((current) => ({
       ...current,
-      selectedCard: card,
+      selectedCard:
+        current.selectedCard &&
+        current.selectedCard.id === card.id &&
+        current.selectedCard.face_ix === card.face_ix &&
+        current.selectedCard.image_side === card.image_side
+          ? null
+          : card,
     }))
   }
 
@@ -229,6 +235,21 @@ export function SearchShell() {
       }
     })()
   }, [fetchFirstPage, state.submittedQuery])
+
+  useEffect(() => {
+    if (!state.selectedCard) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setState((current) => ({
+        ...current,
+        selectedCard: null,
+      }))
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [state.selectedCard])
 
   useEffect(() => {
     const handlePopState = () => {

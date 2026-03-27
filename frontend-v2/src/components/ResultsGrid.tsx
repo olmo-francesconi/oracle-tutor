@@ -65,6 +65,7 @@ export function ResultsGrid({
             key={`${card.id}-${card.face_ix}-${card.image_side}`}
             type="button"
             className={`result-card ${selectedCardId === card.id ? 'result-card-active' : ''}`}
+            aria-pressed={selectedCardId === card.id}
             onClick={() => onCardSelect(card)}
           >
             <CardImage

@@ -119,7 +119,11 @@ export function SearchBox({
   }
 
   return (
-    <div ref={rootRef} className="search-box">
+    <div
+      ref={rootRef}
+      className={`search-box ${isOpen ? 'search-box-open' : ''}`}
+      data-state={isOpen ? 'open' : 'closed'}
+    >
       <SearchInput
         value={value}
         autoFocus={autoFocus}
