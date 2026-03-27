@@ -42,18 +42,20 @@ export function SearchBox({
     }
 
     const controller = new AbortController()
-    const timer = window.setTimeout(async () => {
-      setIsLoading(true)
+    setIsOpen(isFocused)
+    setIsLoading(true)
 
+    const timer = window.setTimeout(async () => {
       try {
         const results = await searchCards(trimmed, 6, 0, controller.signal)
         if (!controller.signal.aborted) {
           setSuggestions(results)
-          setIsOpen(isFocused && results.length > 0)
+          setIsOpen(isFocused)
         }
       } catch {
         if (!controller.signal.aborted) {
           setSuggestions([])
+          setIsOpen(false)
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -180,7 +182,7 @@ export function SearchBox({
             return
           }
 
-          if (value.trim()) setIsOpen(true)
+          if (value.trim().length >= 2) setIsOpen(true)
         }}
         onInsertHandled={() => setPendingInsert(null)}
       />

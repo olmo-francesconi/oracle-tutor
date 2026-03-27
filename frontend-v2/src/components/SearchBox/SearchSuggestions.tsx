@@ -18,6 +18,11 @@ export function SearchSuggestions({
   if (isLoading) {
     return (
       <div className="search-suggestions">
+        <div className="search-suggestions-loading" aria-hidden="true">
+          <span className="search-loading-line search-loading-line-name" />
+          <span className="search-loading-line search-loading-line-meta" />
+          <span className="search-loading-line search-loading-line-name" />
+        </div>
         <p className="search-suggestions-state">Loading card names...</p>
       </div>
     )

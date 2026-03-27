@@ -20,16 +20,16 @@ function getCardTitle(card: SimilarCard): string {
   return card.card_name || card.name
 }
 
-function getCardSubtitle(card: SimilarCard): string {
-  return card.type_line || 'Card'
+const BORDER_COLOR_MAP: Record<string, string> = {
+  black: '#111111',
+  white: '#ededef',
+  silver: '#8a8a8a',
+  gold: '#a8894d',
+  borderless: '#111111',
 }
 
-function getCardExcerpt(card: SimilarCard): string {
-  if (!card.oracle_text) return 'Oracle text unavailable.'
-
-  return card.oracle_text.length > 156
-    ? `${card.oracle_text.slice(0, 153).trimEnd()}...`
-    : card.oracle_text
+function getCardFrameColor(borderColor: string | undefined): string {
+  return (borderColor && BORDER_COLOR_MAP[borderColor]) ?? '#111111'
 }
 
 export function ResultsGrid({
@@ -67,23 +67,18 @@ export function ResultsGrid({
             className={`result-card ${selectedCardId === card.id ? 'result-card-active' : ''}`}
             aria-pressed={selectedCardId === card.id}
             onClick={() => onCardSelect(card)}
+            style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color) }}
           >
-            <CardImage
-              src={getCardImageUrl(card)}
-              alt={title}
-              className="result-card-image"
-            />
+            <span className="result-card-footer">
+              <span className="result-card-similarity">{formatSimilarity(card.similarity)}</span>
+            </span>
 
-            <span className="result-card-body">
-              <span className="result-card-meta">
-                <span className="result-card-similarity">{formatSimilarity(card.similarity)}</span>
-                {card.set_code ? (
-                  <span className="result-card-set">{card.set_code.toUpperCase()}</span>
-                ) : null}
-              </span>
-              <span className="result-card-title">{title}</span>
-              <span className="result-card-subtitle">{getCardSubtitle(card)}</span>
-              <span className="result-card-text">{getCardExcerpt(card)}</span>
+            <span className="result-card-frame">
+              <CardImage
+                src={getCardImageUrl(card)}
+                alt={title}
+                className="result-card-image"
+              />
             </span>
           </button>
         )
