@@ -33,6 +33,7 @@ export function SearchBox({
     if (trimmed.length < 2) {
       setSuggestions([])
       setIsLoading(false)
+      setIsOpen(false)
       return
     }
 

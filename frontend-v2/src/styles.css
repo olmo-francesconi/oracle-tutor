@@ -85,11 +85,6 @@ select {
   border-top: 2px solid var(--ot-ink);
 }
 
-.control-block {
-  display: grid;
-  gap: 8px;
-}
-
 .search-box {
   display: grid;
   gap: 12px;
@@ -257,6 +252,14 @@ select {
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 20px;
   align-items: start;
+}
+
+.results-summary {
+  margin: 16px 0 0;
+  color: var(--ot-muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .result-card {

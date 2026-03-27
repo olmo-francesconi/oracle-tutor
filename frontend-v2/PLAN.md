@@ -374,10 +374,10 @@ Definition of done:
 
 ### Phase 7
 
-- [ ] Add final visual polish
-- [ ] Add only essential SEO handling
-- [ ] Remove dead code
-- [ ] Re-audit complexity before launch
+- [x] Add final visual polish
+- [x] Add only essential SEO handling
+- [x] Remove dead code
+- [x] Re-audit complexity before launch
 
 ## Guardrails
 

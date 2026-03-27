@@ -4,7 +4,7 @@ import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
 import { searchOracleText } from '../lib/api'
 import { readSubmittedQueryFromUrl, writeSubmittedQueryToUrl } from '../lib/urlState'
-import type { SimilarCard } from '../types/api'
+import type { SimilarCard, SimilarCardsPage } from '../types/api'
 import type { SearchShellState } from '../types/ui'
 
 const RESULTS_PAGE_SIZE = 24
@@ -18,6 +18,59 @@ const INITIAL_STATE: SearchShellState = {
   isLoading: false,
   isLoadingMore: false,
   selectedCard: null,
+}
+
+function buildSearchLoadingState(current: SearchShellState, query: string): SearchShellState {
+  return {
+    ...current,
+    submittedQuery: query,
+    results: [],
+    hasMore: false,
+    isLoading: true,
+    isLoadingMore: false,
+    selectedCard: null,
+  }
+}
+
+function buildSearchSuccessState(
+  current: SearchShellState,
+  query: string,
+  page: SimilarCardsPage
+): SearchShellState {
+  return {
+    ...current,
+    submittedQuery: query,
+    results: page.items,
+    hasMore: page.has_more,
+    isLoading: false,
+    isLoadingMore: false,
+    selectedCard: null,
+  }
+}
+
+function buildSearchFailureState(current: SearchShellState, query: string): SearchShellState {
+  return {
+    ...current,
+    submittedQuery: query,
+    results: [],
+    hasMore: false,
+    isLoading: false,
+    isLoadingMore: false,
+    selectedCard: null,
+  }
+}
+
+function buildClearedState(current: SearchShellState): SearchShellState {
+  return {
+    ...current,
+    draftQuery: '',
+    submittedQuery: null,
+    results: [],
+    hasMore: false,
+    isLoading: false,
+    isLoadingMore: false,
+    selectedCard: null,
+  }
 }
 
 function getInitialState(): SearchShellState {
@@ -51,55 +104,35 @@ export function SearchShell() {
     }))
   }
 
+  const fetchFirstPage = useCallback(async (query: string, signal: AbortSignal) => {
+    return searchOracleText(
+      query,
+      0,
+      RESULTS_PAGE_SIZE,
+      state.filters,
+      signal
+    )
+  }, [state.filters])
+
   const runSearch = useCallback(async (query: string) => {
     activeRequestRef.current?.abort()
     const controller = new AbortController()
     activeRequestRef.current = controller
 
-    setState((current) => ({
-      ...current,
-      submittedQuery: query,
-      results: [],
-      hasMore: false,
-      isLoading: true,
-      isLoadingMore: false,
-      selectedCard: null,
-    }))
+    setState((current) => buildSearchLoadingState(current, query))
 
     try {
-      const page = await searchOracleText(
-        query,
-        0,
-        RESULTS_PAGE_SIZE,
-        state.filters,
-        controller.signal
-      )
+      const page = await fetchFirstPage(query, controller.signal)
 
       if (controller.signal.aborted) return
 
-      setState((current) => ({
-        ...current,
-        submittedQuery: query,
-        results: page.items,
-        hasMore: page.has_more,
-        isLoading: false,
-        isLoadingMore: false,
-        selectedCard: page.items[0] ?? null,
-      }))
+      setState((current) => buildSearchSuccessState(current, query, page))
     } catch {
       if (controller.signal.aborted) return
 
-      setState((current) => ({
-        ...current,
-        submittedQuery: query,
-        results: [],
-        hasMore: false,
-        isLoading: false,
-        isLoadingMore: false,
-        selectedCard: null,
-      }))
+      setState((current) => buildSearchFailureState(current, query))
     }
-  }, [state.filters])
+  }, [fetchFirstPage])
 
   const handleSubmit = (submittedValue?: string) => {
     const nextQuery = (submittedValue ?? state.draftQuery).trim()
@@ -176,16 +209,7 @@ export function SearchShell() {
   const handleReset = () => {
     activeRequestRef.current?.abort()
     writeSubmittedQueryToUrl(null)
-    setState((current) => ({
-      ...current,
-      draftQuery: '',
-      submittedQuery: null,
-      results: [],
-      hasMore: false,
-      isLoading: false,
-      isLoadingMore: false,
-      selectedCard: null,
-    }))
+    setState((current) => buildClearedState(current))
   }
 
   useEffect(() => {
@@ -200,38 +224,18 @@ export function SearchShell() {
 
     void (async () => {
       try {
-        const page = await searchOracleText(
-          state.submittedQuery!,
-          0,
-          RESULTS_PAGE_SIZE,
-          state.filters,
-          controller.signal
-        )
+        const page = await fetchFirstPage(state.submittedQuery!, controller.signal)
 
         if (controller.signal.aborted) return
 
-        setState((current) => ({
-          ...current,
-          results: page.items,
-          hasMore: page.has_more,
-          isLoading: false,
-          isLoadingMore: false,
-          selectedCard: page.items[0] ?? null,
-        }))
+        setState((current) => buildSearchSuccessState(current, state.submittedQuery!, page))
       } catch {
         if (controller.signal.aborted) return
 
-        setState((current) => ({
-          ...current,
-          results: [],
-          hasMore: false,
-          isLoading: false,
-          isLoadingMore: false,
-          selectedCard: null,
-        }))
+        setState((current) => buildSearchFailureState(current, state.submittedQuery!))
       }
     })()
-  }, [state.filters, state.submittedQuery])
+  }, [fetchFirstPage, state.submittedQuery])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -240,16 +244,7 @@ export function SearchShell() {
       if (!nextQuery) {
         activeRequestRef.current?.abort()
         skipNextUrlWriteRef.current = true
-        setState((current) => ({
-          ...current,
-          draftQuery: '',
-          submittedQuery: null,
-          results: [],
-          hasMore: false,
-          isLoading: false,
-          isLoadingMore: false,
-          selectedCard: null,
-        }))
+        setState((current) => buildClearedState(current))
         return
       }
 
@@ -307,7 +302,7 @@ export function SearchShell() {
           </div>
         </section>
 
-        <section className={`shell-stage ${isResults ? 'shell-stage-results' : 'shell-stage-home'}`}>
+        <section className="shell-stage">
           {isHome ? (
             <section className="view-panel" aria-label="Home state">
               <p className="eyebrow">Home State</p>
@@ -336,6 +331,9 @@ export function SearchShell() {
                 {' '}
                 <strong>{state.submittedQuery}</strong>
               </p>
+              {!state.isLoading && state.results.length > 0 ? (
+                <p className="results-summary">Click any card to inspect it in the side panel.</p>
+              ) : null}
               {state.isLoading ? <p className="view-copy">Loading results...</p> : null}
               {!state.isLoading && state.results.length === 0 ? (
                 <p className="view-copy">No cards matched this search.</p>
