@@ -8,6 +8,9 @@ import type {
 } from '../types/api'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+const SEARCH_CACHE_LIMIT = 40
+
+const cardSearchCache = new Map<string, CardMatch[]>()
 
 type MatchMode = NonNullable<FilterState['matchMode']>
 
@@ -47,6 +50,31 @@ function buildUrl(path: string, params?: Record<string, string | number | undefi
   }
 
   return `${url.pathname}${url.search}`
+}
+
+function readCachedCardMatches(key: string): CardMatch[] | null {
+  const cached = cardSearchCache.get(key)
+  if (!cached) return null
+
+  cardSearchCache.delete(key)
+  cardSearchCache.set(key, cached)
+
+  return cached
+}
+
+function writeCachedCardMatches(key: string, matches: CardMatch[]) {
+  if (cardSearchCache.has(key)) {
+    cardSearchCache.delete(key)
+  }
+
+  cardSearchCache.set(key, matches)
+
+  if (cardSearchCache.size <= SEARCH_CACHE_LIMIT) return
+
+  const oldestKey = cardSearchCache.keys().next().value
+  if (oldestKey) {
+    cardSearchCache.delete(oldestKey)
+  }
 }
 
 async function assertOk<T>(response: Response): Promise<T> {
@@ -138,13 +166,21 @@ export async function searchCards(
 ): Promise<CardMatch[]> {
   if (!query || query.length < 2) return []
 
+  const cacheKey = `${query}\u0000${limit}\u0000${offset}`
+  const cached = readCachedCardMatches(cacheKey)
+  if (cached) {
+    return cached
+  }
+
   const data = await getJson<ApiCardMatch[]>(
     '/search',
     { q: query, limit, offset },
     signal
   )
 
-  return data.map(normalizeCardMatch)
+  const matches = data.map(normalizeCardMatch)
+  writeCachedCardMatches(cacheKey, matches)
+  return matches
 }
 
 export async function getCard(id: string, signal?: AbortSignal): Promise<Card> {

@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { getManaClass } from '../../lib/manaSymbols'
+
+const SYMBOL_SCROLL_STEP = 180
 
 const GENERIC_MANA_SYMBOLS = Array.from({ length: 21 }, (_, index) => `{${index}}`)
 const LETTER_SYMBOLS = ['{X}', '{Y}', '{Z}'] as const
@@ -28,6 +30,8 @@ interface ManaSymbolRailProps {
 
 export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
   const railRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
   const dragStateRef = useRef<{
     startX: number
     startScrollLeft: number
@@ -37,6 +41,13 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
 
   useEffect(() => {
     const rail = railRef.current
+    if (!rail) return
+
+    const updateScrollState = () => {
+      const maxScrollLeft = rail.scrollWidth - rail.clientWidth
+      setCanScrollLeft(rail.scrollLeft > 2)
+      setCanScrollRight(maxScrollLeft - rail.scrollLeft > 2)
+    }
 
     const handleMouseDown = (event: MouseEvent) => {
       if (!rail || event.button !== 0) return
@@ -112,27 +123,43 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
       clearDragState()
     }
 
-    rail?.addEventListener('mousedown', handleMouseDown)
-    rail?.addEventListener('touchstart', handleTouchStart, { passive: true })
+    updateScrollState()
+
+    rail.addEventListener('scroll', updateScrollState, { passive: true })
+    rail.addEventListener('mousedown', handleMouseDown)
+    rail.addEventListener('touchstart', handleTouchStart, { passive: true })
     window.addEventListener('mousemove', handleMouseMove, { passive: false })
     window.addEventListener('mouseup', handleDragEnd)
     window.addEventListener('touchmove', handleTouchMove, { passive: false })
     window.addEventListener('touchend', handleDragEnd)
     window.addEventListener('touchcancel', handleDragEnd)
+    window.addEventListener('resize', updateScrollState)
 
     return () => {
-      rail?.removeEventListener('mousedown', handleMouseDown)
-      rail?.removeEventListener('touchstart', handleTouchStart)
+      rail.removeEventListener('scroll', updateScrollState)
+      rail.removeEventListener('mousedown', handleMouseDown)
+      rail.removeEventListener('touchstart', handleTouchStart)
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleDragEnd)
       window.removeEventListener('touchmove', handleTouchMove)
       window.removeEventListener('touchend', handleDragEnd)
       window.removeEventListener('touchcancel', handleDragEnd)
+      window.removeEventListener('resize', updateScrollState)
     }
   }, [])
 
+  const scrollRail = (direction: 'left' | 'right') => {
+    const rail = railRef.current
+    if (!rail) return
+
+    rail.scrollBy({
+      left: direction === 'left' ? -SYMBOL_SCROLL_STEP : SYMBOL_SCROLL_STEP,
+      behavior: 'smooth',
+    })
+  }
+
   return (
-    <div className="h-10 w-full min-w-0 border-x-2 border-t-2 border-ot-ink bg-ot-bg" aria-label="Mana symbols">
+    <div className="relative h-10 w-full min-w-0 bg-ot-bg" aria-label="Mana symbols">
       <div
         ref={railRef}
         className="scrollbar-none flex h-full w-full touch-pan-y select-none items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap px-[10px] py-0"
@@ -180,6 +207,45 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
           )
         })}
       </div>
+
+      <div
+        className={[
+          'pointer-events-none absolute inset-y-0 left-0 w-12 transition-opacity duration-150',
+          canScrollLeft ? 'opacity-100' : 'opacity-0',
+          'bg-[linear-gradient(to_right,var(--color-ot-bg)_0%,rgba(240,237,230,0.92)_38%,rgba(240,237,230,0)_100%)]',
+        ].join(' ')}
+        aria-hidden="true"
+      />
+      <div
+        className={[
+          'pointer-events-none absolute inset-y-0 right-0 w-12 transition-opacity duration-150',
+          canScrollRight ? 'opacity-100' : 'opacity-0',
+          'bg-[linear-gradient(to_left,var(--color-ot-bg)_0%,rgba(240,237,230,0.92)_38%,rgba(240,237,230,0)_100%)]',
+        ].join(' ')}
+        aria-hidden="true"
+      />
+
+      {canScrollLeft ? (
+        <button
+          type="button"
+          className="absolute left-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center border-0 bg-transparent p-0 text-xs text-ot-ink/75 transition-colors duration-150 hover:text-ot-ink"
+          onClick={() => scrollRail('left')}
+          aria-label="Scroll symbols left"
+        >
+          <span className="text-base leading-none" aria-hidden="true">‹</span>
+        </button>
+      ) : null}
+
+      {canScrollRight ? (
+        <button
+          type="button"
+          className="absolute right-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center border-0 bg-transparent p-0 text-xs text-ot-ink/75 transition-colors duration-150 hover:text-ot-ink"
+          onClick={() => scrollRail('right')}
+          aria-label="Scroll symbols right"
+        >
+          <span className="text-base leading-none" aria-hidden="true">›</span>
+        </button>
+      ) : null}
     </div>
   )
 }

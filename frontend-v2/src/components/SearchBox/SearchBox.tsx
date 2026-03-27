@@ -156,7 +156,7 @@ export function SearchBox({
         })
       }}
     >
-      {showManaRail && isFocused ? <ManaSymbolRail onInsert={handleInsert} /> : null}
+      {showManaRail ? <ManaSymbolRail onInsert={handleInsert} /> : null}
 
       <SearchInput
         value={value}

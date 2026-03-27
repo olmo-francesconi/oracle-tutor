@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 
 type CardImageProps = {
   src: string
@@ -6,7 +6,7 @@ type CardImageProps = {
   className?: string
 }
 
-export function CardImage({ src, alt, className }: CardImageProps) {
+function CardImageComponent({ src, alt, className }: CardImageProps) {
   const [hasError, setHasError] = useState(false)
 
   if (!src || hasError) {
@@ -25,7 +25,10 @@ export function CardImage({ src, alt, className }: CardImageProps) {
       alt={alt}
       className={className}
       loading="lazy"
+      decoding="async"
       onError={() => setHasError(true)}
     />
   )
 }
+
+export const CardImage = memo(CardImageComponent)

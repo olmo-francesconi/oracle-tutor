@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { getCardImageUrl } from '../lib/cards'
 import type { SimilarCard } from '../types/api'
 import { CardImage } from './CardImage'
@@ -7,7 +7,7 @@ interface ResultsGridProps {
   cards: SimilarCard[]
   hasMore: boolean
   isLoadingMore: boolean
-  selectedCardId: string | null
+  selectedCardKey: string | null
   onCardSelect: (card: SimilarCard) => void
   onLoadMore: () => void
 }
@@ -32,11 +32,57 @@ function getCardFrameColor(borderColor: string | undefined): string {
   return (borderColor && BORDER_COLOR_MAP[borderColor]) ?? '#111111'
 }
 
+function getCardKey(card: SimilarCard): string {
+  return `${card.id}-${card.face_ix}-${card.image_side}`
+}
+
+interface ResultCardProps {
+  card: SimilarCard
+  isSelected: boolean
+  onCardSelect: (card: SimilarCard) => void
+}
+
+const ResultCard = memo(function ResultCard({ card, isSelected, onCardSelect }: ResultCardProps) {
+  const title = getCardTitle(card)
+
+  return (
+    <button
+      type="button"
+      className={[
+        'group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 hover:bg-transparent motion-reduce:transition-none motion-reduce:hover:translate-y-0',
+        isSelected ? 'bg-transparent text-ot-ink' : '',
+      ].join(' ')}
+      aria-pressed={isSelected}
+      onClick={() => onCardSelect(card)}
+      style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color) }}
+    >
+      <span className="flex min-h-5 items-center justify-start px-[10px] pb-[9px] pt-2 text-[0.625rem] uppercase tracking-[0.12em]">
+        <span
+          className={[
+            'text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
+            isSelected ? 'text-ot-red' : 'group-hover:text-ot-red',
+          ].join(' ')}
+        >
+          {formatSimilarity(card.similarity)}
+        </span>
+      </span>
+
+      <span className="block border-t-2 border-ot-ink bg-[var(--result-card-frame)] p-0">
+        <CardImage
+          src={getCardImageUrl(card)}
+          alt={title}
+          className="block aspect-[63/88] w-full rounded-[4.8%/3.5%] border-0 bg-[#d8d2c8] object-cover"
+        />
+      </span>
+    </button>
+  )
+})
+
 export function ResultsGrid({
   cards,
   hasMore,
   isLoadingMore,
-  selectedCardId,
+  selectedCardKey,
   onCardSelect,
   onLoadMore,
 }: ResultsGridProps) {
@@ -61,39 +107,15 @@ export function ResultsGrid({
       aria-label="Search results"
     >
       {cards.map((card) => {
-        const title = getCardTitle(card)
+        const cardKey = getCardKey(card)
 
         return (
-          <button
-            key={`${card.id}-${card.face_ix}-${card.image_side}`}
-            type="button"
-            className={[
-              'group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 hover:bg-transparent motion-reduce:transition-none motion-reduce:hover:translate-y-0',
-              selectedCardId === card.id ? 'bg-transparent text-ot-ink' : '',
-            ].join(' ')}
-            aria-pressed={selectedCardId === card.id}
-            onClick={() => onCardSelect(card)}
-            style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color) }}
-          >
-            <span className="flex min-h-5 items-center justify-start px-[10px] pb-[9px] pt-2 text-[0.625rem] uppercase tracking-[0.12em]">
-              <span
-                className={[
-                  'text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
-                  selectedCardId === card.id ? 'text-ot-red' : 'group-hover:text-ot-red',
-                ].join(' ')}
-              >
-                {formatSimilarity(card.similarity)}
-              </span>
-            </span>
-
-            <span className="block border-t-2 border-ot-ink bg-[var(--result-card-frame)] p-0">
-              <CardImage
-                src={getCardImageUrl(card)}
-                alt={title}
-                className="block aspect-[63/88] w-full rounded-[4.8%/3.5%] border-0 bg-[#d8d2c8] object-cover"
-              />
-            </span>
-          </button>
+          <ResultCard
+            key={cardKey}
+            card={card}
+            isSelected={selectedCardKey === cardKey}
+            onCardSelect={onCardSelect}
+          />
         )
       })}
 

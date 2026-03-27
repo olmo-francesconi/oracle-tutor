@@ -88,6 +88,11 @@ function getInitialState(): SearchShellState {
   }
 }
 
+function getSelectedCardKey(card: SimilarCard | null): string | null {
+  if (!card) return null
+  return `${card.id}-${card.face_ix}-${card.image_side}`
+}
+
 export function SearchShell() {
   const [state, setState] = useState<SearchShellState>(getInitialState)
   const activeRequestRef = useRef<AbortController | null>(null)
@@ -95,13 +100,14 @@ export function SearchShell() {
   const skipNextUrlWriteRef = useRef(state.submittedQuery !== null)
 
   const isHome = state.submittedQuery === null
+  const selectedCardKey = getSelectedCardKey(state.selectedCard)
 
-  const handleDraftChange = (value: string) => {
+  const handleDraftChange = useCallback((value: string) => {
     setState((current) => ({
       ...current,
       draftQuery: value,
     }))
-  }
+  }, [])
 
   const fetchFirstPage = useCallback(async (query: string, signal: AbortSignal) => {
     return searchOracleText(query, 0, RESULTS_PAGE_SIZE, state.filters, signal)
@@ -127,7 +133,7 @@ export function SearchShell() {
     }
   }, [fetchFirstPage])
 
-  const handleSubmit = (submittedValue?: string) => {
+  const handleSubmit = useCallback((submittedValue?: string) => {
     const nextQuery = (submittedValue ?? state.draftQuery).trim()
     if (!nextQuery) return
 
@@ -137,7 +143,7 @@ export function SearchShell() {
     }))
 
     void runSearch(nextQuery)
-  }
+  }, [runSearch, state.draftQuery])
 
   const handleLoadMore = useCallback(async () => {
     if (!state.submittedQuery || state.isLoading || state.isLoadingMore || !state.hasMore) {
@@ -185,7 +191,7 @@ export function SearchShell() {
     state.submittedQuery,
   ])
 
-  const handleSelectCard = (card: SimilarCard) => {
+  const handleSelectCard = useCallback((card: SimilarCard) => {
     setState((current) => ({
       ...current,
       selectedCard:
@@ -196,20 +202,20 @@ export function SearchShell() {
           ? null
           : card,
     }))
-  }
+  }, [])
 
-  const handleCloseOverlay = () => {
+  const handleCloseOverlay = useCallback(() => {
     setState((current) => ({
       ...current,
       selectedCard: null,
     }))
-  }
+  }, [])
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     activeRequestRef.current?.abort()
     writeSubmittedQueryToUrl(null)
     setState((current) => buildClearedState(current))
-  }
+  }, [])
 
   useEffect(() => {
     if (hasLoadedInitialQueryRef.current) return
@@ -381,7 +387,7 @@ export function SearchShell() {
                   cards={state.results}
                   hasMore={state.hasMore}
                   isLoadingMore={state.isLoadingMore}
-                  selectedCardId={state.selectedCard?.id ?? null}
+                  selectedCardKey={selectedCardKey}
                   onCardSelect={handleSelectCard}
                   onLoadMore={handleLoadMore}
                 />
