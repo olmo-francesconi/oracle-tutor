@@ -12,6 +12,12 @@ Included:
 - History API updates
 - direct-link behavior for search state
 
+Explicitly excluded:
+
+- card selection in the URL
+- `/card/:id`
+- filter params for now
+
 Deferred decision:
 
 - whether `/card/:id` can be introduced cleanly without adopting router complexity
@@ -26,13 +32,13 @@ Likely files:
 Possible URL support:
 
 - `?q=...`
-- optional filter params
-- optional overlay/card params if that stays simple
+- restore submitted query on initial load
 
 ## Constraints
 
 - do not adopt React Router unless the value is clear
 - do not distort the shell architecture just to support a route
+- keep URL syncing additive to current state, not a new source of truth
 
 ## Acceptance Criteria
 
