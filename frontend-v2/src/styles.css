@@ -37,11 +37,16 @@ select {
   padding: 24px;
 }
 
-.placeholder-panel {
+.shell-panel {
   width: min(100%, 720px);
   border: 2px solid var(--ot-ink);
   background: var(--ot-surface);
   padding: 24px;
+}
+
+.shell-header {
+  display: grid;
+  gap: 0;
 }
 
 .eyebrow {
@@ -65,10 +70,88 @@ select {
   color: var(--ot-red);
 }
 
-.placeholder-copy {
+.shell-copy,
+.view-copy {
   margin: 16px 0 0;
   font-size: 14px;
   line-height: 1.5;
+}
+
+.state-switcher {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 2px solid var(--ot-ink);
+}
+
+.control-block {
+  display: grid;
+  gap: 8px;
+}
+
+.control-label {
+  color: var(--ot-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.shell-input {
+  width: 100%;
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-surface);
+  color: var(--ot-ink);
+  padding: 12px 14px;
+}
+
+.control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.shell-button {
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-ink);
+  color: var(--ot-bg);
+  padding: 10px 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.shell-button-secondary {
+  background: var(--ot-surface);
+  color: var(--ot-ink);
+}
+
+.shell-stage {
+  margin-top: 24px;
+  min-height: 240px;
+  display: grid;
+  align-items: start;
+  border-top: 2px solid var(--ot-ink);
+  padding-top: 24px;
+}
+
+.view-panel {
+  display: grid;
+  gap: 0;
+}
+
+.results-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.results-item {
+  border: 2px solid var(--ot-ink);
+  background: var(--ot-bg);
+  padding: 12px 14px;
 }
 
 .mana-sample {

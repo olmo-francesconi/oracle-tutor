@@ -328,11 +328,11 @@ Definition of done:
 
 ### Phase 1
 
-- [ ] Create `App`
-- [ ] Create `SearchShell`
-- [ ] Model top-level state
-- [ ] Support home/results states in one shell
-- [ ] Design a clean SPA transition from search to results
+- [x] Create `App`
+- [x] Create `SearchShell`
+- [x] Model top-level state
+- [x] Support home/results states in one shell
+- [x] Design a clean SPA transition from search to results
 
 ### Phase 2
 
