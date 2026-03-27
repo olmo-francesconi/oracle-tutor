@@ -30,6 +30,8 @@ MANIFEST
 # ignores any directory named "lib/").
 !frontend/src/lib/
 !frontend/src/lib/**
+!frontend-v2/src/lib/
+!frontend-v2/src/lib/**
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

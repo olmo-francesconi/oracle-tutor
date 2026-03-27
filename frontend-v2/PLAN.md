@@ -336,10 +336,10 @@ Definition of done:
 
 ### Phase 2
 
-- [ ] Add `fetch` API helper
-- [ ] Implement search endpoints
-- [ ] Implement card endpoints
-- [ ] Add shared error handling
+- [x] Add `fetch` API helper
+- [x] Implement search endpoints
+- [x] Implement card endpoints
+- [x] Add shared error handling
 
 ### Phase 3
 
