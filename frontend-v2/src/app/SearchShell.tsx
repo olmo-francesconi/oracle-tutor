@@ -286,72 +286,97 @@ export function SearchShell() {
   }, [state.submittedQuery])
 
   return (
-    <main className={`app-shell ${isHome ? 'app-shell-home' : 'app-shell-results'}`}>
-      <div className="app-stripe" aria-hidden="true" />
+    <main
+      className={[
+        'relative min-h-screen bg-ot-bg',
+        isHome ? 'grid place-items-center px-6 pb-16 pl-11 pt-12 max-[720px]:px-4 max-[720px]:pb-12 max-[720px]:pl-[30px] max-[720px]:pt-8' : '',
+      ].join(' ')}
+    >
+      <div className="fixed inset-y-0 left-0 z-20 w-1.5 bg-ot-red" aria-hidden="true" />
 
       {isHome ? (
-        <section className="home-shell" aria-label="Home state">
-          <div className="home-wordmark">
-            <h1 className="wordmark">
-              <span className="wordmark-line">Oracle</span>
-              <span className="wordmark-line">Tutor</span>
+        <section className="grid w-full max-w-[560px] gap-8" aria-label="Home state">
+          <div className="grid justify-items-center gap-2.5 text-center">
+            <h1 className="m-0 font-display text-[clamp(4.5rem,11vw,7rem)] font-black uppercase leading-[0.88] tracking-[-0.025em]">
+              <span className="block">Oracle</span>
+              <span className="block">Tutor</span>
             </h1>
-            <div className="home-rule" />
-            <p className="home-kicker">find cards by meaning, not keywords.</p>
+            <div className="h-0.5 w-full bg-ot-ink" />
+            <p className="m-0 max-w-[28rem] text-[0.8125rem] lowercase leading-[1.5] tracking-[0.08em] text-ot-muted">
+              find cards by meaning, not keywords.
+            </p>
           </div>
 
-          <div className="home-search-stage">
+          <div className="grid gap-0">
             <SearchBox
               value={state.draftQuery}
               onChange={handleDraftChange}
               onSubmit={handleSubmit}
               autoFocus
               showManaRail
+              variant="home"
             />
           </div>
         </section>
       ) : (
         <>
-          <header className="topbar">
-            <button type="button" className="topbar-logo" onClick={handleReset}>
-              <span className="topbar-logo-text topbar-logo-text-full">Oracle Tutor</span>
-              <span className="topbar-logo-text topbar-logo-text-compact">OT</span>
+          <header className="sticky top-0 z-30 grid min-h-[58px] grid-cols-[clamp(148px,16vw,176px)_minmax(0,1fr)] items-stretch border-b-2 border-ot-ink bg-ot-bg max-[720px]:grid-cols-[auto_minmax(0,1fr)]">
+            <button
+              type="button"
+              className="flex min-w-0 cursor-pointer items-center justify-center border-0 border-r-2 border-ot-ink bg-transparent px-[18px] py-0 font-display text-[20px] font-black uppercase leading-none tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[720px]:min-h-14 max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0 max-[720px]:text-[18px]"
+              onClick={handleReset}
+            >
+              <span className="max-[720px]:hidden">Oracle Tutor</span>
+              <span className="hidden max-[720px]:inline">OT</span>
             </button>
-            <div className="topbar-status">
+            <div className="relative flex min-w-0 items-stretch bg-ot-surface">
               <SearchBox
-                className="topbar-search-box"
+                className="h-full self-stretch"
                 value={state.draftQuery}
                 onChange={handleDraftChange}
                 onSubmit={handleSubmit}
                 autoFocus={false}
                 showManaRail={false}
+                variant="topbar"
               />
             </div>
           </header>
 
-          <section className="query-band" aria-label="Results summary">
-            <div className="query-band-main">
+          <section
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
+            aria-label="Results summary"
+          >
+            <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">
               <p className="eyebrow">Results</p>
-              <h2 className="query-title">{state.submittedQuery}</h2>
+              <h2 className="m-0 font-display text-[clamp(2.2rem,4.4vw,3.35rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
+                {state.submittedQuery}
+              </h2>
             </div>
-            <div className="query-band-meta">
+            <div className="grid min-w-[13rem] justify-items-end gap-1.5 self-center max-[720px]:min-w-0 max-[720px]:justify-items-start">
               {!state.isLoading ? (
-                <span className="query-count">
+                <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
                   {state.results.length}
                   {state.hasMore || state.isLoadingMore ? '+' : ''} cards
                 </span>
               ) : null}
-              <span className="query-hint">Select a card to open the detail rail.</span>
+              <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
+                Select a card to open the detail rail.
+              </span>
             </div>
           </section>
 
-          <section className="results-main" aria-label="Results state">
-            {state.isLoading ? <p className="results-feedback">Loading results...</p> : null}
+          <section
+            className="px-6 pb-14 pl-[38px] pr-6 pt-6 max-[720px]:px-4 max-[720px]:pl-6"
+            aria-label="Results state"
+          >
+            {state.isLoading ? (
+              <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">Loading results...</p>
+            ) : null}
             {!state.isLoading && state.results.length === 0 ? (
-              <p className="results-feedback">No cards matched this search.</p>
+              <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">No cards matched this search.</p>
             ) : null}
             {state.results.length > 0 ? (
-              <div className="results-layout">
+              <div className="grid items-start gap-7 [grid-template-columns:minmax(0,1fr)_340px] max-[900px]:grid-cols-1">
                 <ResultsGrid
                   cards={state.results}
                   hasMore={state.hasMore}

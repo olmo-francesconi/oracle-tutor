@@ -56,7 +56,10 @@ export function ResultsGrid({
   }, [hasMore, isLoadingMore, onLoadMore])
 
   return (
-    <section className="results-grid" aria-label="Search results">
+    <section
+      className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-3 max-[720px]:grid-cols-[repeat(auto-fill,minmax(154px,1fr))]"
+      aria-label="Search results"
+    >
       {cards.map((card) => {
         const title = getCardTitle(card)
 
@@ -64,20 +67,30 @@ export function ResultsGrid({
           <button
             key={`${card.id}-${card.face_ix}-${card.image_side}`}
             type="button"
-            className={`result-card ${selectedCardId === card.id ? 'result-card-active' : ''}`}
+            className={[
+              'group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 hover:bg-transparent motion-reduce:transition-none motion-reduce:hover:translate-y-0',
+              selectedCardId === card.id ? 'bg-transparent text-ot-ink' : '',
+            ].join(' ')}
             aria-pressed={selectedCardId === card.id}
             onClick={() => onCardSelect(card)}
             style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color) }}
           >
-            <span className="result-card-footer">
-              <span className="result-card-similarity">{formatSimilarity(card.similarity)}</span>
+            <span className="flex min-h-5 items-center justify-start px-[10px] pb-[9px] pt-2 text-[0.625rem] uppercase tracking-[0.12em]">
+              <span
+                className={[
+                  'text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
+                  selectedCardId === card.id ? 'text-ot-red' : 'group-hover:text-ot-red',
+                ].join(' ')}
+              >
+                {formatSimilarity(card.similarity)}
+              </span>
             </span>
 
-            <span className="result-card-frame">
+            <span className="block border-t-2 border-ot-ink bg-[var(--result-card-frame)] p-0">
               <CardImage
                 src={getCardImageUrl(card)}
                 alt={title}
-                className="result-card-image"
+                className="block aspect-[63/88] w-full rounded-[4.8%/3.5%] border-0 bg-[#d8d2c8] object-cover"
               />
             </span>
           </button>
@@ -85,7 +98,11 @@ export function ResultsGrid({
       })}
 
       {hasMore ? (
-        <div ref={sentinelRef} className="results-sentinel" aria-hidden="true">
+        <div
+          ref={sentinelRef}
+          className="col-[1/-1] border-t-2 border-ot-ink pt-3 text-left text-xs uppercase tracking-[0.11em] text-ot-muted"
+          aria-hidden="true"
+        >
           {isLoadingMore ? 'Loading more cards...' : 'Scroll for more'}
         </div>
       ) : null}

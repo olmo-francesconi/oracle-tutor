@@ -66,52 +66,65 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
   const hasStats = display.power && display.toughness
 
   return (
-    <aside className="card-overlay" aria-label="Card details">
-      <div className="card-overlay-header">
-        <div className="card-overlay-heading">
+    <aside
+      className="sticky top-24 grid gap-4 border-2 border-ot-ink bg-ot-surface p-4 animate-ot-fade-slide-in max-[900px]:static"
+      aria-label="Card details"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid gap-1.5">
           <p className="eyebrow">Detail Rail</p>
-          <h2 className="card-overlay-title">{display.name}</h2>
+          <h2 className="font-display text-[clamp(2.1rem,4vw,2.65rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
+            {display.name}
+          </h2>
         </div>
-        <button type="button" onClick={onClose} className="card-overlay-close">
+        <button
+          type="button"
+          onClick={onClose}
+          className="cursor-pointer border-2 border-ot-ink bg-transparent px-[10px] py-2 uppercase tracking-[0.08em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none"
+        >
           Close
         </button>
       </div>
 
-      <div className="card-overlay-meta">
+      <div className="flex flex-wrap gap-2">
         {display.manaCost ? (
-          <span className="card-overlay-chip">
+          <span className="border-2 border-ot-ink bg-ot-bg px-2 py-1.5 text-[0.6875rem] font-medium uppercase leading-none tracking-[0.12em]">
             <SymbolText text={display.manaCost} />
           </span>
         ) : null}
         {displayCard.set_code ? (
-          <span className="card-overlay-chip">{displayCard.set_code.toUpperCase()}</span>
+          <span className="border-2 border-ot-ink bg-ot-bg px-2 py-1.5 text-[0.6875rem] font-medium uppercase leading-none tracking-[0.12em]">
+            {displayCard.set_code.toUpperCase()}
+          </span>
         ) : null}
-        <span className="card-overlay-chip">{Math.round(card.similarity * 100)}% match</span>
+        <span className="border-2 border-ot-ink bg-ot-bg px-2 py-1.5 text-[0.6875rem] font-medium uppercase leading-none tracking-[0.12em]">
+          {Math.round(card.similarity * 100)}% match
+        </span>
       </div>
 
       <CardImage
         src={getCardImageUrl(card, 'large')}
         alt={display.name}
-        className="card-overlay-image"
+        className="aspect-[63/88] w-full border-2 border-ot-ink bg-[#d8d2c8] object-cover"
       />
 
-      <div className="card-overlay-body">
+      <div className="grid gap-3">
         {display.typeLine ? (
-          <p className="card-overlay-type">{display.typeLine}</p>
+          <p className="m-0 text-xs uppercase tracking-[0.08em] text-ot-muted">{display.typeLine}</p>
         ) : null}
         {display.oracleText ? (
-          <p className="card-overlay-text" aria-label="Oracle text">
+          <p className="m-0 text-sm leading-[1.65]" aria-label="Oracle text">
             <SymbolText text={display.oracleText} />
           </p>
         ) : null}
         {hasStats ? (
-          <p className="card-overlay-stats" aria-label="Power and toughness">
+          <p className="m-0 text-[0.8125rem] uppercase tracking-[0.12em] text-ot-ink" aria-label="Power and toughness">
             {display.power}
             {' / '}
             {display.toughness}
           </p>
         ) : null}
-        {isLoading ? <p className="card-overlay-loading">Loading fuller card text...</p> : null}
+        {isLoading ? <p className="m-0 text-sm leading-[1.65] text-ot-muted">Loading fuller card text...</p> : null}
       </div>
     </aside>
   )

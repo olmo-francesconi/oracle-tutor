@@ -132,17 +132,21 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
   }, [])
 
   return (
-    <div className="mana-rail-header" aria-label="Mana symbols">
+    <div className="h-10 w-full min-w-0 border-x-2 border-t-2 border-ot-ink bg-ot-bg" aria-label="Mana symbols">
       <div
         ref={railRef}
-        className="mana-rail"
+        className="scrollbar-none flex h-full w-full touch-pan-y select-none items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap px-[10px] py-0"
         role="toolbar"
         aria-label="Insert mana symbols"
       >
         {SYMBOLS.map((symbol, index) => {
           if (symbol === '.') {
             return (
-              <span key={`divider-${index}`} className="mana-rail-divider" aria-hidden="true">
+              <span
+                key={`divider-${index}`}
+                className="flex-none text-[10px] leading-5 text-[color:color-mix(in_srgb,var(--color-ot-ink)_25%,transparent)] opacity-30"
+                aria-hidden="true"
+              >
                 •
               </span>
             )
@@ -154,7 +158,7 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
             <button
               key={symbol}
               type="button"
-              className="mana-rail-button"
+              className="inline-flex min-h-5 min-w-5 flex-none cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-ot-ink opacity-30 transition-[background-color,opacity,color,transform] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none"
               data-symbol={symbol}
               aria-label={`Insert ${symbol}`}
               title={symbol}
@@ -167,7 +171,11 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
                 onInsert(symbol)
               }}
             >
-              {manaClass ? <i className={`${manaClass} ms-cost mana-rail-icon`} aria-hidden="true" /> : symbol}
+              {manaClass ? (
+                <i className={`${manaClass} ms-cost text-[0.8rem] leading-none`} aria-hidden="true" />
+              ) : (
+                symbol
+              )}
             </button>
           )
         })}

@@ -12,6 +12,7 @@ interface SearchBoxProps {
   onSubmit: (submittedValue?: string) => void
   autoFocus?: boolean
   showManaRail?: boolean
+  variant?: 'home' | 'topbar'
 }
 
 export function SearchBox({
@@ -21,6 +22,7 @@ export function SearchBox({
   onSubmit,
   autoFocus = false,
   showManaRail = true,
+  variant = 'home',
 }: SearchBoxProps) {
   const [suggestions, setSuggestions] = useState<CardMatch[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -131,10 +133,19 @@ export function SearchBox({
     onSubmit()
   }
 
+  const rootClassName = [
+    'relative grid w-full min-w-0 gap-0',
+    variant === 'topbar' ? 'h-full self-stretch bg-transparent' : '',
+    isOpen ? 'search-box-open' : '',
+    className ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
     <div
       ref={rootRef}
-      className={`search-box ${isOpen ? 'search-box-open' : ''} ${className ?? ''}`.trim()}
+      className={rootClassName}
       data-state={isOpen ? 'open' : 'closed'}
       onPointerDownCapture={() => {
         internalPointerActiveRef.current = true
@@ -150,6 +161,7 @@ export function SearchBox({
       <SearchInput
         value={value}
         autoFocus={autoFocus}
+        variant={variant}
         pendingInsert={pendingInsert}
         onChange={onChange}
         onSubmit={handleSubmit}
@@ -189,6 +201,7 @@ export function SearchBox({
 
       {isOpen ? (
         <SearchSuggestions
+          variant={variant}
           items={suggestions}
           activeIndex={activeIndex}
           isLoading={isLoading}

@@ -15,6 +15,7 @@ type SelectionRange = {
 interface SearchInputProps {
   value: string
   autoFocus?: boolean
+  variant: 'home' | 'topbar'
   pendingInsert: {
     id: number
     symbol: string
@@ -51,10 +52,10 @@ function buildEditableContent(root: HTMLDivElement, text: string) {
         const token = document.createElement('span')
         token.dataset.token = part
         token.contentEditable = 'false'
-        token.className = 'search-token'
+        token.className = 'inline-flex items-center align-middle'
 
         const icon = document.createElement('i')
-        icon.className = `${manaClass} ms-cost search-token-icon`
+        icon.className = `${manaClass} ms-cost inline-block align-middle text-[0.9em] leading-none`
         icon.setAttribute('title', part)
         icon.setAttribute('aria-label', part)
 
@@ -216,9 +217,25 @@ function normalizePastedText(text: string): string {
     .replace(/\t/g, ' ')
 }
 
+function restoreSelection(
+  editor: HTMLDivElement | null,
+  selection: SelectionRange | null,
+  fallbackLength: number
+) {
+  if (!editor) return
+
+  const nextSelection = selection ?? {
+    start: fallbackLength,
+    end: fallbackLength,
+  }
+
+  setSelectionRange(editor, nextSelection.start, nextSelection.end)
+}
+
 export function SearchInput({
   value,
   autoFocus = false,
+  variant,
   pendingInsert,
   onChange,
   onSubmit,
@@ -229,17 +246,6 @@ export function SearchInput({
   const editorRef = useRef<HTMLDivElement>(null)
   const pendingSelectionRef = useRef<SelectionRange | null>(null)
 
-  const restoreSelection = () => {
-    if (!editorRef.current) return
-
-    const selection = pendingSelectionRef.current ?? {
-      start: value.length,
-      end: value.length,
-    }
-
-    setSelectionRange(editorRef.current, selection.start, selection.end)
-  }
-
   useEffect(() => {
     if (!autoFocus || !editorRef.current) return
     editorRef.current.focus()
@@ -247,7 +253,7 @@ export function SearchInput({
       start: value.length,
       end: value.length,
     }
-    restoreSelection()
+    restoreSelection(editorRef.current, pendingSelectionRef.current, value.length)
   }, [autoFocus, value.length])
 
   useLayoutEffect(() => {
@@ -256,9 +262,9 @@ export function SearchInput({
     buildEditableContent(editorRef.current, value)
 
     if (document.activeElement === editorRef.current) {
-      restoreSelection()
+      restoreSelection(editorRef.current, pendingSelectionRef.current, value.length)
     }
-  }, [value])
+  }, [value, value.length])
 
   useEffect(() => {
     if (!pendingInsert || !editorRef.current) return
@@ -321,8 +327,8 @@ export function SearchInput({
   }
 
   return (
-    <label className="search-input-shell">
-      <span className="control-label">Search</span>
+    <label className="grid w-full min-w-0 gap-0">
+      <span className="sr-only">Search</span>
       <div
         ref={editorRef}
         contentEditable
@@ -334,7 +340,7 @@ export function SearchInput({
         onPaste={handlePaste}
         onKeyDown={handleKeyDown}
         onFocus={() => {
-          restoreSelection()
+          restoreSelection(editorRef.current, pendingSelectionRef.current, value.length)
           onFocusChange(true)
         }}
         onBlur={() => {
@@ -343,8 +349,15 @@ export function SearchInput({
           }
           onFocusChange(false)
         }}
-        className="search-editor"
+        className={[
+          'search-editor w-full min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap border-2 border-ot-ink bg-ot-surface text-ot-ink caret-ot-red outline-none transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
+          'box-border',
+          variant === 'topbar'
+            ? 'flex h-full min-h-full items-center border-x-0 border-y-0 bg-transparent px-[22px] py-0 text-sm leading-[1.3] max-[720px]:px-[14px] max-[720px]:text-[0.8125rem]'
+            : 'h-14 min-h-14 px-[18px] py-4 text-base leading-[1.45]',
+        ].join(' ')}
         data-placeholder="search for a card or describe what it does…"
+        data-variant={variant}
       />
     </label>
   )
