@@ -320,11 +320,11 @@ Definition of done:
 
 ### Phase 0
 
-- [ ] Create `frontend-v2`
-- [ ] Install minimal dependencies
-- [ ] Add base styles
-- [ ] Add `mana-font`
-- [ ] Confirm build and lint
+- [x] Create `frontend-v2`
+- [x] Install minimal dependencies
+- [x] Add base styles
+- [x] Add `mana-font`
+- [x] Confirm build and lint
 
 ### Phase 1
 

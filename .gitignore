@@ -224,6 +224,7 @@ yarn-debug.log*
 yarn-error.log*
 package-lock.json
 !frontend/package-lock.json
+!frontend-v2/package-lock.json
 
 # MacOS
 .DS_Store
