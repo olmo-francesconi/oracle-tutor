@@ -301,14 +301,14 @@ export function SearchShell() {
       <div className="fixed inset-y-0 left-0 z-20 w-1.5 bg-ot-red" aria-hidden="true" />
 
       {isHome ? (
-        <section className="grid w-full max-w-[560px] gap-8" aria-label="Home state">
-          <div className="grid justify-items-center gap-2.5 text-center">
-            <h1 className="m-0 font-display text-[clamp(4.5rem,11vw,7rem)] font-black uppercase leading-[0.88] tracking-[-0.025em]">
+        <section className="grid w-full max-w-[560px] gap-7" aria-label="Home state">
+          <div className="grid gap-3 px-[18px] text-left max-[720px]:px-[14px]">
+            <h1 className="m-0 font-display text-[clamp(4.5rem,11vw,7rem)] font-black uppercase leading-[0.86] tracking-[-0.03em]">
               <span className="block">Oracle</span>
               <span className="block">Tutor</span>
             </h1>
-            <div className="h-0.5 w-full bg-ot-ink" />
-            <p className="m-0 max-w-[28rem] text-[0.8125rem] lowercase leading-[1.5] tracking-[0.08em] text-ot-muted">
+            <div className="h-0.5 w-full max-w-[18.5rem] bg-ot-ink" />
+            <p className="m-0 max-w-[30ch] text-[0.8125rem] lowercase leading-[1.55] tracking-[0.06em] text-ot-muted">
               find cards by meaning, not keywords.
             </p>
           </div>
