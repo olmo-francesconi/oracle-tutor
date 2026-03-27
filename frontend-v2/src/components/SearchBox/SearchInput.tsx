@@ -353,7 +353,7 @@ export function SearchInput({
           'search-editor w-full min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap border-2 border-ot-ink bg-ot-surface text-ot-ink caret-ot-red outline-none transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
           'box-border',
           variant === 'topbar'
-            ? 'flex h-full min-h-full items-center border-x-0 border-y-0 bg-transparent px-[22px] py-0 text-sm leading-[1.3] max-[720px]:px-[14px] max-[720px]:text-[0.8125rem]'
+            ? 'flex h-full min-h-full items-center border-x-0 border-y-0 bg-ot-surface px-[22px] py-0 text-sm leading-[1.3] max-[720px]:px-[14px] max-[720px]:text-[0.8125rem]'
             : 'h-14 min-h-14 px-[18px] py-4 text-base leading-[1.45]',
         ].join(' ')}
         data-placeholder="search for a card or describe what it does…"

@@ -156,7 +156,7 @@ export function SearchBox({
         })
       }}
     >
-      {showManaRail ? <ManaSymbolRail onInsert={handleInsert} /> : null}
+      {showManaRail ? <ManaSymbolRail onInsert={handleInsert} transparentBackground={variant === 'home'} /> : null}
 
       <SearchInput
         value={value}

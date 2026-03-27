@@ -49,14 +49,14 @@ const ResultCard = memo(function ResultCard({ card, isSelected, onCardSelect }: 
     <button
       type="button"
       className={[
-        'group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 hover:bg-transparent motion-reduce:transition-none motion-reduce:hover:translate-y-0',
-        isSelected ? 'bg-transparent text-ot-ink' : '',
+        'group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-[transform,color] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0',
+        isSelected ? 'text-ot-ink' : '',
       ].join(' ')}
       aria-pressed={isSelected}
       onClick={() => onCardSelect(card)}
       style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color) }}
     >
-      <span className="flex min-h-5 items-center justify-start px-[10px] pb-[9px] pt-2 text-[0.625rem] uppercase tracking-[0.12em]">
+      <span className="relative z-10 flex min-h-5 items-center justify-start bg-ot-surface px-[10px] pb-[9px] pt-2 text-[0.625rem] uppercase tracking-[0.12em]">
         <span
           className={[
             'text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',

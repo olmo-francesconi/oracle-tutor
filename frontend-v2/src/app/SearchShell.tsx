@@ -2,12 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CardOverlay } from '../components/CardOverlay'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
-import { searchOracleText } from '../lib/api'
+import { DenseTextBackground } from '../components/background/DenseTextBackground'
+import { HomeEditorialText } from '../components/background/HomeEditorialText'
+import { getOracleSamples, searchOracleText } from '../lib/api'
 import { readSubmittedQueryFromUrl, writeSubmittedQueryToUrl } from '../lib/urlState'
-import type { SimilarCard, SimilarCardsPage } from '../types/api'
+import type { OracleSamples, SimilarCard, SimilarCardsPage } from '../types/api'
 import type { SearchShellState } from '../types/ui'
 
 const RESULTS_PAGE_SIZE = 24
+const LEFT_STRIPE_WIDTH_PX = 6
+
+type ViewportSize = {
+  width: number
+  height: number
+}
 
 const INITIAL_STATE: SearchShellState = {
   draftQuery: '',
@@ -18,6 +26,27 @@ const INITIAL_STATE: SearchShellState = {
   isLoading: false,
   isLoadingMore: false,
   selectedCard: null,
+}
+
+const EMPTY_ORACLE_SAMPLES: OracleSamples = {
+  texts: [],
+  terms: [],
+}
+
+const DEFAULT_VIEWPORT: ViewportSize = {
+  width: 1280,
+  height: 900,
+}
+
+function getViewportSize(): ViewportSize {
+  if (typeof window === 'undefined') {
+    return DEFAULT_VIEWPORT
+  }
+
+  return {
+    width: Math.max(window.innerWidth, 0),
+    height: Math.max(window.innerHeight, window.screen?.height ?? 0),
+  }
 }
 
 function buildSearchLoadingState(current: SearchShellState, query: string): SearchShellState {
@@ -95,12 +124,16 @@ function getSelectedCardKey(card: SimilarCard | null): string | null {
 
 export function SearchShell() {
   const [state, setState] = useState<SearchShellState>(getInitialState)
+  const [oracleSamples, setOracleSamples] = useState<OracleSamples>(EMPTY_ORACLE_SAMPLES)
+  const [viewport, setViewport] = useState<ViewportSize>(getViewportSize)
   const activeRequestRef = useRef<AbortController | null>(null)
   const hasLoadedInitialQueryRef = useRef(false)
   const skipNextUrlWriteRef = useRef(state.submittedQuery !== null)
+  const resizeFrameRef = useRef<number | null>(null)
 
   const isHome = state.submittedQuery === null
   const selectedCardKey = getSelectedCardKey(state.selectedCard)
+  const hasOracleBackground = oracleSamples.texts.length > 0
 
   const handleDraftChange = useCallback((value: string) => {
     setState((current) => ({
@@ -218,6 +251,46 @@ export function SearchShell() {
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
+
+    void (async () => {
+      const nextSamples = await getOracleSamples(controller.signal)
+
+      if (!controller.signal.aborted) {
+        setOracleSamples(nextSamples)
+      }
+    })()
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const updateViewport = () => {
+      setViewport(getViewportSize())
+    }
+
+    const scheduleUpdate = () => {
+      if (resizeFrameRef.current !== null) return
+
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null
+        updateViewport()
+      })
+    }
+
+    updateViewport()
+    window.addEventListener('resize', scheduleUpdate)
+
+    return () => {
+      window.removeEventListener('resize', scheduleUpdate)
+
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     if (hasLoadedInitialQueryRef.current) return
     hasLoadedInitialQueryRef.current = true
 
@@ -298,10 +371,26 @@ export function SearchShell() {
         isHome ? 'grid place-items-center px-6 pb-16 pl-11 pt-12 max-[720px]:px-4 max-[720px]:pb-12 max-[720px]:pl-[30px] max-[720px]:pt-8' : '',
       ].join(' ')}
     >
+      <DenseTextBackground
+        texts={oracleSamples.texts}
+        viewport={viewport}
+        isVisible={hasOracleBackground}
+        leftInset={LEFT_STRIPE_WIDTH_PX}
+      />
+      {isHome ? (
+        <HomeEditorialText
+          texts={oracleSamples.texts}
+          terms={oracleSamples.terms}
+          viewport={viewport}
+          isVisible={hasOracleBackground}
+          leftInset={LEFT_STRIPE_WIDTH_PX}
+        />
+      ) : null}
+
       <div className="fixed inset-y-0 left-0 z-20 w-1.5 bg-ot-red" aria-hidden="true" />
 
       {isHome ? (
-        <section className="grid w-full max-w-[560px] gap-7" aria-label="Home state">
+        <section className="relative z-20 grid w-full max-w-[560px] gap-7" aria-label="Home state">
           <div className="grid gap-3 px-[18px] text-left max-[720px]:px-[14px]">
             <h1 className="m-0 font-display text-[clamp(4.5rem,11vw,7rem)] font-black uppercase leading-[0.86] tracking-[-0.03em]">
               <span className="block">Oracle</span>
@@ -349,7 +438,7 @@ export function SearchShell() {
           </header>
 
           <section
-            className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
+            className="relative z-20 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink bg-ot-bg px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
             aria-label="Results summary"
           >
             <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">

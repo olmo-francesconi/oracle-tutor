@@ -26,9 +26,13 @@ const SYMBOLS = [
 
 interface ManaSymbolRailProps {
   onInsert: (symbol: string) => void
+  transparentBackground?: boolean
 }
 
-export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
+export function ManaSymbolRail({
+  onInsert,
+  transparentBackground = false,
+}: ManaSymbolRailProps) {
   const railRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -159,7 +163,10 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
   }
 
   return (
-    <div className="relative h-10 w-full min-w-0 bg-ot-bg" aria-label="Mana symbols">
+    <div
+      className={`relative h-10 w-full min-w-0 ${transparentBackground ? 'bg-transparent' : 'bg-ot-bg'}`}
+      aria-label="Mana symbols"
+    >
       <div
         ref={railRef}
         className="scrollbar-none flex h-full w-full touch-pan-y select-none items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap px-[10px] py-0"
@@ -212,7 +219,9 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
         className={[
           'pointer-events-none absolute inset-y-0 left-0 w-12 transition-opacity duration-150',
           canScrollLeft ? 'opacity-100' : 'opacity-0',
-          'bg-[linear-gradient(to_right,var(--color-ot-bg)_0%,rgba(240,237,230,0.92)_38%,rgba(240,237,230,0)_100%)]',
+          transparentBackground
+            ? 'bg-[linear-gradient(to_right,rgba(240,237,230,0)_0%,rgba(240,237,230,0)_100%)]'
+            : 'bg-[linear-gradient(to_right,var(--color-ot-bg)_0%,rgba(240,237,230,0.92)_38%,rgba(240,237,230,0)_100%)]',
         ].join(' ')}
         aria-hidden="true"
       />
@@ -220,7 +229,9 @@ export function ManaSymbolRail({ onInsert }: ManaSymbolRailProps) {
         className={[
           'pointer-events-none absolute inset-y-0 right-0 w-12 transition-opacity duration-150',
           canScrollRight ? 'opacity-100' : 'opacity-0',
-          'bg-[linear-gradient(to_left,var(--color-ot-bg)_0%,rgba(240,237,230,0.92)_38%,rgba(240,237,230,0)_100%)]',
+          transparentBackground
+            ? 'bg-[linear-gradient(to_left,rgba(240,237,230,0)_0%,rgba(240,237,230,0)_100%)]'
+            : 'bg-[linear-gradient(to_left,var(--color-ot-bg)_0%,rgba(240,237,230,0.92)_38%,rgba(240,237,230,0)_100%)]',
         ].join(' ')}
         aria-hidden="true"
       />
