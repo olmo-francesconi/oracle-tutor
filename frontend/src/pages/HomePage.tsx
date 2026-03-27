@@ -380,6 +380,7 @@ export default function HomePage() {
             >
               <UnifiedSearchBox
                 autoFocus
+                enableTypeAhead
                 size="hero"
                 heroScale={compositionScale}
                 onDropdownChange={setIsDropdownOpen}

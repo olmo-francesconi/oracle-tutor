@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { FunnelIcon } from '@phosphor-icons/react'
@@ -18,6 +18,8 @@ import { getCardImageUrl, getImageSideForFace } from '../utils'
 const RESULTS_PAGE_SIZE = 60
 const HOME_LEFT_INSET = 6
 const MIN_HOME_COMPOSITION_WIDTH = 360
+const TOP_BAR_HEIGHT = 56
+const DETAIL_BAND_HEIGHT = 46
 
 function getActiveFilterCount(filters: FilterState): number {
   return Object.keys(filters).filter(
@@ -164,9 +166,11 @@ function SearchMode({ query }: { query: string }) {
         searchBox={
           <UnifiedSearchBox
             key={query}
+            enableTypeAhead
             size="topBar"
             initialValue={query}
             className="h-full w-full"
+            onTypeAheadTrigger={() => window.scrollTo({ top: 0 })}
           />
         }
         filters={filters}
@@ -177,8 +181,8 @@ function SearchMode({ query }: { query: string }) {
       >
         {query && (
           <DetailBand accent>
-            <div className="flex items-baseline gap-3 px-6 py-3.5">
-              <h2 className="font-display text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 sm:px-6 sm:py-3.5">
+              <h2 className="font-display text-[18px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase sm:text-[20px]">
                 <SymbolText text={query} />
               </h2>
               {!isLoading && (
@@ -191,7 +195,7 @@ function SearchMode({ query }: { query: string }) {
           </DetailBand>
         )}
 
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1" style={{ paddingTop: query ? DETAIL_BAND_HEIGHT : 0 }}>
           <ResultsSurface>
             <CardGrid
               cards={cards}
@@ -349,7 +353,7 @@ function CardMode({ id }: { id: string }) {
   }
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[#F0EDE6]">
+    <div className="flex min-h-screen w-full flex-col bg-[#F0EDE6]">
       <PageSEO
         title={`${card.name} - Oracle Tutor`}
         description={
@@ -374,9 +378,11 @@ function CardMode({ id }: { id: string }) {
         searchBox={
           <UnifiedSearchBox
             key={displayName}
+            enableTypeAhead
             size="topBar"
             initialValue={displayName}
             className="h-full w-full"
+            onTypeAheadTrigger={() => window.scrollTo({ top: 0 })}
           />
         }
         filters={filters}
@@ -386,21 +392,23 @@ function CardMode({ id }: { id: string }) {
         onToggleFilters={() => setShowFilters((value) => !value)}
       >
         <DetailBand accent>
-          <div className="flex min-w-0 flex-1 items-center gap-3 px-6 py-3.5">
-            <h1 className="font-display shrink-0 text-[20px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase">
+          <div className="flex min-w-0 flex-1 items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6 sm:py-3.5">
+            <h1 className="font-display min-w-0 truncate text-[18px] leading-none font-[900] tracking-[-0.02em] text-[#111111] uppercase sm:shrink-0 sm:text-[20px]">
               {displayName}
             </h1>
-            {displayType && (
-              <>
-                <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
-                <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">{displayType}</span>
-              </>
-            )}
             {displayMana && (
               <>
                 <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
                 <span className="font-mono shrink-0 text-[11px] text-[#7A7670]">
                   <SymbolText text={displayMana} />
+                </span>
+              </>
+            )}
+            {displayType && (
+              <>
+                <span className="shrink-0 text-[#CCCCCC]" aria-hidden>·</span>
+                <span className="font-mono min-w-0 truncate text-[11px] text-[#7A7670]">
+                  {displayType}
                 </span>
               </>
             )}
@@ -426,13 +434,13 @@ function CardMode({ id }: { id: string }) {
                 } as SimilarCard,
               })
             }
-            className="font-mono flex shrink-0 items-center border-l-2 border-[#111111] px-5 text-[11px] uppercase tracking-[0.08em] text-[#7A7670] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6]"
+            className="font-mono flex shrink-0 items-center border-l-2 border-[#111111] px-4 text-[11px] uppercase tracking-[0.08em] text-[#7A7670] transition-colors hover:bg-[#111111] hover:text-[#F0EDE6] sm:px-5"
           >
             View card ↗
           </button>
         </DetailBand>
 
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1" style={{ paddingTop: DETAIL_BAND_HEIGHT }}>
           <ResultsSurface>
             <CardGrid
               cards={similarCards}
@@ -469,7 +477,7 @@ function ResultsSurface({ children }: { children: React.ReactNode }) {
   const isBackgroundLoaded = hasOracleSamples && backgroundTexts.length > 0
 
   return (
-    <div className="relative h-full min-h-0 flex-1 overflow-hidden">
+    <div className="relative min-h-0 flex-1 overflow-hidden">
       <HomeTextBackground
         texts={backgroundTexts}
         isLoaded={isBackgroundLoaded}
@@ -501,20 +509,34 @@ function ResultsPageShell({
   onToggleFilters: () => void
   children: React.ReactNode
 }) {
+  const [filterStripHeight, setFilterStripHeight] = useState(0)
+  const chromeHeight = TOP_BAR_HEIGHT + (showFilters ? filterStripHeight : 0)
+
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F0EDE6]">
-      <TopBar
-        center={searchBox}
-        showFilters={showFilters}
-        activeFilterCount={activeFilterCount}
-        onToggleFilters={onToggleFilters}
-      />
+    <div className="min-h-screen bg-[#F0EDE6]">
+      <div className="fixed inset-x-0 top-0 z-40">
+        <TopBar
+          center={searchBox}
+          showFilters={showFilters}
+          activeFilterCount={activeFilterCount}
+          onToggleFilters={onToggleFilters}
+        />
 
-      {showFilters && (
-        <FilterStrip filters={filters} onFilterChange={onFilterChange} />
-      )}
+        {showFilters && (
+          <FilterStrip
+            filters={filters}
+            onFilterChange={onFilterChange}
+            onHeightChange={setFilterStripHeight}
+          />
+        )}
+      </div>
 
-      {children}
+      <div
+        className="flex min-h-screen flex-col bg-[#F0EDE6]"
+        style={{ paddingTop: chromeHeight, ['--results-top-offset' as string]: `${chromeHeight}px` }}
+      >
+        {children}
+      </div>
     </div>
   )
 }
@@ -523,7 +545,10 @@ function ResultsPageShell({
 
 function DetailBand({ accent, children }: { accent?: boolean; children: React.ReactNode }) {
   return (
-    <div className="relative z-20 flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]">
+    <div
+      className="fixed inset-x-0 z-30 flex items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]"
+      style={{ top: 'var(--results-top-offset, 56px)', minHeight: DETAIL_BAND_HEIGHT }}
+    >
       {accent && <div className="w-[4px] shrink-0 bg-[#CC1100]" />}
       {children}
     </div>
@@ -543,21 +568,21 @@ function TopBar({
 }) {
   return (
     <div
-      className="relative z-30 flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]"
-      style={{ height: 56 }}
+      className="flex shrink-0 items-stretch border-b-2 border-[#111111] bg-[#F0EDE6]"
+      style={{ height: TOP_BAR_HEIGHT }}
     >
       <Link
         to="/"
-        className="font-display flex shrink-0 items-center border-r-2 border-[#111111] px-5 text-[18px] font-[800] tracking-[-0.01em] text-[#111111] uppercase transition-colors hover:bg-[#111111] hover:text-[#F0EDE6]"
+        className="font-display flex shrink-0 items-center border-r-2 border-[#111111] px-4 text-[16px] font-[800] tracking-[-0.01em] text-[#111111] uppercase transition-colors hover:bg-[#111111] hover:text-[#F0EDE6] sm:px-5 sm:text-[18px]"
       >
-        Oracle Tutor
+        <span className="truncate">Oracle Tutor</span>
       </Link>
 
       <div className="flex min-w-0 flex-1 self-stretch">{center}</div>
 
       <button
         onClick={onToggleFilters}
-        className="font-display flex shrink-0 items-center gap-2 border-l-2 border-[#111111] px-5 text-[12px] font-[700] tracking-[0.12em] uppercase transition-colors"
+        className="font-display flex shrink-0 items-center gap-1.5 border-l-2 border-[#111111] px-3 text-[10px] font-[700] tracking-[0.12em] uppercase transition-colors sm:gap-2 sm:px-5 sm:text-[12px]"
         style={
           showFilters || activeFilterCount > 0
             ? { background: '#111111', color: '#F0EDE6' }
@@ -582,12 +607,32 @@ function TopBar({
 function FilterStrip({
   filters,
   onFilterChange,
+  onHeightChange,
 }: {
   filters: FilterState
   onFilterChange: (f: FilterState) => void
+  onHeightChange: (height: number) => void
 }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+
+    const updateHeight = () => onHeightChange(node.getBoundingClientRect().height)
+    updateHeight()
+
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [onHeightChange])
+
   return (
-    <div className="relative z-30 flex shrink-0 items-center border-b-2 border-[#111111] bg-white px-4">
+    <div
+      ref={ref}
+      className="z-30 flex shrink-0 items-center border-b-2 border-[#111111] bg-white px-3 sm:px-4"
+    >
       <FilterBar
         filters={filters}
         onFilterChange={onFilterChange}
