@@ -5,9 +5,7 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from 'react'
-import { getManaClass, splitSymbolParts } from '../../lib/manaSymbols'
-
-const SAFE_MANA_TOKEN_RE = /^\{[A-Z0-9/]+\}$/i
+import { getManaClass, isSupportedManaSymbol, splitSymbolParts } from '../../lib/manaSymbols'
 
 type SelectionRange = {
   start: number
@@ -48,7 +46,7 @@ function buildEditableContent(root: HTMLDivElement, text: string) {
   const fragment = document.createDocumentFragment()
 
   splitSymbolParts(text).forEach((part) => {
-    if (SAFE_MANA_TOKEN_RE.test(part)) {
+    if (isSupportedManaSymbol(part)) {
       const manaClass = getManaClass(part)
       if (manaClass) {
         const token = document.createElement('span')

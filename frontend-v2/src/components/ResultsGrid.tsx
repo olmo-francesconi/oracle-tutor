@@ -110,6 +110,7 @@ export function ResultsGrid({
     <section
       className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-3 max-[720px]:grid-cols-[repeat(auto-fill,minmax(154px,1fr))]"
       aria-label="Search results"
+      aria-busy={isLoadingMore}
     >
       {cards.map((card) => {
         const cardKey = getCardKey(card)
@@ -127,7 +128,10 @@ export function ResultsGrid({
       {hasMore ? (
         <div
           ref={sentinelRef}
-          className="col-[1/-1] border-t-2 border-ot-ink pt-3 text-left text-xs uppercase tracking-[0.11em] text-ot-muted"
+          className={[
+            'col-[1/-1] border-t-2 border-ot-ink pt-3 text-left text-xs uppercase tracking-[0.11em] text-ot-muted transition-opacity duration-150',
+            isLoadingMore ? 'pointer-events-none opacity-55' : 'opacity-100',
+          ].join(' ')}
           aria-hidden="true"
         >
           {isLoadingMore ? 'Loading more cards...' : 'Scroll for more'}

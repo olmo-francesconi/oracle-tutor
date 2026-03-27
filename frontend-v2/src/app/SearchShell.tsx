@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CardOverlay } from '../components/CardOverlay'
+import { FilterBar } from '../components/FilterBar'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
 import { DenseTextBackground } from '../components/background/DenseTextBackground'
 import { HomeEditorialText } from '../components/background/HomeEditorialText'
+import { normalizeFilterState } from '../lib/filters'
 import { getOracleSamples, searchOracleText } from '../lib/api'
-import { readSubmittedQueryFromUrl, writeSubmittedQueryToUrl } from '../lib/urlState'
-import type { OracleSamples, SimilarCard, SimilarCardsPage } from '../types/api'
+import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
+import type { FilterState, OracleSamples, SimilarCard, SimilarCardsPage } from '../types/api'
 import type { SearchShellState } from '../types/ui'
 
 const RESULTS_PAGE_SIZE = 24
@@ -21,6 +23,7 @@ const INITIAL_STATE: SearchShellState = {
   draftQuery: '',
   submittedQuery: null,
   filters: {},
+  error: null,
   results: [],
   hasMore: false,
   isLoading: false,
@@ -49,10 +52,16 @@ function getViewportSize(): ViewportSize {
   }
 }
 
-function buildSearchLoadingState(current: SearchShellState, query: string): SearchShellState {
+function buildSearchLoadingState(
+  current: SearchShellState,
+  query: string,
+  filters: FilterState
+): SearchShellState {
   return {
     ...current,
     submittedQuery: query,
+    filters,
+    error: null,
     results: [],
     hasMore: false,
     isLoading: true,
@@ -64,11 +73,14 @@ function buildSearchLoadingState(current: SearchShellState, query: string): Sear
 function buildSearchSuccessState(
   current: SearchShellState,
   query: string,
+  filters: FilterState,
   page: SimilarCardsPage
 ): SearchShellState {
   return {
     ...current,
     submittedQuery: query,
+    filters,
+    error: null,
     results: page.items,
     hasMore: page.has_more,
     isLoading: false,
@@ -77,10 +89,17 @@ function buildSearchSuccessState(
   }
 }
 
-function buildSearchFailureState(current: SearchShellState, query: string): SearchShellState {
+function buildSearchFailureState(
+  current: SearchShellState,
+  query: string,
+  filters: FilterState,
+  error: string
+): SearchShellState {
   return {
     ...current,
     submittedQuery: query,
+    filters,
+    error,
     results: [],
     hasMore: false,
     isLoading: false,
@@ -94,6 +113,8 @@ function buildClearedState(current: SearchShellState): SearchShellState {
     ...current,
     draftQuery: '',
     submittedQuery: null,
+    filters: {},
+    error: null,
     results: [],
     hasMore: false,
     isLoading: false,
@@ -103,7 +124,8 @@ function buildClearedState(current: SearchShellState): SearchShellState {
 }
 
 function getInitialState(): SearchShellState {
-  const initialQuery = readSubmittedQueryFromUrl()
+  const initialUrlState = readSearchStateFromUrl()
+  const initialQuery = initialUrlState.query
 
   if (!initialQuery) {
     return INITIAL_STATE
@@ -113,6 +135,7 @@ function getInitialState(): SearchShellState {
     ...INITIAL_STATE,
     draftQuery: initialQuery,
     submittedQuery: initialQuery,
+    filters: initialUrlState.filters,
     isLoading: true,
   }
 }
@@ -122,11 +145,32 @@ function getSelectedCardKey(card: SimilarCard | null): string | null {
   return `${card.id}-${card.face_ix}-${card.image_side}`
 }
 
+function getSearchErrorMessage(error: unknown): string {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'You appear to be offline. Reconnect, then run the search again.'
+  }
+
+  if (error instanceof Error) {
+    if (
+      error.name === 'AbortError' ||
+      error.message.includes('Failed to fetch') ||
+      error.message.toLowerCase().includes('network')
+    ) {
+      return 'Connection issue. Check your network and try the search again.'
+    }
+
+    return error.message
+  }
+
+  return 'Something interrupted the search. Try again.'
+}
+
 export function SearchShell() {
   const [state, setState] = useState<SearchShellState>(getInitialState)
   const [oracleSamples, setOracleSamples] = useState<OracleSamples>(EMPTY_ORACLE_SAMPLES)
   const [viewport, setViewport] = useState<ViewportSize>(getViewportSize)
-  const activeRequestRef = useRef<AbortController | null>(null)
+  const activeSearchRequestRef = useRef<AbortController | null>(null)
+  const activeLoadMoreRequestRef = useRef<AbortController | null>(null)
   const hasLoadedInitialQueryRef = useRef(false)
   const skipNextUrlWriteRef = useRef(state.submittedQuery !== null)
   const resizeFrameRef = useRef<number | null>(null)
@@ -146,25 +190,27 @@ export function SearchShell() {
     return searchOracleText(query, 0, RESULTS_PAGE_SIZE, filters, signal)
   }, [])
 
-  const runSearch = useCallback(async (query: string) => {
-    activeRequestRef.current?.abort()
-    const controller = new AbortController()
-    activeRequestRef.current = controller
+  const runSearch = useCallback(async (query: string, filters: FilterState) => {
+    activeSearchRequestRef.current?.abort()
+    activeLoadMoreRequestRef.current?.abort()
 
-    setState((current) => buildSearchLoadingState(current, query))
+    const controller = new AbortController()
+    activeSearchRequestRef.current = controller
+
+    setState((current) => buildSearchLoadingState(current, query, filters))
 
     try {
-      const page = await fetchFirstPage(query, state.filters, controller.signal)
+      const page = await fetchFirstPage(query, filters, controller.signal)
 
       if (controller.signal.aborted) return
 
-      setState((current) => buildSearchSuccessState(current, query, page))
-    } catch {
+      setState((current) => buildSearchSuccessState(current, query, filters, page))
+    } catch (error) {
       if (controller.signal.aborted) return
 
-      setState((current) => buildSearchFailureState(current, query))
+      setState((current) => buildSearchFailureState(current, query, filters, getSearchErrorMessage(error)))
     }
-  }, [fetchFirstPage, state.filters])
+  }, [fetchFirstPage])
 
   const handleSubmit = useCallback((submittedValue?: string) => {
     const nextQuery = (submittedValue ?? state.draftQuery).trim()
@@ -175,18 +221,38 @@ export function SearchShell() {
       draftQuery: nextQuery,
     }))
 
-    void runSearch(nextQuery)
-  }, [runSearch, state.draftQuery])
+    void runSearch(nextQuery, state.filters)
+  }, [runSearch, state.draftQuery, state.filters])
+
+  const handleFiltersChange = useCallback((nextFilters: FilterState) => {
+    const normalizedFilters = normalizeFilterState(nextFilters)
+
+    setState((current) => ({
+      ...current,
+      filters: normalizedFilters,
+      error: null,
+    }))
+
+    if (!state.submittedQuery) return
+    void runSearch(state.submittedQuery, normalizedFilters)
+  }, [runSearch, state.submittedQuery])
+
+  const handleClearFilters = useCallback(() => {
+    void handleFiltersChange({})
+  }, [handleFiltersChange])
 
   const handleLoadMore = useCallback(async () => {
     if (!state.submittedQuery || state.isLoading || state.isLoadingMore || !state.hasMore) {
       return
     }
 
+    activeLoadMoreRequestRef.current?.abort()
     const controller = new AbortController()
+    activeLoadMoreRequestRef.current = controller
 
     setState((current) => ({
       ...current,
+      error: null,
       isLoadingMore: true,
     }))
 
@@ -203,15 +269,17 @@ export function SearchShell() {
 
       setState((current) => ({
         ...current,
+        error: null,
         results: [...current.results, ...page.items],
         hasMore: page.has_more,
         isLoadingMore: false,
       }))
-    } catch {
+    } catch (error) {
       if (controller.signal.aborted) return
 
       setState((current) => ({
         ...current,
+        error: getSearchErrorMessage(error),
         isLoadingMore: false,
       }))
     }
@@ -245,8 +313,9 @@ export function SearchShell() {
   }, [])
 
   const handleReset = useCallback(() => {
-    activeRequestRef.current?.abort()
-    writeSubmittedQueryToUrl(null)
+    activeSearchRequestRef.current?.abort()
+    activeLoadMoreRequestRef.current?.abort()
+    writeSearchStateToUrl(null, {})
     setState((current) => buildClearedState(current))
   }, [])
 
@@ -295,26 +364,8 @@ export function SearchShell() {
     hasLoadedInitialQueryRef.current = true
 
     if (!state.submittedQuery) return
-    const submittedQuery = state.submittedQuery
-
-    activeRequestRef.current?.abort()
-    const controller = new AbortController()
-    activeRequestRef.current = controller
-
-    void (async () => {
-      try {
-        const page = await fetchFirstPage(submittedQuery, state.filters, controller.signal)
-
-        if (controller.signal.aborted) return
-
-        setState((current) => buildSearchSuccessState(current, submittedQuery, page))
-      } catch {
-        if (controller.signal.aborted) return
-
-        setState((current) => buildSearchFailureState(current, submittedQuery))
-      }
-    })()
-  }, [fetchFirstPage, state.filters, state.submittedQuery])
+    void runSearch(state.submittedQuery, state.filters)
+  }, [runSearch, state.filters, state.submittedQuery])
 
   useEffect(() => {
     if (!state.selectedCard) return
@@ -333,10 +384,12 @@ export function SearchShell() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const nextQuery = readSubmittedQueryFromUrl()
+      const nextState = readSearchStateFromUrl()
+      const nextQuery = nextState.query
 
       if (!nextQuery) {
-        activeRequestRef.current?.abort()
+        activeSearchRequestRef.current?.abort()
+        activeLoadMoreRequestRef.current?.abort()
         skipNextUrlWriteRef.current = true
         setState((current) => buildClearedState(current))
         return
@@ -346,9 +399,11 @@ export function SearchShell() {
       setState((current) => ({
         ...current,
         draftQuery: nextQuery,
+        filters: nextState.filters,
+        error: null,
       }))
 
-      void runSearch(nextQuery)
+      void runSearch(nextQuery, nextState.filters)
     }
 
     window.addEventListener('popstate', handlePopState)
@@ -362,8 +417,8 @@ export function SearchShell() {
     }
 
     if (state.submittedQuery === null) return
-    writeSubmittedQueryToUrl(state.submittedQuery)
-  }, [state.submittedQuery])
+    writeSearchStateToUrl(state.submittedQuery, state.filters)
+  }, [state.filters, state.submittedQuery])
 
   return (
     <main
@@ -450,7 +505,7 @@ export function SearchShell() {
             </div>
             <div className="grid min-w-[13rem] justify-items-end gap-1.5 self-center max-[720px]:min-w-0 max-[720px]:justify-items-start">
               {!state.isLoading ? (
-                <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
+                <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted" aria-live="polite">
                   {state.results.length}
                   {state.hasMore || state.isLoadingMore ? '+' : ''} cards
                 </span>
@@ -461,6 +516,8 @@ export function SearchShell() {
             </div>
           </section>
 
+          <FilterBar filters={state.filters} onChange={handleFiltersChange} onClear={handleClearFilters} />
+
           <section
             className="px-6 pb-14 pl-[38px] pr-6 pt-6 max-[720px]:px-4 max-[720px]:pl-6"
             aria-label="Results state"
@@ -468,8 +525,21 @@ export function SearchShell() {
             {state.isLoading ? (
               <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">Loading results...</p>
             ) : null}
-            {!state.isLoading && state.results.length === 0 ? (
-              <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">No cards matched this search.</p>
+            {!state.isLoading && state.error ? (
+              <div className="grid gap-1 border-2 border-ot-red bg-[color:color-mix(in_srgb,var(--color-ot-red)_7%,var(--color-ot-bg))] px-4 py-4 max-[720px]:px-3">
+                <p className="eyebrow text-ot-red">Search interrupted</p>
+                <p className="m-0 font-display text-[clamp(1.4rem,3vw,1.9rem)] font-black uppercase leading-[0.92] tracking-[-0.02em] text-ot-ink">
+                  Results did not land cleanly.
+                </p>
+                <p className="m-0 max-w-[62ch] text-[0.75rem] uppercase leading-[1.6] tracking-[0.11em] text-ot-muted">
+                  {state.error}
+                </p>
+              </div>
+            ) : null}
+            {!state.isLoading && !state.error && state.results.length === 0 ? (
+              <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
+                No cards matched {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
+              </p>
             ) : null}
             {state.results.length > 0 ? (
               <div className="grid items-start gap-7 [grid-template-columns:minmax(0,1fr)_340px] max-[900px]:grid-cols-1">

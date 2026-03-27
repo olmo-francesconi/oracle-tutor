@@ -1,4 +1,4 @@
-import { getManaClass, splitSymbolParts } from '../lib/manaSymbols'
+import { getManaClass, isSupportedManaSymbol, splitSymbolParts } from '../lib/manaSymbols'
 
 interface SymbolTextProps {
   text: string
@@ -10,7 +10,7 @@ export function SymbolText({ text }: SymbolTextProps) {
       {splitSymbolParts(text).map((part, index) => {
         const key = `part-${index}`
 
-        if (part.startsWith('{') && part.endsWith('}')) {
+        if (isSupportedManaSymbol(part)) {
           const manaClass = getManaClass(part)
 
           if (manaClass) {

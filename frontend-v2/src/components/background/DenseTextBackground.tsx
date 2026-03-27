@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { getManaClass, splitSymbolParts } from '../../lib/manaSymbols'
+import { getManaClass, isSupportedManaSymbol, splitSymbolParts } from '../../lib/manaSymbols'
 
 type ViewportSize = {
   width: number
@@ -58,7 +58,7 @@ function getBaseLineHeight(charCount: number): number {
 
 function renderBackgroundText(text: string) {
   return splitSymbolParts(text).map((part, index) => {
-    if (part.startsWith('{') && part.endsWith('}')) {
+    if (isSupportedManaSymbol(part)) {
       const manaClass = getManaClass(part)
 
       if (manaClass) {
