@@ -142,9 +142,9 @@ export function SearchShell() {
     }))
   }, [])
 
-  const fetchFirstPage = useCallback(async (query: string, signal: AbortSignal) => {
-    return searchOracleText(query, 0, RESULTS_PAGE_SIZE, state.filters, signal)
-  }, [state.filters])
+  const fetchFirstPage = useCallback(async (query: string, filters: SearchShellState['filters'], signal: AbortSignal) => {
+    return searchOracleText(query, 0, RESULTS_PAGE_SIZE, filters, signal)
+  }, [])
 
   const runSearch = useCallback(async (query: string) => {
     activeRequestRef.current?.abort()
@@ -154,7 +154,7 @@ export function SearchShell() {
     setState((current) => buildSearchLoadingState(current, query))
 
     try {
-      const page = await fetchFirstPage(query, controller.signal)
+      const page = await fetchFirstPage(query, state.filters, controller.signal)
 
       if (controller.signal.aborted) return
 
@@ -164,7 +164,7 @@ export function SearchShell() {
 
       setState((current) => buildSearchFailureState(current, query))
     }
-  }, [fetchFirstPage])
+  }, [fetchFirstPage, state.filters])
 
   const handleSubmit = useCallback((submittedValue?: string) => {
     const nextQuery = (submittedValue ?? state.draftQuery).trim()
@@ -295,6 +295,7 @@ export function SearchShell() {
     hasLoadedInitialQueryRef.current = true
 
     if (!state.submittedQuery) return
+    const submittedQuery = state.submittedQuery
 
     activeRequestRef.current?.abort()
     const controller = new AbortController()
@@ -302,18 +303,18 @@ export function SearchShell() {
 
     void (async () => {
       try {
-        const page = await fetchFirstPage(state.submittedQuery!, controller.signal)
+        const page = await fetchFirstPage(submittedQuery, state.filters, controller.signal)
 
         if (controller.signal.aborted) return
 
-        setState((current) => buildSearchSuccessState(current, state.submittedQuery!, page))
+        setState((current) => buildSearchSuccessState(current, submittedQuery, page))
       } catch {
         if (controller.signal.aborted) return
 
-        setState((current) => buildSearchFailureState(current, state.submittedQuery!))
+        setState((current) => buildSearchFailureState(current, submittedQuery))
       }
     })()
-  }, [fetchFirstPage, state.submittedQuery])
+  }, [fetchFirstPage, state.filters, state.submittedQuery])
 
   useEffect(() => {
     if (!state.selectedCard) return

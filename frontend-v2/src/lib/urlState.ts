@@ -8,13 +8,15 @@ export function readSubmittedQueryFromUrl(): string | null {
 
 export function writeSubmittedQueryToUrl(query: string | null) {
   const url = new URL(window.location.href)
+  const params = new URLSearchParams(url.search)
 
   if (query) {
-    url.searchParams.set(QUERY_PARAM, query)
+    params.set(QUERY_PARAM, query)
   } else {
-    url.searchParams.delete(QUERY_PARAM)
+    params.delete(QUERY_PARAM)
   }
 
-  const nextUrl = `${url.pathname}${url.search}`
+  const nextSearch = params.toString()
+  const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}`
   window.history.pushState({ query }, '', nextUrl)
 }

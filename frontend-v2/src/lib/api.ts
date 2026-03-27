@@ -79,7 +79,28 @@ function writeCachedCardMatches(key: string, matches: CardMatch[]) {
 
 async function assertOk<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`)
+    let detail = ''
+
+    try {
+      const body = await response.json()
+
+      if (typeof body === 'string') {
+        detail = body
+      } else if (body && typeof body === 'object' && 'detail' in body) {
+        const nextDetail = body.detail
+        detail = typeof nextDetail === 'string' ? nextDetail : JSON.stringify(nextDetail)
+      } else {
+        detail = JSON.stringify(body)
+      }
+    } catch {
+      try {
+        detail = await response.text()
+      } catch {
+        detail = ''
+      }
+    }
+
+    throw new Error(`Request failed: ${response.status}${detail ? ` - ${detail}` : ''}`)
   }
 
   return response.json() as Promise<T>
@@ -166,7 +187,7 @@ export async function searchCards(
 ): Promise<CardMatch[]> {
   if (!query || query.length < 2) return []
 
-  const cacheKey = `${query}\u0000${limit}\u0000${offset}`
+  const cacheKey = JSON.stringify([query, limit, offset])
   const cached = readCachedCardMatches(cacheKey)
   if (cached) {
     return cached
