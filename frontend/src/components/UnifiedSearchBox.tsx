@@ -14,6 +14,7 @@ interface UnifiedSearchBoxProps {
   size?: 'default' | 'compact' | 'topBar' | 'hero'
   heroScale?: number
   onDropdownChange?: (open: boolean) => void
+  onDropdownHeightChange?: (height: number) => void
   onFocusChange?: (focused: boolean) => void
 }
 
@@ -68,6 +69,8 @@ const HERO_MIN_ICON_SIZE = 18
 const LONG_PLACEHOLDER = 'search for a card or describe what it does…'
 const MEDIUM_PLACEHOLDER = 'search cards by meaning…'
 const SHORT_PLACEHOLDER = 'search…'
+const DROPDOWN_VIEWPORT_MARGIN = 12
+const MIN_DROPDOWN_HEIGHT = 160
 
 type SelectionRange = {
   start: number
@@ -519,6 +522,7 @@ export function UnifiedSearchBox({
   size = 'default',
   heroScale = 1,
   onDropdownChange,
+  onDropdownHeightChange,
   onFocusChange,
 }: UnifiedSearchBoxProps) {
   const [query, setQuery] = useState(initialValue)
@@ -535,7 +539,9 @@ export function UnifiedSearchBox({
   const placeholderMeasureRef = useRef<HTMLSpanElement>(null)
   const insertSymbolHandlerRef = useRef<(symbol: string) => void>(() => {})
   const [textAreaWidth, setTextAreaWidth] = useState(0)
+  const [dropdownMaxHeight, setDropdownMaxHeight] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleDocumentMouseDown = (event: MouseEvent) => {
@@ -663,6 +669,28 @@ export function UnifiedSearchBox({
   }, [showDropdown, onDropdownChange])
 
   useEffect(() => {
+    if (!showDropdown || size !== 'hero') {
+      onDropdownHeightChange?.(0)
+      return
+    }
+
+    const node = dropdownRef.current
+    if (!node) return
+
+    const updateHeight = () => {
+      const { bottom } = node.getBoundingClientRect()
+      onDropdownHeightChange?.(bottom)
+    }
+
+    updateHeight()
+
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [onDropdownHeightChange, showDropdown, size, nameMatches, semanticMatches, isSemanticLoading, query])
+
+  useEffect(() => {
     onFocusChange?.(isFocused)
   }, [isFocused, onFocusChange])
 
@@ -685,6 +713,31 @@ export function UnifiedSearchBox({
       window.removeEventListener('resize', handleResize)
     }
   }, [isFocused])
+
+  useEffect(() => {
+    if (!showDropdown || size === 'hero') {
+      setDropdownMaxHeight(null)
+      return
+    }
+
+    const updateDropdownMaxHeight = () => {
+      const root = rootRef.current
+      if (!root) return
+
+      const { bottom } = root.getBoundingClientRect()
+      const availableHeight = window.innerHeight - bottom - DROPDOWN_VIEWPORT_MARGIN
+      setDropdownMaxHeight(Math.max(Math.floor(availableHeight), MIN_DROPDOWN_HEIGHT))
+    }
+
+    updateDropdownMaxHeight()
+    window.addEventListener('resize', updateDropdownMaxHeight)
+    window.addEventListener('scroll', updateDropdownMaxHeight, { passive: true })
+
+    return () => {
+      window.removeEventListener('resize', updateDropdownMaxHeight)
+      window.removeEventListener('scroll', updateDropdownMaxHeight)
+    }
+  }, [showDropdown, size])
 
   const displayQuery = query.length > 22 ? `${query.slice(0, 22)}…` : query
   const isCompact = size === 'compact'
@@ -846,10 +899,17 @@ export function UnifiedSearchBox({
 
       {showDropdown && (
         <div
+          ref={dropdownRef}
           className={cn(
-            'absolute top-full z-[1000] flex flex-col border-2 border-t-0 border-[#111111] bg-white',
-            isTopBar ? '-left-[2px] -right-[2px]' : 'left-0 right-0'
+            'z-[1000] flex flex-col border-2 border-t-0 border-[#111111] bg-white',
+            isHero
+              ? 'absolute left-0 right-0 top-full'
+              : cn(
+                  'absolute top-full overflow-y-auto overscroll-contain',
+                  isTopBar ? '-left-[2px] -right-[2px]' : 'left-0 right-0'
+                )
           )}
+          style={!isHero && dropdownMaxHeight ? { maxHeight: `${dropdownMaxHeight}px` } : undefined}
         >
           {nameMatches.length > 0 && (
             <>

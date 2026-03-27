@@ -46,7 +46,7 @@ const WORDMARK_MAX_FONT_SIZE = 109
 const HERO_MAX_WIDTH = 560
 const HERO_MOBILE_MAX_WIDTH = 680
 const HERO_STACK_GAP = 40
-const HERO_DROPDOWN_OFFSET = 56
+const HERO_OPEN_TOP_VIEWPORT = 0.11
 const HERO_FOCUS_OFFSET = 28
 const HERO_TITLE_OFFSET = 18
 const HERO_DIVIDER_MARGIN = 14
@@ -62,6 +62,8 @@ const HERO_BOTTOM_CLEARANCE = 88
 const HERO_SIDE_CLEARANCE = 20
 const BACKGROUND_STAGE_OVERSCAN_VIEWPORTS = 0.5
 const BACKGROUND_STAGE_HEIGHT_VIEWPORTS = 1 + BACKGROUND_STAGE_OVERSCAN_VIEWPORTS * 2
+const MOBILE_TRANSITION_START = 768
+const MOBILE_TRANSITION_END = 520
 
 type HomeViewport = {
   width: number
@@ -75,6 +77,10 @@ const DEFAULT_VIEWPORT: HomeViewport = {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
+}
+
+function lerp(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount
 }
 
 const SHOW_HOME_BACKGROUND_DEBUG_PANEL = false
@@ -96,11 +102,14 @@ function HomeBackgroundDebugPanel({ stats }: { stats: HomeTextBackgroundStats })
 
 export default function HomePage() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const [dropdownHeight, setDropdownHeight] = useState(0)
+  const [dropdownBottom, setDropdownBottom] = useState(0)
   const [isSearchFocused, setIsSearchFocused] = useState(false)
+  const [openHeroMove, setOpenHeroMove] = useState(0)
   const [backgroundStats, setBackgroundStats] = useState<HomeTextBackgroundStats | null>(null)
   const [viewport, setViewport] = useState<HomeViewport>(DEFAULT_VIEWPORT)
   const frameRef = useRef<number | null>(null)
+  const heroBlockRef = useRef<HTMLDivElement | null>(null)
+  const heroTitleRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const updateViewport = () => {
@@ -174,19 +183,26 @@ export default function HomePage() {
     const heightRatio = viewport.height / DESIGN_VIEWPORT_HEIGHT
     return clamp(Math.min(widthRatio, heightRatio), MIN_COMPOSITION_SCALE, MAX_COMPOSITION_SCALE)
   }, [viewport])
-  const isNarrowViewport = viewport.width < 768
+  const mobileTransitionProgress = clamp(
+    (MOBILE_TRANSITION_START - viewport.width) / (MOBILE_TRANSITION_START - MOBILE_TRANSITION_END),
+    0,
+    1
+  )
+  const wordmarkMinFontSize = lerp(WORDMARK_MIN_FONT_SIZE, 62, mobileTransitionProgress)
+  const heroMaxWidth = lerp(HERO_MAX_WIDTH, HERO_MOBILE_MAX_WIDTH, mobileTransitionProgress)
+  const heroGapBase = lerp(HERO_STACK_GAP, 34, mobileTransitionProgress)
+  const heroBottomClearanceBase = lerp(HERO_BOTTOM_CLEARANCE, 36, mobileTransitionProgress)
 
   const wordmarkFontSize = clamp(
     WORDMARK_BASE_FONT_SIZE * compositionScale,
-    isNarrowViewport ? 62 : WORDMARK_MIN_FONT_SIZE,
+    wordmarkMinFontSize,
     WORDMARK_MAX_FONT_SIZE
   )
   const heroWidth = Math.min(
-    (isNarrowViewport ? HERO_MOBILE_MAX_WIDTH : HERO_MAX_WIDTH) * compositionScale,
+    heroMaxWidth * compositionScale,
     Math.max(viewport.width - 32, 0)
   )
-  const heroStackGap = (isNarrowViewport ? 34 : HERO_STACK_GAP) * compositionScale
-  const dropdownOffset = HERO_DROPDOWN_OFFSET * compositionScale
+  const heroStackGap = heroGapBase * compositionScale
   const focusOffset = HERO_FOCUS_OFFSET * compositionScale
   const titleOffset = HERO_TITLE_OFFSET * compositionScale
   const dividerMargin = HERO_DIVIDER_MARGIN * compositionScale
@@ -196,11 +212,33 @@ export default function HomePage() {
   const footerBottomInset = FOOTER_BOTTOM_INSET * compositionScale
   const footerScale = clamp(compositionScale, FOOTER_SCALE_MIN, FOOTER_SCALE_MAX)
   const footerDocumentClearance = FOOTER_DOCUMENT_CLEARANCE * footerScale
-  const heroBottomClearance = (isNarrowViewport ? 36 : HERO_BOTTOM_CLEARANCE) * compositionScale
+  const heroBottomClearance = heroBottomClearanceBase * compositionScale
   const heroSideClearance = HERO_SIDE_CLEARANCE * compositionScale
   const backgroundStageOffset = `${BACKGROUND_STAGE_OVERSCAN_VIEWPORTS * 100}lvh`
   const backgroundStageHeight = `${BACKGROUND_STAGE_HEIGHT_VIEWPORTS * 100}lvh`
-  const homepageDocumentExtension = dropdownHeight > 0 ? dropdownHeight + footerDocumentClearance : 0
+  const dropdownOverflow = Math.max(dropdownBottom - viewport.height, 0)
+  const homepageDocumentExtension = dropdownOverflow > 0 ? dropdownOverflow + footerDocumentClearance : 0
+
+  useLayoutEffect(() => {
+    if (!isDropdownOpen) {
+      setOpenHeroMove(0)
+      return
+    }
+
+    const heroBlockRect = heroBlockRef.current?.getBoundingClientRect()
+    const heroTitleRect = heroTitleRef.current?.getBoundingClientRect()
+    if (!heroBlockRect || !heroTitleRect) return
+
+    const targetTop = viewport.height * HERO_OPEN_TOP_VIEWPORT
+    const safeTitleTop = Math.max(24, wordmarkFontSize * 0.28)
+    const requiredMove = Math.max(heroBlockRect.top - targetTop, 0)
+    const maxMove = Math.max(heroTitleRect.top - safeTitleTop, 0)
+    const nextMove = Math.min(requiredMove, maxMove)
+
+    if (Math.abs(nextMove - openHeroMove) > 0.5) {
+      setOpenHeroMove(nextMove)
+    }
+  }, [isDropdownOpen, openHeroMove, viewport.height, viewport.width, wordmarkFontSize])
 
   return (
     <div className="relative h-[100svh] overflow-hidden">
@@ -312,12 +350,14 @@ export default function HomePage() {
           }}
         >
           <motion.div
+            ref={heroBlockRef}
             className="flex w-full flex-col items-center"
             style={{ maxWidth: `${heroWidth}px`, gap: `${heroStackGap}px` }}
-            animate={{ y: isDropdownOpen ? -dropdownOffset : isSearchFocused ? -focusOffset : 0 }}
+            animate={{ y: isDropdownOpen ? -openHeroMove : isSearchFocused ? -focusOffset : 0 }}
             transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
           >
             <motion.div
+              ref={heroTitleRef}
               className="w-fit animate-[fadeIn_0.4s_ease-out] text-center"
               animate={{ y: isSearchFocused ? -titleOffset : 0 }}
               transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
@@ -343,7 +383,7 @@ export default function HomePage() {
                 size="hero"
                 heroScale={compositionScale}
                 onDropdownChange={setIsDropdownOpen}
-                onDropdownHeightChange={setDropdownHeight}
+                onDropdownHeightChange={setDropdownBottom}
                 onFocusChange={setIsSearchFocused}
               />
             </div>
