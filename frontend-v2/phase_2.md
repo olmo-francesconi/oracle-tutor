@@ -18,6 +18,8 @@ Excluded:
 - caching abstraction
 - retry abstraction
 - global client wrapper complexity
+- shell integration
+- temporary UI wiring
 
 ## Implementation Shape
 
@@ -45,6 +47,7 @@ Support:
 - keep the file small
 - no custom client class
 - no dependency on `axios`
+- do not connect the API layer to `SearchShell` yet
 
 ## Acceptance Criteria
 
@@ -61,9 +64,7 @@ Required checks:
 - `cd frontend-v2 && npm run build`
 - `cd frontend-v2 && npm run lint`
 
-If practical:
-
-- add a temporary manual smoke call through the app
+No temporary app wiring in this phase.
 
 ## Commit Plan
 
