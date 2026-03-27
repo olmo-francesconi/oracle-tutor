@@ -2,32 +2,34 @@
 
 ## Goal
 
-Apply final polish without reintroducing architectural bloat.
+Finish v2 by simplifying anything that still feels heavier than it should, then polish only the parts that sharpen the core flow.
 
 ## Scope
 
 Included:
 
-- final brutalist styling pass
-- passive background treatments
-- minimal SEO handling if still needed
+- simplification audit
 - dead code removal
-- simplicity audit
+- small layout and copy cleanup
+- only essential styling refinements
 
 Excluded:
 
+- new features
 - new frameworks
 - new state systems
+- decorative background systems
+- SEO work unless something is clearly broken
 - decorative JS choreography that is not essential
 
 ## Implementation Shape
 
 Focus areas:
 
-- tighten visual hierarchy
-- make the home-to-results transition feel deliberate
-- ensure all passive visual layers stay passive
 - trim anything that grew during phases 1 through 6
+- simplify state or component boundaries if they already feel strained
+- tighten visual hierarchy only where it clarifies the existing flow
+- make the home-to-results and results-to-overlay flow feel intentional without adding new mechanisms
 
 ## Acceptance Criteria
 
@@ -35,7 +37,7 @@ Phase 7 is complete when:
 
 - the app feels finished
 - no unnecessary abstractions remain
-- the visual language is strong
+- the visual language is coherent
 - the code still reads like a small app
 
 ## Validation
