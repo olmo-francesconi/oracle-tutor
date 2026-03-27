@@ -113,7 +113,7 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
   return (
     <div
       className={cn(
-        'pointer-events-auto flex items-center justify-end gap-4 text-right',
+        'pointer-events-auto flex items-center justify-center gap-4 text-center md:flex-col md:items-end md:justify-start md:gap-1 md:text-right',
         className
       )}
     >
@@ -125,15 +125,15 @@ export const DeveloperLinks: React.FC<DeveloperLinksProps> = ({
       >
         Data from Scryfall
       </span>
-      <span
-        className={cn(
-          'font-mono text-[10px] font-medium tracking-[0.2em]',
-          textColor
-        )}
-      >
-        Built by Olmo
-      </span>
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex items-center justify-center gap-3 md:justify-end">
+        <span
+          className={cn(
+            'font-mono text-[10px] font-medium tracking-[0.2em]',
+            textColor
+          )}
+        >
+          Built by Olmo
+        </span>
         <span
           className={cn(
             textColor,

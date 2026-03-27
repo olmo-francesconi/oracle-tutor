@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { DeveloperLinks } from '../components/DeveloperLinks'
@@ -44,6 +44,7 @@ const WORDMARK_BASE_FONT_SIZE = 92
 const WORDMARK_MIN_FONT_SIZE = 72
 const WORDMARK_MAX_FONT_SIZE = 109
 const HERO_MAX_WIDTH = 560
+const HERO_MOBILE_MAX_WIDTH = 680
 const HERO_STACK_GAP = 40
 const HERO_DROPDOWN_OFFSET = 56
 const HERO_FOCUS_OFFSET = 28
@@ -56,8 +57,11 @@ const FOOTER_RIGHT_INSET = 40
 const FOOTER_BOTTOM_INSET = 20
 const FOOTER_SCALE_MIN = 0.92
 const FOOTER_SCALE_MAX = 1.05
+const FOOTER_DOCUMENT_CLEARANCE = 52
 const HERO_BOTTOM_CLEARANCE = 88
 const HERO_SIDE_CLEARANCE = 20
+const BACKGROUND_STAGE_OVERSCAN_VIEWPORTS = 0.5
+const BACKGROUND_STAGE_HEIGHT_VIEWPORTS = 1 + BACKGROUND_STAGE_OVERSCAN_VIEWPORTS * 2
 
 type HomeViewport = {
   width: number
@@ -92,6 +96,7 @@ function HomeBackgroundDebugPanel({ stats }: { stats: HomeTextBackgroundStats })
 
 export default function HomePage() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [dropdownHeight, setDropdownHeight] = useState(0)
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [backgroundStats, setBackgroundStats] = useState<HomeTextBackgroundStats | null>(null)
   const [viewport, setViewport] = useState<HomeViewport>(DEFAULT_VIEWPORT)
@@ -121,6 +126,20 @@ export default function HomePage() {
       if (frameRef.current !== null) {
         window.cancelAnimationFrame(frameRef.current)
       }
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    document.documentElement.classList.add('homepage-root-scroll-lock')
+    document.documentElement.classList.add('homepage-scroll-hidden')
+    document.body.classList.add('homepage-root-scroll-lock')
+    document.body.classList.add('homepage-scroll-hidden')
+
+    return () => {
+      document.documentElement.classList.remove('homepage-root-scroll-lock')
+      document.documentElement.classList.remove('homepage-scroll-hidden')
+      document.body.classList.remove('homepage-root-scroll-lock')
+      document.body.classList.remove('homepage-scroll-hidden')
     }
   }, [])
 
@@ -155,14 +174,18 @@ export default function HomePage() {
     const heightRatio = viewport.height / DESIGN_VIEWPORT_HEIGHT
     return clamp(Math.min(widthRatio, heightRatio), MIN_COMPOSITION_SCALE, MAX_COMPOSITION_SCALE)
   }, [viewport])
+  const isNarrowViewport = viewport.width < 768
 
   const wordmarkFontSize = clamp(
     WORDMARK_BASE_FONT_SIZE * compositionScale,
-    WORDMARK_MIN_FONT_SIZE,
+    isNarrowViewport ? 62 : WORDMARK_MIN_FONT_SIZE,
     WORDMARK_MAX_FONT_SIZE
   )
-  const heroWidth = HERO_MAX_WIDTH * compositionScale
-  const heroStackGap = HERO_STACK_GAP * compositionScale
+  const heroWidth = Math.min(
+    (isNarrowViewport ? HERO_MOBILE_MAX_WIDTH : HERO_MAX_WIDTH) * compositionScale,
+    Math.max(viewport.width - 32, 0)
+  )
+  const heroStackGap = (isNarrowViewport ? 34 : HERO_STACK_GAP) * compositionScale
   const dropdownOffset = HERO_DROPDOWN_OFFSET * compositionScale
   const focusOffset = HERO_FOCUS_OFFSET * compositionScale
   const titleOffset = HERO_TITLE_OFFSET * compositionScale
@@ -172,157 +195,181 @@ export default function HomePage() {
   const footerRightInset = FOOTER_RIGHT_INSET * compositionScale
   const footerBottomInset = FOOTER_BOTTOM_INSET * compositionScale
   const footerScale = clamp(compositionScale, FOOTER_SCALE_MIN, FOOTER_SCALE_MAX)
-  const heroBottomClearance = HERO_BOTTOM_CLEARANCE * compositionScale
+  const footerDocumentClearance = FOOTER_DOCUMENT_CLEARANCE * footerScale
+  const heroBottomClearance = (isNarrowViewport ? 36 : HERO_BOTTOM_CLEARANCE) * compositionScale
   const heroSideClearance = HERO_SIDE_CLEARANCE * compositionScale
+  const backgroundStageOffset = `${BACKGROUND_STAGE_OVERSCAN_VIEWPORTS * 100}lvh`
+  const backgroundStageHeight = `${BACKGROUND_STAGE_HEIGHT_VIEWPORTS * 100}lvh`
+  const homepageDocumentExtension = dropdownHeight > 0 ? dropdownHeight + footerDocumentClearance : 0
 
   return (
-    <div className="relative h-screen min-w-[360px] overflow-hidden" style={{ height: '100lvh' }}>
+    <div className="relative h-[100svh] overflow-hidden">
       <PageSEO
         title={DEFAULT_TITLE}
         description={DEFAULT_DESCRIPTION}
         path="/"
       />
 
-      {/* Red left stripe */}
-      <div className="absolute left-0 top-0 z-50 h-full w-[6px] bg-[#CC1100]" />
-
-      <HomeTextBackground
-        texts={texts}
-        isLoaded={isLoaded}
-        leftInset={HOME_LEFT_INSET}
-        minTotalWidth={MIN_HOME_COMPOSITION_WIDTH}
-        fitToParent
-        onStatsChange={setBackgroundStats}
-      />
-
-      {/* ── Art layer 2: Monumental keywords ───────────────────────────────────
-          Fades in second (0.35s delay). Letter-shapes emerge as abstract forms. */}
       <div
-        className="pointer-events-none absolute inset-0 z-[3] select-none overflow-hidden"
-        style={{
-          left: HOME_LEFT_INSET,
-          contain: 'layout style',
-          opacity: isLoaded ? 1 : 0,
-          transition: 'opacity 0.75s cubic-bezier(0.22, 0.03, 0.36, 1) 0.35s',
-        }}
+        className="homepage-scroll-container relative h-full overflow-x-hidden overflow-y-auto"
+        style={{ paddingBottom: homepageDocumentExtension }}
       >
-        {MONUMENT_SLOTS.map(({ style, baseFontSize }, index) => (
-          <span
-            key={monumentTerms[index] ?? `monument-${index}`}
-            style={{
-              position: 'absolute',
-              fontFamily: "'Big Shoulders Display', sans-serif",
-              fontWeight: 900,
-              textTransform: 'uppercase',
-              lineHeight: 0.88,
-              letterSpacing: '-0.025em',
-              whiteSpace: 'nowrap',
-              fontSize: `${baseFontSize * compositionScale}px`,
-              ...style,
-            }}
-          >
-            {monumentTerms[index] ?? ''}
-          </span>
-        ))}
-      </div>
-
-      {/* ── Art layer 3: Medium oracle phrases ─────────────────────────────────
-          Fades in last (0.75s delay). Fine type settles over the composition. */}
-      <div
-        className="pointer-events-none absolute inset-0 z-[2] select-none overflow-hidden"
-        style={{
-          left: HOME_LEFT_INSET,
-          contain: 'layout style',
-          opacity: isLoaded ? 1 : 0,
-          transition: 'opacity 0.75s cubic-bezier(0.22, 0.03, 0.36, 1) 0.75s',
-        }}
-      >
-        {PHRASE_SLOTS.map((slot, i) => (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              fontFamily: "'DM Mono', monospace",
-              fontWeight: 500,
-              fontSize: `${(slot.baseFontSize ?? HERO_PHRASE_FONT_SIZE) * compositionScale}px`,
-              lineHeight: '1.28',
-              letterSpacing: '-0.008em',
-              maxWidth: '45%',
-              color: slot.color,
-              opacity: slot.opacity,
-              ...slot.style,
-            }}
-          >
-            <SymbolText
-              text={phraseTexts[i] ?? ''}
-              className="inline"
-              symbolClassName="align-[-0.08em]"
-              preserveLineBreaks
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Foreground: wordmark + search — always visible, independent of oracle loading */}
-      <div
-        className="relative z-10 flex h-full flex-col items-center justify-center pl-[6px]"
-        style={{
-          paddingBottom: `${heroBottomClearance}px`,
-          paddingInline: `${heroSideClearance}px`,
-        }}
-      >
-        <motion.div
-          className="flex w-full flex-col items-center"
-          style={{ maxWidth: `${heroWidth}px`, gap: `${heroStackGap}px` }}
-          animate={{ y: isDropdownOpen ? -dropdownOffset : isSearchFocused ? -focusOffset : 0 }}
-          transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
-        >
-          <motion.div
-            className="w-fit animate-[fadeIn_0.4s_ease-out] text-center"
-            animate={{ y: isSearchFocused ? -titleOffset : 0 }}
-            transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
-          >
-            <h1
-              className="font-display font-[900] uppercase leading-[0.92] tracking-[-0.02em] text-[#111111]"
-              style={{ fontSize: `${wordmarkFontSize}px` }}
-            >
-              Oracle<br />Tutor
-            </h1>
-            <div className="w-full bg-[#111111]" style={{ marginBlock: `${dividerMargin}px`, height: `${dividerHeight}px` }} />
-            <p className="font-mono text-[#7A7670]" style={{ fontSize: `${subtitleFontSize}px` }}>
-              find cards by meaning, not keywords.
-            </p>
-          </motion.div>
-
-          <div
-            className="w-full animate-[slideUp_0.4s_ease-out_0.15s] opacity-0"
-            style={{ animationFillMode: 'forwards' }}
-          >
-            <UnifiedSearchBox
-              autoFocus
-              size="hero"
-              heroScale={compositionScale}
-              onDropdownChange={setIsDropdownOpen}
-              onFocusChange={setIsSearchFocused}
-            />
-          </div>
-        </motion.div>
+        {/* Red left stripe */}
+        <div
+          className="absolute left-0 top-0 z-50 w-[6px] bg-[#CC1100]"
+          style={{ height: `calc(100% + ${homepageDocumentExtension}px)` }}
+        />
 
         <div
-          className="absolute"
+          className="pointer-events-none fixed left-[6px] right-0 z-[1] select-none overflow-hidden"
           style={{
-            bottom: `${footerBottomInset}px`,
-            right: `${footerRightInset}px`,
+            top: `calc(${backgroundStageOffset} * -1)`,
+            height: backgroundStageHeight,
+            contain: 'layout style paint',
+          }}
+        >
+          <div
+            className="absolute inset-x-0 h-[100lvh] overflow-hidden"
+            style={{ top: backgroundStageOffset }}
+          >
+            <HomeTextBackground
+              texts={texts}
+              isLoaded={isLoaded}
+              leftInset={0}
+              minTotalWidth={MIN_HOME_COMPOSITION_WIDTH}
+              fitToParent
+              onStatsChange={setBackgroundStats}
+            />
+
+            <div
+              className="absolute inset-0 z-[3] overflow-hidden"
+              style={{
+                opacity: isLoaded ? 1 : 0,
+                transition: 'opacity 0.75s cubic-bezier(0.22, 0.03, 0.36, 1) 0.35s',
+              }}
+            >
+              {MONUMENT_SLOTS.map(({ style, baseFontSize }, index) => (
+                <span
+                  key={monumentTerms[index] ?? `monument-${index}`}
+                  style={{
+                    position: 'absolute',
+                    fontFamily: "'Big Shoulders Display', sans-serif",
+                    fontWeight: 900,
+                    textTransform: 'uppercase',
+                    lineHeight: 0.88,
+                    letterSpacing: '-0.025em',
+                    whiteSpace: 'nowrap',
+                    fontSize: `${baseFontSize * compositionScale}px`,
+                    ...style,
+                  }}
+                >
+                  {monumentTerms[index] ?? ''}
+                </span>
+              ))}
+            </div>
+
+            <div
+              className="absolute inset-0 z-[2] overflow-hidden"
+              style={{
+                opacity: isLoaded ? 1 : 0,
+                transition: 'opacity 0.75s cubic-bezier(0.22, 0.03, 0.36, 1) 0.75s',
+              }}
+            >
+              {PHRASE_SLOTS.map((slot, i) => (
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    fontFamily: "'DM Mono', monospace",
+                    fontWeight: 500,
+                    fontSize: `${(slot.baseFontSize ?? HERO_PHRASE_FONT_SIZE) * compositionScale}px`,
+                    lineHeight: '1.28',
+                    letterSpacing: '-0.008em',
+                    maxWidth: '45%',
+                    color: slot.color,
+                    opacity: slot.opacity,
+                    ...slot.style,
+                  }}
+                >
+                  <SymbolText
+                    text={phraseTexts[i] ?? ''}
+                    className="inline"
+                    symbolClassName="align-[-0.08em]"
+                    preserveLineBreaks
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Foreground: wordmark + search — always visible, independent of oracle loading */}
+        <div
+          className="relative z-10 flex h-[100svh] min-h-[100svh] flex-col items-center justify-center pl-[6px]"
+          style={{
+            paddingBottom: `${heroBottomClearance}px`,
+            paddingInline: `${heroSideClearance}px`,
+          }}
+        >
+          <motion.div
+            className="flex w-full flex-col items-center"
+            style={{ maxWidth: `${heroWidth}px`, gap: `${heroStackGap}px` }}
+            animate={{ y: isDropdownOpen ? -dropdownOffset : isSearchFocused ? -focusOffset : 0 }}
+            transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
+          >
+            <motion.div
+              className="w-fit animate-[fadeIn_0.4s_ease-out] text-center"
+              animate={{ y: isSearchFocused ? -titleOffset : 0 }}
+              transition={{ type: 'tween', ease: [0.22, 0.03, 0.36, 1], duration: 0.22 }}
+            >
+              <h1
+                className="font-display font-[900] uppercase leading-[0.92] tracking-[-0.02em] text-[#111111]"
+                style={{ fontSize: `${wordmarkFontSize}px` }}
+              >
+                Oracle<br />Tutor
+              </h1>
+              <div className="w-full bg-[#111111]" style={{ marginBlock: `${dividerMargin}px`, height: `${dividerHeight}px` }} />
+              <p className="font-mono text-[#7A7670]" style={{ fontSize: `${subtitleFontSize}px` }}>
+                find cards by meaning, not keywords.
+              </p>
+            </motion.div>
+
+            <div
+              className="w-full animate-[slideUp_0.4s_ease-out_0.15s] opacity-0"
+              style={{ animationFillMode: 'forwards' }}
+            >
+              <UnifiedSearchBox
+                autoFocus
+                size="hero"
+                heroScale={compositionScale}
+                onDropdownChange={setIsDropdownOpen}
+                onDropdownHeightChange={setDropdownHeight}
+                onFocusChange={setIsSearchFocused}
+              />
+            </div>
+          </motion.div>
+          {SHOW_HOME_BACKGROUND_DEBUG_PANEL && backgroundStats ? (
+            <HomeBackgroundDebugPanel stats={backgroundStats} />
+          ) : null}
+        </div>
+      </div>
+
+      <div
+        className="pointer-events-none absolute inset-x-0 z-[5] flex justify-center md:justify-end"
+        style={{
+          bottom: `${footerBottomInset}px`,
+          paddingInline: `${footerRightInset}px`,
+        }}
+      >
+        <div
+          className="pointer-events-auto"
+          style={{
             transform: `scale(${footerScale})`,
-            transformOrigin: 'bottom right',
+            transformOrigin: 'bottom center',
           }}
         >
           <DeveloperLinks variant="dark" />
         </div>
-
-        {SHOW_HOME_BACKGROUND_DEBUG_PANEL && backgroundStats ? (
-          <HomeBackgroundDebugPanel stats={backgroundStats} />
-        ) : null}
       </div>
     </div>
   )
