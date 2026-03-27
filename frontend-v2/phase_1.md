@@ -12,12 +12,18 @@ Included:
 - keep home and results as two states of one app
 - define top-level state in one place
 - create a simple visual transition between home and results
+- use placeholder content only to prove the shell architecture
 
 Excluded:
 
 - real API calls
+- any real search box implementation
+- editable input logic
+- suggestions
+- filter UI
 - full search box logic
 - overlay logic
+- card detail plumbing
 
 ## Implementation Shape
 
@@ -43,6 +49,8 @@ Derived state:
 - `isHome`
 - `isResults`
 
+State can be stubbed with empty values where necessary.
+
 ## UI Plan
 
 Render:
@@ -53,6 +61,14 @@ Render:
 
 The first version can use placeholder content.
 
+Phase 1 should prove:
+
+- one state owner
+- one component tree
+- one shell that can move between home and results
+
+Phase 1 should not try to feel like a real search product yet.
+
 ## Acceptance Criteria
 
 Phase 1 is complete when:
@@ -60,6 +76,7 @@ Phase 1 is complete when:
 - there is one shell, not separate page systems
 - home/results state changes happen in one component tree
 - the code clearly reflects the product model
+- there is still no real search-box complexity in the app
 
 ## Validation
 
