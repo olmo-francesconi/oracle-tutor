@@ -11,23 +11,27 @@ Included:
 - `ResultsGrid`
 - result cards
 - infinite scroll
-- selection wiring
+- real `searchOracleText` integration
 
 Excluded:
 
 - elaborate result bucketing unless clearly necessary
 - heavy internal result component state
+- card detail UI
+- route work
+- filter UI beyond preserving state shape
 
 ## Implementation Shape
 
 Files:
 
 - `src/components/ResultsGrid.tsx`
-- supporting card tile component only if needed
+- `src/components/CardImage.tsx` only if a dedicated image wrapper stays small
+- small card helpers only if they remove duplication
 
 State ownership:
 
-- parent owns data and selection
+- parent owns data, loading state, and pagination
 - grid mainly renders props
 
 ## Infinite Scroll Plan
@@ -49,7 +53,7 @@ Phase 4 is complete when:
 
 - submitted searches render real results
 - infinite scroll loads more results reliably
-- selection state can open a card
+- the shell remains the only data owner
 - the grid code stays mostly dumb
 
 ## Validation
