@@ -6,6 +6,7 @@ import type {
   SimilarCard,
   SimilarCardsPage,
 } from '../types/api'
+import { encodeCardTypeFilter, encodeFormatFilter } from './filters'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 const SEARCH_CACHE_LIMIT = 40
@@ -166,9 +167,9 @@ export function buildSimilarCardsParams(
 
   if (!filters) return params
 
-  if (filters.cardType) params.card_type = filters.cardType
+  if (filters.cardType?.length) params.card_type = encodeCardTypeFilter(filters.cardType)
   if (filters.colors) params.colors = filters.colors
-  if (filters.format) params.format = filters.format
+  if (filters.format?.length) params.format = encodeFormatFilter(filters.format)
   if (filters.cmcMin !== undefined) params.cmc_min = filters.cmcMin
   if (filters.cmcMax !== undefined) params.cmc_max = filters.cmcMax
   if (filters.rarities?.length) {

@@ -1,4 +1,10 @@
-import { normalizeFilterState } from './filters'
+import {
+  decodeCardTypeFilter,
+  decodeFormatFilter,
+  encodeCardTypeFilter,
+  encodeFormatFilter,
+  normalizeFilterState,
+} from './filters'
 import type { FilterState } from '../types/api'
 
 const QUERY_PARAM = 'q'
@@ -31,8 +37,8 @@ export function readSearchStateFromUrl(): SearchUrlState {
 
   const filters = normalizeFilterState({
     colors: params.get(COLORS_PARAM) || undefined,
-    cardType: params.get(CARD_TYPE_PARAM) || undefined,
-    format: params.get(FORMAT_PARAM) || undefined,
+    cardType: decodeCardTypeFilter(params.get(CARD_TYPE_PARAM) || undefined),
+    format: decodeFormatFilter(params.get(FORMAT_PARAM) || undefined),
     cmcMin: readNumberParam(params, CMC_MIN_PARAM),
     cmcMax: readNumberParam(params, CMC_MAX_PARAM),
     rarities: rarities?.length ? rarities : undefined,
@@ -60,10 +66,12 @@ export function writeSearchStateToUrl(query: string | null, filters: FilterState
   if (normalizedFilters.colors) params.set(COLORS_PARAM, normalizedFilters.colors)
   else params.delete(COLORS_PARAM)
 
-  if (normalizedFilters.cardType) params.set(CARD_TYPE_PARAM, normalizedFilters.cardType)
+  const encodedCardTypes = encodeCardTypeFilter(normalizedFilters.cardType)
+  if (encodedCardTypes) params.set(CARD_TYPE_PARAM, encodedCardTypes)
   else params.delete(CARD_TYPE_PARAM)
 
-  if (normalizedFilters.format) params.set(FORMAT_PARAM, normalizedFilters.format)
+  const encodedFormats = encodeFormatFilter(normalizedFilters.format)
+  if (encodedFormats) params.set(FORMAT_PARAM, encodedFormats)
   else params.delete(FORMAT_PARAM)
 
   if (normalizedFilters.cmcMin !== undefined) params.set(CMC_MIN_PARAM, String(normalizedFilters.cmcMin))

@@ -135,9 +135,9 @@ describe('filter param builder', () => {
   it('serializes a full filter object', () => {
     expect(
       buildSimilarCardsParams(24, 48, {
-        cardType: 'instant',
+        cardType: ['instant', 'sorcery'],
         colors: 'UR',
-        format: 'modern',
+        format: ['modern', 'legacy'],
         cmcMin: 1,
         cmcMax: 3,
         rarities: ['rare', 'mythic'],
@@ -147,9 +147,9 @@ describe('filter param builder', () => {
     ).toEqual({
       limit: 24,
       offset: 48,
-      card_type: 'instant',
+      card_type: 'is',
       colors: 'UR',
-      format: 'modern',
+      format: 'ml',
       cmc_min: 1,
       cmc_max: 3,
       rarity: 'rm',

@@ -11,7 +11,7 @@ from typing import cast as type_cast
 
 import numpy as np
 import numpy.typing as npt
-from sqlalchemy import and_, cast
+from sqlalchemy import and_, cast, or_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -175,11 +175,11 @@ class SemanticIndex:
         face_key: tuple[str, int],
         limit: int,
         db: Session,
-        card_type: str | None = None,
+        card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
         cmc_max: float | None = None,
-        format: str | None = None,
+        format: list[str] | None = None,
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
@@ -207,11 +207,11 @@ class SemanticIndex:
         query: str,
         limit: int,
         db: Session,
-        card_type: str | None = None,
+        card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
         cmc_max: float | None = None,
-        format: str | None = None,
+        format: list[str] | None = None,
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
@@ -236,11 +236,11 @@ class SemanticIndex:
         limit: int,
         db: Session,
         exclude: tuple[str, int] | None = None,
-        card_type: str | None = None,
+        card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
         cmc_max: float | None = None,
-        format: str | None = None,
+        format: list[str] | None = None,
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
@@ -267,8 +267,8 @@ class SemanticIndex:
                 )
             )
 
-        if card_type is not None:
-            query = query.filter(CardFace.type_line.ilike(f"%{card_type}%"))
+        if card_type:
+            query = query.filter(or_(*(CardFace.type_line.ilike(f"%{value}%") for value in card_type)))
 
         if colors is not None:
             color_values: list[str] = []
@@ -292,8 +292,10 @@ class SemanticIndex:
         if cmc_max is not None:
             query = query.filter(Card.cmc <= cmc_max)
 
-        if format is not None:
-            query = query.filter(Card.legalities[format].astext.in_(["legal", "restricted"]))
+        if format:
+            query = query.filter(
+                or_(*(Card.legalities.op("->>")(value).in_(["legal", "restricted"]) for value in format))
+            )
 
         if rarity:
             query = query.filter(Card.rarity.in_(rarity))

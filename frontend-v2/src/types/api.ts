@@ -57,9 +57,9 @@ export interface CardMatch {
 }
 
 export interface FilterState {
-  cardType?: string
+  cardType?: string[]
   colors?: string
-  format?: string
+  format?: string[]
   cmcMin?: number
   cmcMax?: number
   rarities?: string[]

@@ -14,15 +14,15 @@ describe('urlState', () => {
     window.history.replaceState(
       {},
       '',
-      '/?q=bolt&colors=UR&type=instant&format=modern&cmcMin=1&cmcMax=3&rarity=rare,mythic&match=exact&colorBy=colors'
+      '/?q=bolt&colors=UR&type=is&format=ml&cmcMin=1&cmcMax=3&rarity=rare,mythic&match=exact&colorBy=colors'
     )
 
     expect(readSearchStateFromUrl()).toEqual({
       query: 'bolt',
       filters: {
         colors: 'UR',
-        cardType: 'instant',
-        format: 'modern',
+        cardType: ['instant', 'sorcery'],
+        format: ['modern', 'legacy'],
         cmcMin: 1,
         cmcMax: 3,
         rarities: ['rare', 'mythic'],
@@ -46,12 +46,12 @@ describe('urlState', () => {
   it('writes query and filters into the url', () => {
     writeSearchStateToUrl('burn', {
       colors: 'R',
-      cardType: 'sorcery',
+      cardType: ['sorcery', 'instant'],
       cmcMin: 1,
       rarities: ['common'],
     })
 
-    expect(window.location.search).toBe('?q=burn&colors=R&type=sorcery&cmcMin=1&rarity=common')
+    expect(window.location.search).toBe('?q=burn&colors=R&type=si&cmcMin=1&rarity=common')
   })
 
   it('removes cleared query and default filters from the url', () => {

@@ -96,11 +96,11 @@ class SemanticIndexProtocol(Protocol):
         face_key: tuple[str, int],
         limit: int,
         db: Session,
-        card_type: str | None = None,
+        card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
         cmc_max: float | None = None,
-        format: str | None = None,
+        format: list[str] | None = None,
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
@@ -111,11 +111,11 @@ class SemanticIndexProtocol(Protocol):
         query: str,
         limit: int,
         db: Session,
-        card_type: str | None = None,
+        card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
         cmc_max: float | None = None,
-        format: str | None = None,
+        format: list[str] | None = None,
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
@@ -148,6 +148,24 @@ DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
     }
 )
 _RARITY_MAP: Final = {"c": "common", "u": "uncommon", "r": "rare", "m": "mythic"}
+_CARD_TYPE_MAP: Final = {
+    "c": "creature",
+    "i": "instant",
+    "s": "sorcery",
+    "e": "enchantment",
+    "a": "artifact",
+    "p": "planeswalker",
+    "l": "land",
+}
+_FORMAT_MAP: Final = {
+    "s": "standard",
+    "p": "pioneer",
+    "m": "modern",
+    "l": "legacy",
+    "v": "vintage",
+    "c": "commander",
+    "u": "pauper",
+}
 ORACLE_TEXT_POOL_LIMIT: Final[int] = 300
 HOME_TERM_POOL_LIMIT: Final[int] = 300
 MAX_TELEMETRY_DETAILS_BYTES: Final[int] = 8_000
@@ -563,6 +581,23 @@ def _parse_rarity(rarity: str | None) -> list[str] | None:
     return [_RARITY_MAP[ch] for ch in chars]
 
 
+def _parse_code_filter(raw_value: str | None, value_map: dict[str, str], field_name: str) -> list[str] | None:
+    if raw_value is None:
+        return None
+
+    codes = [value for value in raw_value.strip().lower() if value]
+    if not codes:
+        return None
+
+    invalid = [code for code in codes if code not in value_map]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Invalid {field_name} codes: {', '.join(invalid)}")
+    if len(codes) != len(set(codes)):
+        raise HTTPException(status_code=422, detail=f"Duplicate {field_name} codes in filter")
+
+    return [value_map[code] for code in codes]
+
+
 @app.get("/similar-cards", response_model=SimilarCardsPage)
 @log_performance(logger=logger)
 def get_similar_cards(
@@ -586,6 +621,8 @@ def get_similar_cards(
         raise HTTPException(status_code=422, detail="Provide either oracle_id or q")
 
     rarity_list = _parse_rarity(rarity)
+    card_type_list = _parse_code_filter(card_type, _CARD_TYPE_MAP, "card type")
+    format_list = _parse_code_filter(format, _FORMAT_MAP, "format")
 
     index = _get_semantic_index()
     if index is None:
@@ -596,11 +633,11 @@ def get_similar_cards(
             (oracle_id, face_ix),
             limit=limit + offset + 1,
             db=db,
-            card_type=card_type,
+            card_type=card_type_list,
             colors=colors,
             cmc_min=cmc_min,
             cmc_max=cmc_max,
-            format=format,
+            format=format_list,
             rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,
@@ -611,11 +648,11 @@ def get_similar_cards(
             q,
             limit=limit + offset + 1,
             db=db,
-            card_type=card_type,
+            card_type=card_type_list,
             colors=colors,
             cmc_min=cmc_min,
             cmc_max=cmc_max,
-            format=format,
+            format=format_list,
             rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,

@@ -1,3 +1,4 @@
+from ot_backend.api.main import _CARD_TYPE_MAP, _FORMAT_MAP, _parse_code_filter
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.models import AnalyticsEvent, ClientErrorEvent
 
@@ -155,6 +156,17 @@ def test_similar_cards_sets_has_more_false_on_last_page(client, monkeypatch):
     assert res.status_code == 200
     assert len(res.json()["items"]) == 1
     assert res.json()["has_more"] is False
+
+
+def test_compact_type_and_format_filters_decode_to_backend_values():
+    assert _parse_code_filter("is", _CARD_TYPE_MAP, "card type") == ["instant", "sorcery"]
+    assert _parse_code_filter("ml", _FORMAT_MAP, "format") == ["modern", "legacy"]
+
+
+def test_similar_cards_rejects_duplicate_compact_format_codes(client):
+    res = client.get("/similar-cards", params={"q": "shock", "format": "mm"})
+
+    assert res.status_code == 422
 
 
 def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):

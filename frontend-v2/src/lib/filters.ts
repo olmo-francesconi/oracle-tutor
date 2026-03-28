@@ -36,18 +36,45 @@ export const CARD_TYPE_OPTIONS = [
   'land',
 ] as const
 
+const CARD_TYPE_CODES: Record<(typeof CARD_TYPE_OPTIONS)[number], string> = {
+  creature: 'c',
+  instant: 'i',
+  sorcery: 's',
+  enchantment: 'e',
+  artifact: 'a',
+  planeswalker: 'p',
+  land: 'l',
+}
+
+const FORMAT_CODES: Record<(typeof FORMAT_OPTIONS)[number], string> = {
+  standard: 's',
+  pioneer: 'p',
+  modern: 'm',
+  legacy: 'l',
+  vintage: 'v',
+  commander: 'c',
+  pauper: 'u',
+}
+
 const MATCH_MODE_OPTIONS: NonNullable<FilterState['matchMode']>[] = ['at_least', 'at_most', 'exact']
 const COLOR_FEATURE_OPTIONS: NonNullable<FilterState['colorFeature']>[] = ['identity', 'colors']
+
+function normalizeStringArray(values: string[] | undefined): string[] | undefined {
+  if (!values?.length) return undefined
+
+  const normalized = [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+  return normalized.length > 0 ? normalized : undefined
+}
 
 export function normalizeFilterState(filters: FilterState): FilterState {
   const next: FilterState = {}
 
-  if (filters.cardType) next.cardType = filters.cardType
+  if (filters.cardType?.length) next.cardType = normalizeStringArray(filters.cardType)
   if (filters.colors) next.colors = filters.colors
-  if (filters.format) next.format = filters.format
+  if (filters.format?.length) next.format = normalizeStringArray(filters.format)
   if (filters.cmcMin !== undefined && Number.isFinite(filters.cmcMin)) next.cmcMin = filters.cmcMin
   if (filters.cmcMax !== undefined && Number.isFinite(filters.cmcMax)) next.cmcMax = filters.cmcMax
-  if (filters.rarities?.length) next.rarities = [...new Set(filters.rarities)]
+  if (filters.rarities?.length) next.rarities = normalizeStringArray(filters.rarities)
   if (filters.matchMode && filters.matchMode !== 'at_least') next.matchMode = filters.matchMode
   if (filters.colorFeature && filters.colorFeature !== 'identity') next.colorFeature = filters.colorFeature
 
@@ -61,15 +88,76 @@ export function hasActiveFilters(filters: FilterState): boolean {
 export function getActiveFilterCount(filters: FilterState): number {
   let count = 0
 
-  if (filters.cardType) count += 1
+  if (filters.cardType?.length) count += 1
   if (filters.colors) count += 1
-  if (filters.format) count += 1
+  if (filters.format?.length) count += 1
   if (filters.cmcMin !== undefined || filters.cmcMax !== undefined) count += 1
   if (filters.rarities?.length) count += 1
   if (filters.matchMode && filters.matchMode !== 'at_least') count += 1
   if (filters.colorFeature && filters.colorFeature !== 'identity') count += 1
 
   return count
+}
+
+export function toggleFilterValue(values: string[] | undefined, nextValue: string): string[] | undefined {
+  const currentValues = values ?? []
+  const nextValues = currentValues.includes(nextValue)
+    ? currentValues.filter((value) => value !== nextValue)
+    : [...currentValues, nextValue]
+
+  return normalizeStringArray(nextValues)
+}
+
+function encodeFilterCodes(
+  values: string[] | undefined,
+  options: readonly string[],
+  codeMap: Record<string, string>
+): string | undefined {
+  if (!values?.length) return undefined
+
+  const optionSet = new Set(options)
+  const encoded = values
+    .filter((value) => optionSet.has(value))
+    .map((value) => codeMap[value])
+    .filter(Boolean)
+
+  return encoded.length > 0 ? encoded.join('') : undefined
+}
+
+function decodeFilterCodes(
+  rawValue: string | undefined,
+  options: readonly string[],
+  codeMap: Record<string, string>
+): string[] | undefined {
+  if (!rawValue) return undefined
+
+  const reverseMap = new Map(Object.entries(codeMap).map(([value, code]) => [code, value]))
+  const optionSet = new Set(options)
+  const decoded: string[] = []
+
+  for (const code of rawValue) {
+    const nextValue = reverseMap.get(code)
+    if (!nextValue || !optionSet.has(nextValue) || decoded.includes(nextValue)) continue
+    decoded.push(nextValue)
+  }
+
+  return decoded.length > 0 ? decoded : undefined
+}
+
+export function encodeCardTypeFilter(values: string[] | undefined): string | undefined {
+  return encodeFilterCodes(values, CARD_TYPE_OPTIONS, CARD_TYPE_CODES)
+}
+
+export function decodeCardTypeFilter(rawValue: string | undefined): string[] | undefined {
+  return decodeFilterCodes(rawValue, CARD_TYPE_OPTIONS, CARD_TYPE_CODES)
+}
+
+export function encodeFormatFilter(values: string[] | undefined): string | undefined {
+  return encodeFilterCodes(values, FORMAT_OPTIONS, FORMAT_CODES)
+}
+
+export function decodeFormatFilter(rawValue: string | undefined): string[] | undefined {
+  return decodeFilterCodes(rawValue, FORMAT_OPTIONS, FORMAT_CODES)
 }
 
 export function toggleFilterColor(filters: FilterState, color: string): FilterState {

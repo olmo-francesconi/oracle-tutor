@@ -67,7 +67,7 @@ vi.mock('../components/FilterBar', () => ({
     onClear: () => void
   }) => (
     <div>
-      <button type="button" onClick={() => onChange({ format: 'modern' })}>
+      <button type="button" onClick={() => onChange({ format: ['modern'] })}>
         apply modern filter
       </button>
       <button type="button" onClick={onClear}>
@@ -267,10 +267,10 @@ describe('SearchShell integration', () => {
       'value',
       0,
       24,
-      { format: 'modern' },
+      { format: ['modern'] },
       expect.any(AbortSignal)
     )
-    expect(window.location.search).toBe('?q=value&format=modern')
+    expect(window.location.search).toBe('?q=value&format=m')
   })
 
   it('tracks clearing filters once and refetches without filters', async () => {
