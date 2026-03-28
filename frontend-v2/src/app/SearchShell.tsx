@@ -396,7 +396,7 @@ export function SearchShell() {
   return (
     <main
       className={[
-        'relative min-h-screen bg-ot-bg',
+        'relative isolate min-h-screen bg-ot-bg',
         isHome ? 'grid place-items-center px-6 pb-16 pl-11 pt-12 max-[720px]:px-4 max-[720px]:pb-12 max-[720px]:pl-[30px] max-[720px]:pt-8' : '',
       ].join(' ')}
     >
@@ -406,152 +406,154 @@ export function SearchShell() {
         isVisible={hasOracleBackground}
         leftInset={LEFT_STRIPE_WIDTH_PX}
       />
-      {isHome ? (
-        <HomeEditorialText
-          texts={oracleSamples.texts}
-          terms={oracleSamples.terms}
-          viewport={viewport}
-          isVisible={hasOracleBackground}
-          leftInset={LEFT_STRIPE_WIDTH_PX}
-        />
-      ) : null}
+      <div className="relative z-10">
+        {isHome ? (
+          <HomeEditorialText
+            texts={oracleSamples.texts}
+            terms={oracleSamples.terms}
+            viewport={viewport}
+            isVisible={hasOracleBackground}
+            leftInset={LEFT_STRIPE_WIDTH_PX}
+          />
+        ) : null}
 
-      <div className="fixed inset-y-0 left-0 z-20 w-1.5 bg-ot-red" aria-hidden="true" />
+        <div className="fixed inset-y-0 left-0 z-20 w-1.5 bg-ot-red" aria-hidden="true" />
 
-      {isHome ? (
-        <section className="relative z-20 grid w-full max-w-[560px] gap-7" aria-label="Home state">
-          <div className="grid gap-3 px-[18px] text-left max-[720px]:px-[14px]">
-            <h1 className="m-0 font-display text-[clamp(4.5rem,11vw,7rem)] font-black uppercase leading-[0.86] tracking-[-0.03em]">
-              <span className="block">Oracle</span>
-              <span className="block">Tutor</span>
-            </h1>
-            <div className="h-0.5 w-full max-w-[18.5rem] bg-ot-ink" />
-            <p className="m-0 max-w-[30ch] text-[0.8125rem] lowercase leading-[1.55] tracking-[0.06em] text-ot-muted">
-              find cards by meaning, not keywords.
-            </p>
-          </div>
+        {isHome ? (
+          <section className="relative z-20 grid w-full max-w-[560px] gap-7" aria-label="Home state">
+            <div className="grid gap-3 px-[18px] text-left max-[720px]:px-[14px]">
+              <h1 className="m-0 font-display text-[clamp(4.5rem,11vw,7rem)] font-black uppercase leading-[0.86] tracking-[-0.03em]">
+                <span className="block">Oracle</span>
+                <span className="block">Tutor</span>
+              </h1>
+              <div className="h-0.5 w-full max-w-[18.5rem] bg-ot-ink" />
+              <p className="m-0 max-w-[30ch] text-[0.8125rem] lowercase leading-[1.55] tracking-[0.06em] text-ot-muted">
+                find cards by meaning, not keywords.
+              </p>
+            </div>
 
-          <div className="grid gap-0">
-            <SearchBox
-              value={state.draftQuery}
-              onChange={handleDraftChange}
-              onSubmit={handleSubmit}
-              autoFocus
-              showManaRail
-              variant="home"
-            />
-          </div>
-        </section>
-      ) : (
-        <>
-          <header className="sticky top-0 z-30 grid min-h-[58px] grid-cols-[clamp(148px,16vw,176px)_minmax(0,1fr)] items-stretch border-b-2 border-ot-ink bg-ot-bg max-[720px]:grid-cols-[auto_minmax(0,1fr)]">
-            <button
-              type="button"
-              className="flex min-w-0 cursor-pointer items-center justify-center border-0 border-r-2 border-ot-ink bg-transparent px-[18px] py-0 font-display text-[20px] font-black uppercase leading-none tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[720px]:min-h-14 max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0 max-[720px]:text-[18px]"
-              onClick={handleReset}
-            >
-              <span className="max-[720px]:hidden">Oracle Tutor</span>
-              <span className="hidden max-[720px]:inline">OT</span>
-            </button>
-            <div className="relative flex min-w-0 items-stretch bg-ot-surface">
+            <div className="grid gap-0">
               <SearchBox
-                className="h-full self-stretch"
                 value={state.draftQuery}
                 onChange={handleDraftChange}
                 onSubmit={handleSubmit}
-                autoFocus={false}
-                showManaRail={false}
-                variant="topbar"
+                autoFocus
+                showManaRail
+                variant="home"
               />
             </div>
-          </header>
-
-          <section
-            className="relative z-20 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink bg-ot-bg px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
-            aria-label="Results summary"
-          >
-            <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">
-              <p className="eyebrow">Results</p>
-              <h2 className="m-0 font-display text-[clamp(2.2rem,4.4vw,3.35rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
-                {state.submittedQuery}
-              </h2>
-            </div>
-            <div className="grid min-w-[13rem] justify-items-end gap-1.5 self-center max-[720px]:min-w-0 max-[720px]:justify-items-start">
-              {!state.isLoading ? (
-                <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted" aria-live="polite">
-                  {state.results.length}
-                  {state.hasMore || state.isLoadingMore ? '+' : ''} cards
-                </span>
-              ) : null}
-              <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
-                Select a card to open the detail rail.
-              </span>
-            </div>
           </section>
-
-          <FilterBar filters={state.filters} onChange={handleFiltersChange} onClear={handleClearFilters} />
-
-          <section
-            className="px-6 pb-14 pl-[38px] pr-6 pt-6 max-[720px]:px-4 max-[720px]:pl-6"
-            aria-label="Results state"
-          >
-            {state.isLoading ? (
-              <div className="grid gap-3" aria-hidden="true">
-                <div className="grid gap-1.5">
-                  <span className="block h-3 w-28 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                  <span className="block h-8 w-[min(24rem,78vw)] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                </div>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-3 max-[720px]:grid-cols-[repeat(auto-fill,minmax(154px,1fr))]">
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <div key={index} className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-                      <span className="block h-8 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                      <span className="block aspect-[63/88] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_72%,var(--color-ot-bg))]" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {!state.isLoading && state.error ? (
-              <div className="grid gap-1 border-2 border-ot-red bg-[color:color-mix(in_srgb,var(--color-ot-red)_7%,var(--color-ot-bg))] px-4 py-4 max-[720px]:px-3">
-                <p className="eyebrow text-ot-red">Search interrupted</p>
-                <p className="m-0 font-display text-[clamp(1.4rem,3vw,1.9rem)] font-black uppercase leading-[0.92] tracking-[-0.02em] text-ot-ink">
-                  Results did not land cleanly.
-                </p>
-                <p className="m-0 max-w-[62ch] text-[0.75rem] uppercase leading-[1.6] tracking-[0.11em] text-ot-muted">
-                  {state.error}
-                </p>
-              </div>
-            ) : null}
-            {!state.isLoading && !state.error && state.results.length === 0 ? (
-              <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
-                No cards matched {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
-              </p>
-            ) : null}
-            {state.results.length > 0 ? (
-              <div className="grid items-start gap-7 [grid-template-columns:minmax(0,1fr)_340px] max-[900px]:grid-cols-1">
-                {state.selectedCard ? (
-                  <div className="hidden max-[900px]:block">
-                    <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
-                  </div>
-                ) : null}
-                <ResultsGrid
-                  cards={state.results}
-                  hasMore={state.hasMore}
-                  isLoadingMore={state.isLoadingMore}
-                  selectedCardKey={selectedCardKey}
-                  onCardSelect={handleSelectCard}
-                  onLoadMore={handleLoadMore}
+        ) : (
+          <>
+            <header className="sticky top-0 z-30 grid min-h-[58px] grid-cols-[clamp(148px,16vw,176px)_minmax(0,1fr)] items-stretch border-b-2 border-ot-ink bg-ot-bg max-[720px]:grid-cols-[auto_minmax(0,1fr)]">
+              <button
+                type="button"
+                className="flex min-w-0 cursor-pointer items-center justify-center border-0 border-r-2 border-ot-ink bg-transparent px-[18px] py-0 font-display text-[20px] font-black uppercase leading-none tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[720px]:min-h-14 max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0 max-[720px]:text-[18px]"
+                onClick={handleReset}
+              >
+                <span className="max-[720px]:hidden">Oracle Tutor</span>
+                <span className="hidden max-[720px]:inline">OT</span>
+              </button>
+              <div className="relative flex min-w-0 items-stretch bg-ot-surface">
+                <SearchBox
+                  className="h-full self-stretch"
+                  value={state.draftQuery}
+                  onChange={handleDraftChange}
+                  onSubmit={handleSubmit}
+                  autoFocus={false}
+                  showManaRail={false}
+                  variant="topbar"
                 />
-                {state.selectedCard ? (
-                  <div className="max-[900px]:hidden">
-                    <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
-                  </div>
-                ) : null}
               </div>
-            ) : null}
-          </section>
-        </>
-      )}
+            </header>
+
+            <section
+              className="relative z-20 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink bg-ot-bg px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
+              aria-label="Results summary"
+            >
+              <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">
+                <p className="eyebrow">Results</p>
+                <h2 className="m-0 font-display text-[clamp(2.2rem,4.4vw,3.35rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
+                  {state.submittedQuery}
+                </h2>
+              </div>
+              <div className="grid min-w-[13rem] justify-items-end gap-1.5 self-center max-[720px]:min-w-0 max-[720px]:justify-items-start">
+                {!state.isLoading ? (
+                  <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted" aria-live="polite">
+                    {state.results.length}
+                    {state.hasMore || state.isLoadingMore ? '+' : ''} cards
+                  </span>
+                ) : null}
+                <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
+                  Select a card to open the detail rail.
+                </span>
+              </div>
+            </section>
+
+            <FilterBar filters={state.filters} onChange={handleFiltersChange} onClear={handleClearFilters} />
+
+            <section
+              className="px-6 pb-14 pl-[38px] pr-6 pt-6 max-[720px]:px-4 max-[720px]:pl-6"
+              aria-label="Results state"
+            >
+              {state.isLoading ? (
+                <div className="grid gap-3" aria-hidden="true">
+                  <div className="grid gap-1.5">
+                    <span className="block h-3 w-28 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
+                    <span className="block h-8 w-[min(24rem,78vw)] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
+                  </div>
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-3 max-[720px]:grid-cols-[repeat(auto-fill,minmax(154px,1fr))]">
+                    {Array.from({ length: 6 }, (_, index) => (
+                      <div key={index} className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
+                        <span className="block h-8 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
+                        <span className="block aspect-[63/88] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_72%,var(--color-ot-bg))]" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {!state.isLoading && state.error ? (
+                <div className="grid gap-1 border-2 border-ot-red bg-[color:color-mix(in_srgb,var(--color-ot-red)_7%,var(--color-ot-bg))] px-4 py-4 max-[720px]:px-3">
+                  <p className="eyebrow text-ot-red">Search interrupted</p>
+                  <p className="m-0 font-display text-[clamp(1.4rem,3vw,1.9rem)] font-black uppercase leading-[0.92] tracking-[-0.02em] text-ot-ink">
+                    Results did not land cleanly.
+                  </p>
+                  <p className="m-0 max-w-[62ch] text-[0.75rem] uppercase leading-[1.6] tracking-[0.11em] text-ot-muted">
+                    {state.error}
+                  </p>
+                </div>
+              ) : null}
+              {!state.isLoading && !state.error && state.results.length === 0 ? (
+                <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
+                  No cards matched {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
+                </p>
+              ) : null}
+              {state.results.length > 0 ? (
+                <div className="grid items-start gap-7 [grid-template-columns:minmax(0,1fr)_340px] max-[900px]:grid-cols-1">
+                  {state.selectedCard ? (
+                    <div className="hidden max-[900px]:block">
+                      <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
+                    </div>
+                  ) : null}
+                  <ResultsGrid
+                    cards={state.results}
+                    hasMore={state.hasMore}
+                    isLoadingMore={state.isLoadingMore}
+                    selectedCardKey={selectedCardKey}
+                    onCardSelect={handleSelectCard}
+                    onLoadMore={handleLoadMore}
+                  />
+                  {state.selectedCard ? (
+                    <div className="max-[900px]:hidden">
+                      <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          </>
+        )}
+      </div>
     </main>
   )
 }
