@@ -435,7 +435,20 @@ export function SearchShell() {
             aria-label="Results state"
           >
             {state.isLoading ? (
-              <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">Loading results...</p>
+              <div className="grid gap-3" aria-hidden="true">
+                <div className="grid gap-1.5">
+                  <span className="block h-3 w-28 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
+                  <span className="block h-8 w-[min(24rem,78vw)] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-3 max-[720px]:grid-cols-[repeat(auto-fill,minmax(154px,1fr))]">
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <div key={index} className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
+                      <span className="block h-8 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
+                      <span className="block aspect-[63/88] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_72%,var(--color-ot-bg))]" />
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : null}
             {!state.isLoading && state.error ? (
               <div className="grid gap-1 border-2 border-ot-red bg-[color:color-mix(in_srgb,var(--color-ot-red)_7%,var(--color-ot-bg))] px-4 py-4 max-[720px]:px-3">
@@ -455,6 +468,11 @@ export function SearchShell() {
             ) : null}
             {state.results.length > 0 ? (
               <div className="grid items-start gap-7 [grid-template-columns:minmax(0,1fr)_340px] max-[900px]:grid-cols-1">
+                {state.selectedCard ? (
+                  <div className="hidden max-[900px]:block">
+                    <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
+                  </div>
+                ) : null}
                 <ResultsGrid
                   cards={state.results}
                   hasMore={state.hasMore}
@@ -464,7 +482,9 @@ export function SearchShell() {
                   onLoadMore={handleLoadMore}
                 />
                 {state.selectedCard ? (
-                  <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
+                  <div className="max-[900px]:hidden">
+                    <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
+                  </div>
                 ) : null}
               </div>
             ) : null}

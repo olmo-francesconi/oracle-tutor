@@ -108,14 +108,14 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
   return (
     <aside
       ref={overlayRef}
-      className="sticky top-24 grid gap-4 border-2 border-ot-ink bg-ot-surface p-4 animate-ot-fade-slide-in max-[900px]:static"
+      className="sticky top-24 grid gap-4 border-2 border-ot-ink bg-ot-surface p-4 animate-ot-fade-slide-in max-[900px]:static max-[900px]:gap-3 max-[900px]:p-3"
       aria-label="Card details"
       onKeyDown={handleKeyDown}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3 max-[560px]:grid max-[560px]:grid-cols-1">
         <div className="grid gap-1.5">
           <p className="eyebrow">Detail Rail</p>
-          <h2 className="font-display text-[clamp(2.1rem,4vw,2.65rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
+          <h2 className="font-display text-[clamp(2.1rem,4vw,2.65rem)] font-black uppercase leading-[0.9] tracking-[-0.02em] max-[560px]:text-[1.95rem]">
             {display.name}
           </h2>
         </div>
@@ -123,7 +123,7 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
           ref={closeButtonRef}
           type="button"
           onClick={onClose}
-          className="cursor-pointer border-2 border-ot-ink bg-transparent px-[10px] py-2 uppercase tracking-[0.08em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none"
+          className="cursor-pointer border-2 border-ot-ink bg-transparent px-[10px] py-2 uppercase tracking-[0.08em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[560px]:w-full"
         >
           Close
         </button>
