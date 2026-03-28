@@ -15,7 +15,7 @@ import {
 } from './searchShellState'
 import { normalizeFilterState } from '../lib/filters'
 import { getOracleSamples, searchOracleText } from '../lib/api'
-import { reportError } from '../lib/observability'
+import { reportError, track } from '../lib/observability'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
 import type { FilterState, OracleSamples, SimilarCard } from '../types/api'
 import type { SearchShellState } from '../types/ui'
@@ -134,6 +134,11 @@ export function SearchShell() {
     const nextQuery = (submittedValue ?? state.draftQuery).trim()
     if (!nextQuery) return
 
+    track('search_submitted', {
+      queryLength: nextQuery.length,
+      hasFilters: Object.keys(state.filters).length > 0,
+    })
+
     setState((current) => ({
       ...current,
       draftQuery: nextQuery,
@@ -144,6 +149,8 @@ export function SearchShell() {
 
   const handleFiltersChange = useCallback((nextFilters: FilterState) => {
     const normalizedFilters = normalizeFilterState(nextFilters)
+    const nextFilterKeys = Object.keys(normalizedFilters).sort()
+    const previousFilterKeys = Object.keys(state.filters).sort()
 
     setState((current) => ({
       ...current,
@@ -151,18 +158,33 @@ export function SearchShell() {
       error: null,
     }))
 
+    track('filters_changed', {
+      activeCount: nextFilterKeys.length,
+      keys: nextFilterKeys,
+      previousKeys: previousFilterKeys,
+    })
+
     if (!state.submittedQuery) return
     void runSearch(state.submittedQuery, normalizedFilters)
-  }, [runSearch, state.submittedQuery])
+  }, [runSearch, state.filters, state.submittedQuery])
 
   const handleClearFilters = useCallback(() => {
+    track('filters_cleared', {
+      previousKeys: Object.keys(state.filters).sort(),
+    })
     void handleFiltersChange({})
-  }, [handleFiltersChange])
+  }, [handleFiltersChange, state.filters])
 
   const handleLoadMore = useCallback(async () => {
     if (!state.submittedQuery || state.isLoading || state.isLoadingMore || !state.hasMore) {
       return
     }
+
+    track('load_more_requested', {
+      queryLength: state.submittedQuery.length,
+      offset: state.results.length,
+      hasFilters: Object.keys(state.filters).length > 0,
+    })
 
     activeLoadMoreRequestRef.current?.abort()
     const controller = new AbortController()
@@ -217,6 +239,23 @@ export function SearchShell() {
   ])
 
   const handleSelectCard = useCallback((card: SimilarCard) => {
+    const nextIsOpen =
+      !(
+        state.selectedCard &&
+        state.selectedCard.id === card.id &&
+        state.selectedCard.face_ix === card.face_ix &&
+        state.selectedCard.image_side === card.image_side
+      )
+
+    if (nextIsOpen) {
+      track('card_opened', {
+        cardId: card.id,
+        faceIx: card.face_ix,
+        imageSide: card.image_side,
+        similarity: Math.round(card.similarity * 100),
+      })
+    }
+
     setState((current) => ({
       ...current,
       selectedCard:
@@ -227,7 +266,7 @@ export function SearchShell() {
           ? null
           : card,
     }))
-  }, [])
+  }, [state.selectedCard])
 
   const handleCloseOverlay = useCallback(() => {
     setState((current) => ({
