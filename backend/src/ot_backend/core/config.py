@@ -21,6 +21,9 @@ DB_SCHEMA_VERSION = "2.6.0"
 # API startup migration wait behavior
 SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS", "30"))
 SCHEMA_WAIT_INTERVAL_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS", "1"))
+DEFAULT_ALLOWED_HOSTS = ("localhost", "127.0.0.1", "testserver", "api")
+MAX_REQUEST_BYTES = int(os.getenv("ORACLE_TUTOR_API_MAX_REQUEST_BYTES", "32768"))
+MAX_QUERY_LENGTH = int(os.getenv("ORACLE_TUTOR_API_MAX_QUERY_LENGTH", "200"))
 
 
 def oracle_tutor_env() -> str:
@@ -53,6 +56,23 @@ def parse_version(version_str: str | None) -> tuple[int, int, int]:
         return (int(parts[0]), int(parts[1]), int(parts[2]))
     except ValueError:
         return (0, 0, 0)
+
+
+def allowed_hosts() -> list[str]:
+    explicit = os.getenv("ORACLE_TUTOR_API_ALLOWED_HOSTS", "").strip()
+    def normalize(host: str) -> str:
+        return host.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
+
+    if explicit:
+        return [normalized for host in explicit.split(",") if (normalized := normalize(host))]
+
+    hosts = list(DEFAULT_ALLOWED_HOSTS)
+    for env_key in ("RAILWAY_PUBLIC_DOMAIN", "RAILWAY_PRIVATE_DOMAIN"):
+        host = normalize(os.getenv(env_key, ""))
+        if host:
+            hosts.append(host)
+
+    return hosts
 
 
 def ensure_data_dir() -> None:

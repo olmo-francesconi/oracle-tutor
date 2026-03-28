@@ -254,3 +254,37 @@ def test_client_error_telemetry_rejects_oversized_context(client):
     )
 
     assert res.status_code == 413
+
+
+def test_search_rejects_overlong_query(client):
+    res = client.get("/search", params={"q": "x" * 201})
+
+    assert res.status_code == 422
+
+
+def test_similar_cards_rejects_overlong_query(client, monkeypatch):
+    class FakeSemanticIndex:
+        def search_oracle(self, *_args, **_kwargs):
+            return []
+
+    monkeypatch.setattr("ot_backend.api.main._get_semantic_index", lambda: FakeSemanticIndex())
+
+    res = client.get("/similar-cards", params={"q": "x" * 201})
+
+    assert res.status_code == 422
+
+
+def test_telemetry_rejects_oversized_request_body(client):
+    res = client.post(
+        "/telemetry/client-error",
+        content=b"x" * 40000,
+        headers={"content-type": "application/json"},
+    )
+
+    assert res.status_code == 413
+
+
+def test_rejects_disallowed_host_header(client):
+    res = client.get("/health", headers={"host": "evil.example"})
+
+    assert res.status_code == 400

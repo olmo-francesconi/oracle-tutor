@@ -5,6 +5,8 @@ server {
 
   root /usr/share/nginx/html;
   index index.html;
+  client_max_body_size 32k;
+  limit_req_status 429;
 
   # Basic hardening headers (safe defaults for a static SPA).
   add_header X-Content-Type-Options "nosniff" always;
@@ -42,33 +44,170 @@ server {
     try_files $uri $uri/ /index.html;
   }
 
-  # Same-origin API proxy: frontend calls /api/*, backend expects /*.
-  # Crawler allowlist: block bots from API entirely.
-  location ^~ /api/ {
+  location = /api/health {
     if ($is_bot) { return 403; }
-    # Assign to variable to force dynamic resolution
-    # Must be set BEFORE it is used or rewritten to avoid "uninitialized variable" warnings.
     set $upstream_target ${API_PROXY_TARGET};
-
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
-
-    # Use Railway's internal DNS resolver (IPv6)
     resolver [fd12::10] valid=10s ipv6=on;
-
-    # IMPORTANT: when proxying to a different Railway service via its public domain,
-    # routing is Host-header based. Use the upstream host, not the frontend host.
     proxy_set_header Host $proxy_host;
-    # After Real IP processing, $remote_addr is the client IP and $realip_remote_addr
-    # is the trusted proxy hop. Send client IP to the API explicitly.
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Connection "";
-
-    # Log the upstream target for debugging dynamic resolution
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
     access_log /dev/stdout main_ext;
-    
+    proxy_pass $upstream_target;
+  }
+
+  location = /api/version {
+    if ($is_bot) { return 403; }
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    resolver [fd12::10] valid=10s ipv6=on;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    access_log /dev/stdout main_ext;
+    proxy_pass $upstream_target;
+  }
+
+  location = /api/search {
+    if ($is_bot) { return 403; }
+    limit_req zone=api_global burst=30 nodelay;
+    limit_req zone=api_search burst=20 nodelay;
+    limit_conn api_conn 20;
+    limit_except GET { deny all; }
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    resolver [fd12::10] valid=10s ipv6=on;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    access_log /dev/stdout main_ext;
+    proxy_pass $upstream_target;
+  }
+
+  location = /api/similar-cards {
+    if ($is_bot) { return 403; }
+    limit_req zone=api_global burst=30 nodelay;
+    limit_req zone=api_semantic burst=10 nodelay;
+    limit_conn api_conn 20;
+    limit_except GET { deny all; }
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    resolver [fd12::10] valid=10s ipv6=on;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    access_log /dev/stdout main_ext;
+    proxy_pass $upstream_target;
+  }
+
+  location ^~ /api/card/ {
+    if ($is_bot) { return 403; }
+    limit_req zone=api_global burst=30 nodelay;
+    limit_req zone=api_read burst=20 nodelay;
+    limit_conn api_conn 20;
+    limit_except GET { deny all; }
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    resolver [fd12::10] valid=10s ipv6=on;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    access_log /dev/stdout main_ext;
+    proxy_pass $upstream_target;
+  }
+
+  location = /api/oracle-samples {
+    if ($is_bot) { return 403; }
+    limit_req zone=api_global burst=30 nodelay;
+    limit_req zone=api_read burst=20 nodelay;
+    limit_conn api_conn 20;
+    limit_except GET { deny all; }
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    resolver [fd12::10] valid=10s ipv6=on;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    access_log /dev/stdout main_ext;
+    proxy_pass $upstream_target;
+  }
+
+  location ^~ /api/telemetry/ {
+    if ($is_bot) { return 403; }
+    limit_req zone=api_global burst=15 nodelay;
+    limit_req zone=api_telemetry burst=10 nodelay;
+    limit_conn api_conn 10;
+    limit_except POST { deny all; }
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    resolver [fd12::10] valid=10s ipv6=on;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    access_log /dev/stdout main_ext;
+    proxy_pass $upstream_target;
+  }
+
+  location ^~ /api/ {
+    if ($is_bot) { return 403; }
+    limit_req zone=api_global burst=30 nodelay;
+    limit_conn api_conn 20;
+    limit_except GET { deny all; }
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    resolver [fd12::10] valid=10s ipv6=on;
+    proxy_set_header Host $proxy_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    access_log /dev/stdout main_ext;
     proxy_pass $upstream_target;
   }
 
@@ -79,5 +218,4 @@ server {
     try_files $uri =404;
   }
 }
-
 

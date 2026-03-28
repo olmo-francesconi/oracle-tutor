@@ -12,14 +12,23 @@ from datetime import UTC, datetime
 from typing import Final, Literal, Protocol, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
 from sqlalchemy.orm import Session, joinedload
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from ..core.config import SCHEMA_WAIT_INTERVAL_SECONDS, SCHEMA_WAIT_TIMEOUT_SECONDS
+from ..core.config import (
+    MAX_QUERY_LENGTH,
+    MAX_REQUEST_BYTES,
+    SCHEMA_WAIT_INTERVAL_SECONDS,
+    SCHEMA_WAIT_TIMEOUT_SECONDS,
+    allowed_hosts,
+)
 from ..core.database import get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
@@ -41,6 +50,44 @@ from .schemas import (
 )
 
 logger = logging.getLogger("ot_backend.api")
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH"}:
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    parsed_length = int(content_length)
+                except ValueError:
+                    parsed_length = MAX_REQUEST_BYTES + 1
+
+                if parsed_length > MAX_REQUEST_BYTES:
+                    logger.warning(
+                        "Rejected oversized request by content-length: method=%s path=%s bytes=%s",
+                        request.method,
+                        request.url.path,
+                        content_length,
+                    )
+                    return JSONResponse(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        content={"detail": f"Request body exceeds the {MAX_REQUEST_BYTES}-byte limit."},
+                    )
+
+            body = await request.body()
+            if len(body) > MAX_REQUEST_BYTES:
+                logger.warning(
+                    "Rejected oversized request by body read: method=%s path=%s bytes=%s",
+                    request.method,
+                    request.url.path,
+                    len(body),
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    content={"detail": f"Request body exceeds the {MAX_REQUEST_BYTES}-byte limit."},
+                )
+
+        return await call_next(request)
 
 
 class SemanticIndexProtocol(Protocol):
@@ -313,6 +360,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan, title="oracle-tutor api", version=API_VERSION)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
+app.add_middleware(RequestSizeLimitMiddleware)
 
 
 @app.exception_handler(SQLTimeoutError)
@@ -332,6 +381,18 @@ async def database_connection_exception_handler(request: Request, exc: Exception
             "error": "database_connection_error",
         },
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning(
+        "Request validation failed on %s %s from %s: %s",
+        request.method,
+        request.url.path,
+        request.client.host if request.client else "unknown",
+        exc.errors(),
+    )
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.errors()})
 
 
 cors_origins_env = os.getenv("ORACLE_TUTOR_API_CORS_ORIGINS", "").strip()
@@ -445,7 +506,7 @@ def ingest_analytics_event(
 @app.get("/search", response_model=list[CardMatch])
 @log_performance(logger=logger)
 def search_cards(
-    q: str,
+    q: str = Query(..., max_length=MAX_QUERY_LENGTH),
     db: Session = Depends(get_db),
     limit: int = Query(10, ge=1, le=MAX_SEARCH_LIMIT),
     offset: int = Query(0, ge=0),
@@ -508,7 +569,7 @@ def get_similar_cards(
     db: Session = Depends(get_db),
     oracle_id: str | None = None,
     face_ix: int = Query(0, ge=0),
-    q: str | None = None,
+    q: str | None = Query(None, max_length=MAX_QUERY_LENGTH),
     limit: int = Query(20, ge=1, le=MAX_SIMILAR_CARDS_LIMIT),
     offset: int = Query(0, ge=0),
     card_type: str | None = None,
