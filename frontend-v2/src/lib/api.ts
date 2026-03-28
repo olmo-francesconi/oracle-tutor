@@ -259,13 +259,9 @@ export async function searchOracleText(
 }
 
 export async function getOracleSamples(signal?: AbortSignal): Promise<OracleSamples> {
-  try {
-    return await getJson<OracleSamples>(
-      '/oracle-samples',
-      { n: 60 },
-      signal
-    )
-  } catch {
-    return { texts: [], terms: [] }
-  }
+  return getJson<OracleSamples>(
+    '/oracle-samples',
+    { n: 60 },
+    signal
+  )
 }

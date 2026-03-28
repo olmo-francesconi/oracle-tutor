@@ -93,8 +93,6 @@ export function SearchShell() {
 
   const isHome = state.submittedQuery === null
   const hasOracleBackground = oracleSamples.texts.length > 0
-  const apiDownContext = isHome ? 'home' : 'results'
-
   const handleDraftChange = useCallback((value: string) => {
     setState((current) => ({
       ...current,
@@ -544,7 +542,6 @@ export function SearchShell() {
       </div>
       {apiDownMessage ? (
         <ApiDownOverlay
-          context={apiDownContext}
           message={apiDownMessage}
           isRetrying={isRetryingApi}
           onRetry={handleRetryApi}

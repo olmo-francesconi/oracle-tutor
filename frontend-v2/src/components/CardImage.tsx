@@ -1,22 +1,19 @@
 import { memo, useState } from 'react'
+import { CardImageFallback } from './errors/CardImageFallback'
 
 type CardImageProps = {
   src: string
   alt: string
+  oracleText?: string
+  manaCost?: string
   className?: string
 }
 
-function CardImageComponent({ src, alt, className }: CardImageProps) {
+function CardImageComponent({ src, alt, oracleText, manaCost, className }: CardImageProps) {
   const [hasError, setHasError] = useState(false)
 
   if (!src || hasError) {
-    return (
-      <div
-        className={className}
-        role="img"
-        aria-label={alt ? `Placeholder for ${alt}` : 'Card image unavailable'}
-      />
-    )
+    return <CardImageFallback alt={alt} oracleText={oracleText} manaCost={manaCost} className={className} />
   }
 
   return (

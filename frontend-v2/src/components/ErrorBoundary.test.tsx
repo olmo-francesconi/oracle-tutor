@@ -28,7 +28,7 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     )
 
-    expect(screen.getByText(/A runtime report was queued for review\./i)).toBeInTheDocument()
+    expect(screen.getByText(/Reload Oracle Tutor\. A runtime report was queued for review\./i)).toBeInTheDocument()
   })
 
   it('uses neutral recovery copy when runtime reporting is disabled', () => {
@@ -40,6 +40,6 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     )
 
-    expect(screen.getByText(/^Reload the app to restore the catalog\.$/i)).toBeInTheDocument()
+    expect(screen.getByText(/^Reload Oracle Tutor\.$/i)).toBeInTheDocument()
   })
 })

@@ -305,8 +305,10 @@ describe('SearchShell integration', () => {
 
     render(<SearchShell />)
 
-    expect(await screen.findByText('The catalog is off the wire.')).toBeInTheDocument()
-    expect(screen.getByText('The front page cannot reach the catalog right now.')).toBeInTheDocument()
+    expect(await screen.findByText('Oracle Tutor offline.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.')
+    ).toBeInTheDocument()
   })
 
   it('shows a global api-down overlay on results when the search request cannot reach the api', async () => {
@@ -317,9 +319,11 @@ describe('SearchShell integration', () => {
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
     fireEvent.click(screen.getByText('submit search'))
 
-    expect(await screen.findByText('The catalog is off the wire.')).toBeInTheDocument()
-    expect(screen.getByText('The results shell lost contact with the catalog.')).toBeInTheDocument()
-    expect(screen.queryByText('Results did not land cleanly.')).not.toBeInTheDocument()
+    expect(await screen.findByText('Oracle Tutor offline.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Results unavailable.')).not.toBeInTheDocument()
   })
 
   it('keeps non-network search failures as local search errors', async () => {
@@ -330,7 +334,7 @@ describe('SearchShell integration', () => {
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
     fireEvent.click(screen.getByText('submit search'))
 
-    expect(await screen.findByText('Results did not land cleanly.')).toBeInTheDocument()
-    expect(screen.queryByText('The catalog is off the wire.')).not.toBeInTheDocument()
+    expect(await screen.findByText('Results unavailable.')).toBeInTheDocument()
+    expect(screen.queryByText('Oracle Tutor offline.')).not.toBeInTheDocument()
   })
 })

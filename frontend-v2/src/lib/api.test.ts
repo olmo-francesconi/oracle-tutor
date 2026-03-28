@@ -3,6 +3,7 @@ import {
   assertOk,
   buildSimilarCardsParams,
   clearCardSearchCache,
+  getOracleSamples,
   normalizeCard,
   normalizeCardMatch,
   normalizeSimilarCard,
@@ -104,6 +105,25 @@ describe('searchCards cache', () => {
     await searchCards('query-0', 6, 0)
 
     expect(fetchMock).toHaveBeenCalledTimes(42)
+  })
+})
+
+describe('getOracleSamples', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+  })
+
+  it('surfaces oracle sample request failures to the shell', async () => {
+    fetchMock.mockResolvedValue(createJsonResponse({ detail: 'unavailable' }, { status: 503 }))
+
+    await expect(getOracleSamples()).rejects.toThrow('Request failed: 503 - unavailable')
   })
 })
 

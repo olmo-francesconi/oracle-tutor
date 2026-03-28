@@ -111,12 +111,12 @@ export function isApiDownError(error: unknown): boolean {
 
 export function getApiDownMessage(error: unknown): string {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return 'You appear to be offline. Reconnect, then retry the connection.'
+    return 'Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.'
   }
 
   if (error instanceof Error && /request failed: 503\b/i.test(error.message)) {
-    return 'The API is up but not accepting requests right now. Give it a second, then retry the connection.'
+    return 'Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.'
   }
 
-  return 'The API is not responding right now. Give it a second, then retry the connection.'
+  return 'Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.'
 }

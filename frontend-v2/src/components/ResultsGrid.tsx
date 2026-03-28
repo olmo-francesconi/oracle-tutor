@@ -56,6 +56,8 @@ const ResultCard = memo(function ResultCard({ card }: ResultCardProps) {
         <CardImage
           src={getCardImageUrl(card)}
           alt={title}
+          oracleText={card.oracle_text}
+          manaCost={card.mana_cost}
           className="block aspect-[63/88] w-full rounded-[4.8%/3.5%] border-0 bg-[#d8d2c8] object-cover"
         />
       </span>
