@@ -15,6 +15,7 @@ import {
 } from './searchShellState'
 import { normalizeFilterState } from '../lib/filters'
 import { getOracleSamples, searchOracleText } from '../lib/api'
+import { reportError } from '../lib/observability'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
 import type { FilterState, OracleSamples, SimilarCard } from '../types/api'
 import type { SearchShellState } from '../types/ui'
@@ -120,6 +121,11 @@ export function SearchShell() {
     } catch (error) {
       if (controller.signal.aborted) return
 
+      reportError(error, {
+        source: 'search.first-page',
+        query,
+        filters,
+      })
       setState((current) => buildSearchFailureState(current, query, filters, getSearchErrorMessage(error)))
     }
   }, [fetchFirstPage])
@@ -189,6 +195,12 @@ export function SearchShell() {
     } catch (error) {
       if (controller.signal.aborted) return
 
+      reportError(error, {
+        source: 'search.load-more',
+        query: state.submittedQuery,
+        offset: state.results.length,
+        filters: state.filters,
+      })
       setState((current) => ({
         ...current,
         error: getSearchErrorMessage(error),

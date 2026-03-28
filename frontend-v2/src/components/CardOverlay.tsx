@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { getCard } from '../lib/api'
 import { getDisplayFace, getCardImageUrl } from '../lib/cards'
+import { reportError } from '../lib/observability'
 import type { Card, SimilarCard } from '../types/api'
 import { CardImage } from './CardImage'
 import { SymbolText } from './SymbolText'
@@ -51,8 +52,12 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
         if (!controller.signal.aborted) {
           setDetailCard(nextCard)
         }
-      } catch {
+      } catch (error) {
         if (!controller.signal.aborted) {
+          reportError(error, {
+            source: 'card-overlay.detail-fetch',
+            cardId: card.id,
+          })
           setDetailCard(null)
         }
       } finally {
