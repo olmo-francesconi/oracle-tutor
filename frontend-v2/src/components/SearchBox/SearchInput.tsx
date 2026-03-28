@@ -55,7 +55,7 @@ function buildEditableContent(root: HTMLDivElement, text: string) {
         const token = document.createElement('span')
         token.dataset.token = part
         token.contentEditable = 'false'
-        token.className = 'inline-flex items-center align-middle'
+        token.className = 'inline-flex items-center px-[0.07em] align-middle'
 
         const icon = document.createElement('i')
         icon.className = `${manaClass} ms-cost inline-block align-middle text-[0.9em] leading-none`
@@ -364,7 +364,7 @@ export function SearchInput({
           'box-border',
           variant === 'topbar'
             ? 'flex h-full min-h-full items-center border-x-0 border-y-0 bg-ot-surface px-[22px] py-0 text-sm leading-[1.3] max-[720px]:px-[14px] max-[720px]:text-[0.8125rem]'
-            : 'h-14 min-h-14 px-[18px] py-4 text-base leading-[1.45]',
+            : 'flex h-14 min-h-14 items-center px-[18px] py-0 text-base leading-[1.45]',
         ].join(' ')}
         data-placeholder="search for a card or describe what it does…"
         data-variant={variant}

@@ -72,6 +72,7 @@ function renderBackgroundText(text: string) {
               display: 'inline-block',
               fontSize: '0.9em',
               lineHeight: 1,
+              paddingInline: '0.07em',
               verticalAlign: '-0.08em',
             }}
           />

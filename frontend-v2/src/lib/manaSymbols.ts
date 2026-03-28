@@ -1,17 +1,21 @@
 const TOKEN_SPLIT_RE = /(\{[^}]*\})/g
+const MAX_SUPPORTED_NUMERIC_SYMBOL = 20
 const SUPPORTED_SINGLE_SYMBOLS = ['w', 'u', 'b', 'r', 'g', 'c', 's', 'x', 'y', 'z', 't', 'q', 'e', 'a', 'p'] as const
-const SUPPORTED_NAMED_SYMBOLS = ['paw', 'infinity', '1/2', 'acorn'] as const
+const SUPPORTED_NAMED_SYMBOLS = ['paw', 'infinity', '1/2', 'acorn', 'tk', '100'] as const
+const SUPPORTED_COMPACT_HYBRID_PARTS = ['w', 'u', 'b', 'r', 'g', '2', 'p'] as const
 
 const SPECIAL: Record<string, string> = {
   t: 'ms ms-tap',
   q: 'ms ms-untap',
   a: 'ms ms-acorn',
+  tk: 'ms ms-ticket',
   paw: 'ms ms-paw',
   s: 'ms ms-s',
   c: 'ms ms-c',
   e: 'ms ms-e',
   infinity: 'ms ms-infinity',
-  '1/2': 'ms ms-half',
+  '1/2': 'ms ms-1-2',
+  '100': 'ms ms-100',
   acorn: 'ms ms-acorn',
 }
 
@@ -26,6 +30,16 @@ function isSupportedHybridContent(content: string): boolean {
   })
 }
 
+function isSupportedCompactHybridContent(content: string): boolean {
+  if (content.length < 2 || content.length > 3) return false
+
+  return content
+    .split('')
+    .every((part) =>
+      SUPPORTED_COMPACT_HYBRID_PARTS.includes(part as (typeof SUPPORTED_COMPACT_HYBRID_PARTS)[number])
+    )
+}
+
 export function isSupportedManaSymbol(symbol: string): boolean {
   if (!symbol.startsWith('{') || !symbol.endsWith('}')) return false
 
@@ -33,8 +47,12 @@ export function isSupportedManaSymbol(symbol: string): boolean {
   if (!content) return false
   if (SUPPORTED_SINGLE_SYMBOLS.includes(content as (typeof SUPPORTED_SINGLE_SYMBOLS)[number])) return true
   if (SUPPORTED_NAMED_SYMBOLS.includes(content as (typeof SUPPORTED_NAMED_SYMBOLS)[number])) return true
-  if (/^\d{1,2}$/.test(content)) return true
+  if (/^\d{1,2}$/.test(content)) {
+    const numericValue = Number.parseInt(content, 10)
+    return numericValue >= 0 && numericValue <= MAX_SUPPORTED_NUMERIC_SYMBOL
+  }
   if (content.includes('/')) return isSupportedHybridContent(content)
+  if (isSupportedCompactHybridContent(content)) return true
 
   return false
 }

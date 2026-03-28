@@ -15,7 +15,7 @@ export function SymbolText({ text }: SymbolTextProps) {
 
           if (manaClass) {
             return (
-              <span key={key} className="inline-flex items-center align-middle" aria-label={part}>
+              <span key={key} className="inline-flex items-center px-[0.07em] align-middle" aria-label={part}>
                 <i className={`${manaClass} ms-cost inline-block align-middle leading-none`} aria-hidden="true" />
               </span>
             )

@@ -55,6 +55,14 @@
 }
 
 @layer components {
+  .ms-20 {
+    margin-left: 0 !important;
+  }
+
+  .ms-100 {
+    margin-left: 0 !important;
+  }
+
   .eyebrow {
     margin: 0;
     color: var(--color-ot-muted);
