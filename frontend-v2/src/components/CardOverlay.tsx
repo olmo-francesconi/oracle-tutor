@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { getCard } from '../lib/api'
 import { getDisplayFace, getCardImageUrl } from '../lib/cards'
 import type { Card, SimilarCard } from '../types/api'
@@ -31,6 +31,9 @@ function getDisplayData(card: Card | SimilarCard) {
 export function CardOverlay({ card, onClose }: CardOverlayProps) {
   const [detailCard, setDetailCard] = useState<Card | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const overlayRef = useRef<HTMLElement | null>(null)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     setDetailCard(null)
@@ -66,10 +69,48 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
   const display = useMemo(() => getDisplayData(displayCard), [displayCard])
   const hasStats = display.power && display.toughness
 
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    closeButtonRef.current?.focus()
+
+    return () => {
+      previousFocusRef.current?.focus()
+    }
+  }, [])
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab' || !overlayRef.current) return
+
+    const focusableElements = Array.from(
+      overlayRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => !element.hasAttribute('disabled'))
+
+    if (focusableElements.length === 0) return
+
+    const firstElement = focusableElements[0]
+    const lastElement = focusableElements[focusableElements.length - 1]
+    const activeElement = document.activeElement
+
+    if (event.shiftKey && activeElement === firstElement) {
+      event.preventDefault()
+      lastElement.focus()
+      return
+    }
+
+    if (!event.shiftKey && activeElement === lastElement) {
+      event.preventDefault()
+      firstElement.focus()
+    }
+  }
+
   return (
     <aside
+      ref={overlayRef}
       className="sticky top-24 grid gap-4 border-2 border-ot-ink bg-ot-surface p-4 animate-ot-fade-slide-in max-[900px]:static"
       aria-label="Card details"
+      onKeyDown={handleKeyDown}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="grid gap-1.5">
@@ -79,6 +120,7 @@ export function CardOverlay({ card, onClose }: CardOverlayProps) {
           </h2>
         </div>
         <button
+          ref={closeButtonRef}
           type="button"
           onClick={onClose}
           className="cursor-pointer border-2 border-ot-ink bg-transparent px-[10px] py-2 uppercase tracking-[0.08em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none"

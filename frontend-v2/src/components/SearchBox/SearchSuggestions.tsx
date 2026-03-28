@@ -1,6 +1,7 @@
 import type { CardMatch } from '../../types/api'
 
 interface SearchSuggestionsProps {
+  id: string
   variant: 'home' | 'topbar'
   items: CardMatch[]
   activeIndex: number
@@ -10,6 +11,7 @@ interface SearchSuggestionsProps {
 }
 
 export function SearchSuggestions({
+  id,
   variant,
   items,
   activeIndex,
@@ -64,13 +66,17 @@ export function SearchSuggestions({
           ? 'absolute inset-x-[-2px] top-full z-40 border-t-2'
           : 'absolute inset-x-0 top-full z-30',
       ].join(' ')}
+      id={id}
       role="listbox"
       aria-label="Card name suggestions"
     >
       {items.map((item, index) => (
         <button
+          id={`${id}-option-${index}`}
           key={`${item.oracle_id ?? item.name}-${item.face_ix}`}
           type="button"
+          role="option"
+          aria-selected={activeIndex === index}
           className={[
             'flex w-full items-center justify-between gap-3 border-0 border-b-2 border-ot-line bg-ot-surface px-[14px] py-3 text-left text-ot-ink transition-[background-color,color] duration-120 ease-[cubic-bezier(0.25,1,0.5,1)] last:border-b-0 motion-reduce:transition-none',
             activeIndex === index ? 'bg-ot-ink text-ot-bg' : '',

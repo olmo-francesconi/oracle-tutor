@@ -16,6 +16,9 @@ interface SearchInputProps {
   value: string
   autoFocus?: boolean
   variant: 'home' | 'topbar'
+  activeIndex: number
+  suggestionsId: string
+  suggestionsOpen: boolean
   pendingInsert: {
     id: number
     symbol: string
@@ -236,6 +239,9 @@ export function SearchInput({
   value,
   autoFocus = false,
   variant,
+  activeIndex,
+  suggestionsId,
+  suggestionsOpen,
   pendingInsert,
   onChange,
   onSubmit,
@@ -335,6 +341,10 @@ export function SearchInput({
         suppressContentEditableWarning
         role="textbox"
         aria-label="Search cards"
+        aria-autocomplete="list"
+        aria-expanded={suggestionsOpen}
+        aria-controls={suggestionsOpen ? suggestionsId : undefined}
+        aria-activedescendant={suggestionsOpen && activeIndex >= 0 ? `${suggestionsId}-option-${activeIndex}` : undefined}
         spellCheck={false}
         onInput={handleInput}
         onPaste={handlePaste}

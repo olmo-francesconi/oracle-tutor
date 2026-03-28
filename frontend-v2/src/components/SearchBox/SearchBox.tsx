@@ -5,6 +5,8 @@ import { ManaSymbolRail } from './ManaSymbolRail'
 import { SearchInput } from './SearchInput'
 import { SearchSuggestions } from './SearchSuggestions'
 
+const SEARCH_SUGGESTIONS_ID = 'search-suggestions-listbox'
+
 interface SearchBoxProps {
   className?: string
   value: string
@@ -162,6 +164,9 @@ export function SearchBox({
         value={value}
         autoFocus={autoFocus}
         variant={variant}
+        activeIndex={activeIndex}
+        suggestionsId={SEARCH_SUGGESTIONS_ID}
+        suggestionsOpen={isOpen && suggestions.length > 0}
         pendingInsert={pendingInsert}
         onChange={onChange}
         onSubmit={handleSubmit}
@@ -201,6 +206,7 @@ export function SearchBox({
 
       {isOpen ? (
         <SearchSuggestions
+          id={SEARCH_SUGGESTIONS_ID}
           variant={variant}
           items={suggestions}
           activeIndex={activeIndex}

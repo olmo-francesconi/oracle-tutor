@@ -190,7 +190,7 @@ export function ManaSymbolRail({
             <button
               key={symbol}
               type="button"
-              className="inline-flex min-h-5 min-w-5 flex-none cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-ot-ink opacity-30 transition-[background-color,opacity,color,transform] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none"
+              className="inline-flex min-h-9 min-w-9 flex-none cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-ot-ink opacity-30 transition-[background-color,opacity,color,transform] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none"
               data-symbol={symbol}
               aria-label={`Insert ${symbol}`}
               title={symbol}
@@ -237,7 +237,7 @@ export function ManaSymbolRail({
       {canScrollLeft ? (
         <button
           type="button"
-          className="absolute left-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center border-0 bg-transparent p-0 text-xs text-ot-ink/75 transition-colors duration-150 hover:text-ot-ink"
+          className="absolute left-1 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center border-0 bg-transparent p-0 text-xs text-ot-ink/75 transition-colors duration-150 hover:text-ot-ink"
           onClick={() => scrollRail('left')}
           aria-label="Scroll symbols left"
         >
@@ -248,7 +248,7 @@ export function ManaSymbolRail({
       {canScrollRight ? (
         <button
           type="button"
-          className="absolute right-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center border-0 bg-transparent p-0 text-xs text-ot-ink/75 transition-colors duration-150 hover:text-ot-ink"
+          className="absolute right-1 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center border-0 bg-transparent p-0 text-xs text-ot-ink/75 transition-colors duration-150 hover:text-ot-ink"
           onClick={() => scrollRail('right')}
           aria-label="Scroll symbols right"
         >
