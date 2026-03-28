@@ -39,7 +39,7 @@ type ApiSimilarCardsPage = {
   has_more: boolean
 }
 
-function buildUrl(path: string, params?: Record<string, string | number | undefined>) {
+export function buildUrl(path: string, params?: Record<string, string | number | undefined>) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
 
   if (params) {
@@ -77,9 +77,10 @@ function writeCachedCardMatches(key: string, matches: CardMatch[]) {
   }
 }
 
-async function assertOk<T>(response: Response): Promise<T> {
+export async function assertOk<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let detail = ''
+    const responseClone = response.clone()
 
     try {
       const body = await response.json()
@@ -94,7 +95,7 @@ async function assertOk<T>(response: Response): Promise<T> {
       }
     } catch {
       try {
-        detail = await response.text()
+        detail = await responseClone.text()
       } catch {
         detail = ''
       }
@@ -119,14 +120,14 @@ async function getJson<T>(
   return assertOk<T>(response)
 }
 
-function normalizeCardMatch(card: ApiCardMatch): CardMatch {
+export function normalizeCardMatch(card: ApiCardMatch): CardMatch {
   return {
     ...card,
     id: card.scryfall_id ?? '',
   }
 }
 
-function normalizeCard(card: ApiCard): Card {
+export function normalizeCard(card: ApiCard): Card {
   const primaryFace = card.faces?.[0]
 
   return {
@@ -141,7 +142,7 @@ function normalizeCard(card: ApiCard): Card {
   }
 }
 
-function normalizeSimilarCard(card: ApiSimilarCard): SimilarCard {
+export function normalizeSimilarCard(card: ApiSimilarCard): SimilarCard {
   const primaryFace = card.faces?.[0]
 
   return {
@@ -156,7 +157,7 @@ function normalizeSimilarCard(card: ApiSimilarCard): SimilarCard {
   }
 }
 
-function buildSimilarCardsParams(
+export function buildSimilarCardsParams(
   limit: number,
   offset: number,
   filters?: FilterState
@@ -202,6 +203,10 @@ export async function searchCards(
   const matches = data.map(normalizeCardMatch)
   writeCachedCardMatches(cacheKey, matches)
   return matches
+}
+
+export function clearCardSearchCache() {
+  cardSearchCache.clear()
 }
 
 export async function getCard(id: string, signal?: AbortSignal): Promise<Card> {

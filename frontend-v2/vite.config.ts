@@ -7,6 +7,12 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    test: {
+      environment: 'jsdom',
+      setupFiles: './src/test/setup.ts',
+      clearMocks: true,
+      restoreMocks: true,
+    },
     server: {
       allowedHosts:
         mode === 'development'
