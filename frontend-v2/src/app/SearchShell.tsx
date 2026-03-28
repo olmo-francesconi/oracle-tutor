@@ -169,11 +169,21 @@ export function SearchShell() {
   }, [runSearch, state.filters, state.submittedQuery])
 
   const handleClearFilters = useCallback(() => {
+    const previousKeys = Object.keys(state.filters).sort()
+
     track('filters_cleared', {
-      previousKeys: Object.keys(state.filters).sort(),
+      previousKeys,
     })
-    void handleFiltersChange({})
-  }, [handleFiltersChange, state.filters])
+
+    setState((current) => ({
+      ...current,
+      filters: {},
+      error: null,
+    }))
+
+    if (!state.submittedQuery) return
+    void runSearch(state.submittedQuery, {})
+  }, [runSearch, state.filters, state.submittedQuery])
 
   const handleLoadMore = useCallback(async () => {
     if (!state.submittedQuery || state.isLoading || state.isLoadingMore || !state.hasMore) {

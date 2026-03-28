@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import importlib.metadata
+import json
 import logging
 import os
 import random
 import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Final, Literal, Protocol, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
@@ -21,14 +23,22 @@ from ..core.config import SCHEMA_WAIT_INTERVAL_SECONDS, SCHEMA_WAIT_TIMEOUT_SECO
 from ..core.database import get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import log_performance, setup_loggers
-from ..core.models import Card, CardFace, CardRaw
+from ..core.models import AnalyticsEvent, Card, CardFace, CardRaw, ClientErrorEvent
 
 try:
     from ..embed.index import get_semantic_index
 except ImportError:
     get_semantic_index = None
 
-from .schemas import CardMatch, OracleSamplesResponse, SimilarCard, SimilarCardsPage
+from .schemas import (
+    AnalyticsEventIngest,
+    CardMatch,
+    ClientErrorEventIngest,
+    OracleSamplesResponse,
+    SimilarCard,
+    SimilarCardsPage,
+    TelemetryIngestResponse,
+)
 
 logger = logging.getLogger("ot_backend.api")
 
@@ -93,6 +103,7 @@ DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
 _RARITY_MAP: Final = {"c": "common", "u": "uncommon", "r": "rare", "m": "mythic"}
 ORACLE_TEXT_POOL_LIMIT: Final[int] = 300
 HOME_TERM_POOL_LIMIT: Final[int] = 300
+MAX_TELEMETRY_DETAILS_BYTES: Final[int] = 8_000
 ABILITY_WORD_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*([A-Za-z][A-Za-z' -]{1,40}?)\s+[—-]\s+", re.MULTILINE)
 _schema_ready: bool = False
 _oracle_text_pool: list[str] = []
@@ -151,6 +162,28 @@ def _build_home_term_pool(keyword_rows: list[tuple[list[str] | None]], oracle_ro
                 deduped_terms.setdefault(ability_word.casefold(), ability_word)
 
     return list(deduped_terms.values())
+
+
+def _normalize_client_timestamp(timestamp: datetime | None) -> datetime:
+    if timestamp is None:
+        return datetime.now(UTC).replace(tzinfo=None)
+    if timestamp.tzinfo is not None:
+        return timestamp.astimezone(UTC).replace(tzinfo=None)
+    return timestamp
+
+
+def _ensure_telemetry_details_size(payload: dict[str, object] | None, field_name: str) -> None:
+    if payload is None:
+        return
+
+    encoded = json.dumps(payload, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) <= MAX_TELEMETRY_DETAILS_BYTES:
+        return
+
+    raise HTTPException(
+        status_code=413,
+        detail=f"{field_name} exceeds the {MAX_TELEMETRY_DETAILS_BYTES}-byte telemetry limit",
+    )
 
 
 def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session) -> list[SimilarCard]:
@@ -345,6 +378,63 @@ def oracle_samples(
     texts = random.sample(_oracle_text_pool, min(n, len(_oracle_text_pool))) if _oracle_text_pool else []
     terms = random.sample(_home_term_pool, min(n, len(_home_term_pool))) if _home_term_pool else []
     return OracleSamplesResponse(texts=texts, terms=terms)
+
+
+# ---------------------------------------------------------------------------
+# Routes — telemetry
+# ---------------------------------------------------------------------------
+
+
+@app.post("/telemetry/client-error", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED, tags=["telemetry"])
+def ingest_client_error(
+    payload: ClientErrorEventIngest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> TelemetryIngestResponse:
+    _ensure_telemetry_details_size(payload.context, "context")
+
+    event = ClientErrorEvent(
+        occurred_at=_normalize_client_timestamp(payload.timestamp),
+        error_name=payload.name,
+        message=payload.message,
+        stack=payload.stack,
+        page_url=payload.url,
+        user_agent=payload.userAgent or request.headers.get("user-agent"),
+        source=str(payload.context.get("source")) if payload.context and "source" in payload.context else None,
+        context=payload.context,
+    )
+    db.add(event)
+    db.commit()
+
+    logger.info(
+        "Telemetry client error accepted: name=%s source=%s url=%s",
+        event.error_name,
+        event.source,
+        event.page_url,
+    )
+    return TelemetryIngestResponse()
+
+
+@app.post("/telemetry/analytics", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED, tags=["telemetry"])
+def ingest_analytics_event(
+    payload: AnalyticsEventIngest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> TelemetryIngestResponse:
+    _ensure_telemetry_details_size(payload.props, "props")
+
+    event = AnalyticsEvent(
+        occurred_at=_normalize_client_timestamp(payload.timestamp),
+        event_name=payload.event,
+        page_url=payload.url,
+        user_agent=payload.userAgent or request.headers.get("user-agent"),
+        props=payload.props,
+    )
+    db.add(event)
+    db.commit()
+
+    logger.info("Telemetry analytics accepted: event=%s url=%s", event.event_name, event.page_url)
+    return TelemetryIngestResponse()
 
 
 # ---------------------------------------------------------------------------

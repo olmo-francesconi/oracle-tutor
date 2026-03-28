@@ -16,7 +16,7 @@ DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH = Path("onnx/model.onnx")
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
-DB_SCHEMA_VERSION = "2.5.0"
+DB_SCHEMA_VERSION = "2.6.0"
 
 # API startup migration wait behavior
 SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS", "30"))

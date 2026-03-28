@@ -1,3 +1,7 @@
+from ot_backend.core.database import SessionLocal
+from ot_backend.core.models import AnalyticsEvent, ClientErrorEvent
+
+
 def test_root(client):
     res = client.get("/")
     assert res.status_code == 200
@@ -159,3 +163,94 @@ def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):
 
     res = client.get("/search", params={"q": "shock"})
     assert res.status_code == 503
+
+
+def test_client_error_telemetry_is_persisted(client):
+    res = client.post(
+        "/telemetry/client-error",
+        json={
+            "message": "render exploded",
+            "name": "TypeError",
+            "stack": "TypeError: render exploded",
+            "context": {
+                "source": "react.error-boundary",
+                "route": "/search",
+            },
+            "url": "https://example.test/search?q=bolt",
+            "userAgent": "Vitest Browser",
+            "timestamp": "2026-03-28T12:00:00Z",
+        },
+    )
+
+    assert res.status_code == 202
+    assert res.json() == {"accepted": True}
+
+    with SessionLocal() as db:
+        event = db.query(ClientErrorEvent).one()
+
+    assert event.error_name == "TypeError"
+    assert event.message == "render exploded"
+    assert event.source == "react.error-boundary"
+    assert event.context == {
+        "source": "react.error-boundary",
+        "route": "/search",
+    }
+
+
+def test_analytics_telemetry_is_persisted(client):
+    res = client.post(
+        "/telemetry/analytics",
+        json={
+            "event": "filters_cleared",
+            "props": {
+                "previousKeys": ["format"],
+                "queryLength": 5,
+            },
+            "url": "https://example.test/search?q=bolt",
+            "userAgent": "Vitest Browser",
+            "timestamp": "2026-03-28T12:00:00Z",
+        },
+    )
+
+    assert res.status_code == 202
+    assert res.json() == {"accepted": True}
+
+    with SessionLocal() as db:
+        event = db.query(AnalyticsEvent).one()
+
+    assert event.event_name == "filters_cleared"
+    assert event.props == {
+        "previousKeys": ["format"],
+        "queryLength": 5,
+    }
+
+
+def test_analytics_telemetry_rejects_invalid_event_name(client):
+    res = client.post(
+        "/telemetry/analytics",
+        json={
+            "event": "mystery_event",
+            "props": {},
+            "url": "https://example.test/search",
+            "userAgent": "Vitest Browser",
+        },
+    )
+
+    assert res.status_code == 422
+
+
+def test_client_error_telemetry_rejects_oversized_context(client):
+    res = client.post(
+        "/telemetry/client-error",
+        json={
+            "message": "render exploded",
+            "name": "TypeError",
+            "context": {
+                "payload": "x" * 9000,
+            },
+            "url": "https://example.test/search",
+            "userAgent": "Vitest Browser",
+        },
+    )
+
+    assert res.status_code == 413

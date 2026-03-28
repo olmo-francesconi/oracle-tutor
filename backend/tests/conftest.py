@@ -16,7 +16,7 @@ sys.path.insert(0, str(SRC_DIR))
 from ot_backend.api.main import app  # noqa: E402
 from ot_backend.core.database import SessionLocal  # noqa: E402
 from ot_backend.core.db_init import init_db  # noqa: E402
-from ot_backend.core.models import Card, CardFace, CardRaw  # noqa: E402
+from ot_backend.core.models import AnalyticsEvent, Card, CardFace, CardRaw, ClientErrorEvent  # noqa: E402
 
 
 def _make_card_raw(
@@ -52,6 +52,8 @@ def _seed_db() -> None:
     init_db()
     with SessionLocal() as db:
         # Clean slate (sqlite :memory: persists across tests with StaticPool)
+        db.query(AnalyticsEvent).delete()
+        db.query(ClientErrorEvent).delete()
         db.query(CardFace).delete()
         db.query(Card).delete()
         db.query(CardRaw).delete()

@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { reportError } from '../lib/observability'
+import { isErrorReportingConfigured, reportError } from '../lib/observability'
 
 type ErrorBoundaryProps = {
   children: ReactNode
@@ -36,6 +36,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return this.props.children
     }
 
+    const recoveryCopy = isErrorReportingConfigured()
+      ? 'Reload the app to restore the catalog. A runtime report was queued for review.'
+      : 'Reload the app to restore the catalog.'
+
     return (
       <main className="relative grid min-h-screen place-items-center bg-ot-bg px-6 py-10 max-[720px]:px-4">
         <div className="grid w-full max-w-[34rem] gap-4 border-2 border-ot-red bg-ot-surface px-5 py-5 max-[720px]:px-4">
@@ -44,7 +48,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             The search shell tripped.
           </h1>
           <p className="m-0 max-w-[52ch] text-[0.75rem] uppercase leading-[1.65] tracking-[0.12em] text-ot-muted">
-            Reload the app to restore the catalog. The error has been captured for review.
+            {recoveryCopy}
           </p>
           <button
             type="button"

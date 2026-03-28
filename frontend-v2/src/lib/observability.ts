@@ -1,5 +1,6 @@
-const ERROR_REPORTING_URL = import.meta.env.VITE_ERROR_REPORTING_URL
-const ANALYTICS_URL = import.meta.env.VITE_ANALYTICS_URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+const ERROR_REPORTING_URL = import.meta.env.VITE_ERROR_REPORTING_URL || `${API_BASE_URL}/telemetry/client-error`
+const ANALYTICS_URL = import.meta.env.VITE_ANALYTICS_URL || `${API_BASE_URL}/telemetry/analytics`
 
 type ErrorContext = Record<string, unknown>
 type AnalyticsProps = Record<string, unknown>
@@ -101,6 +102,10 @@ export function track(event: AnalyticsEventName, props?: AnalyticsProps) {
   }).catch(() => {
     // Intentionally ignore analytics failures.
   })
+}
+
+export function isErrorReportingConfigured() {
+  return Boolean(ERROR_REPORTING_URL)
 }
 
 export function setupGlobalErrorHandlers() {

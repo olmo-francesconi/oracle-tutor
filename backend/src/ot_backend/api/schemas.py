@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CardMatch(BaseModel):
@@ -46,3 +47,38 @@ class SimilarCardsPage(BaseModel):
 class OracleSamplesResponse(BaseModel):
     texts: list[str]
     terms: list[str]
+
+
+class ClientErrorEventIngest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=2000)
+    name: str = Field(min_length=1, max_length=120)
+    stack: str | None = Field(default=None, max_length=16000)
+    context: dict[str, Any] | None = None
+    url: str = Field(min_length=1, max_length=4000)
+    userAgent: str | None = Field(default=None, max_length=1000)
+    timestamp: datetime | None = None
+
+
+AnalyticsEventName = Literal[
+    "search_submitted",
+    "filters_changed",
+    "filters_cleared",
+    "load_more_requested",
+    "card_opened",
+]
+
+
+class AnalyticsEventIngest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event: AnalyticsEventName
+    props: dict[str, Any] | None = None
+    url: str = Field(min_length=1, max_length=4000)
+    userAgent: str | None = Field(default=None, max_length=1000)
+    timestamp: datetime | None = None
+
+
+class TelemetryIngestResponse(BaseModel):
+    accepted: bool = True
