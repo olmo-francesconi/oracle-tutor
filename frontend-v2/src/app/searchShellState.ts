@@ -1,4 +1,4 @@
-import type { FilterState, SimilarCard, SimilarCardsPage } from '../types/api'
+import type { FilterState, SimilarCardsPage } from '../types/api'
 import type { SearchShellState } from '../types/ui'
 
 export function buildSearchLoadingState(
@@ -15,7 +15,6 @@ export function buildSearchLoadingState(
     hasMore: false,
     isLoading: true,
     isLoadingMore: false,
-    selectedCard: null,
   }
 }
 
@@ -34,7 +33,6 @@ export function buildSearchSuccessState(
     hasMore: page.has_more,
     isLoading: false,
     isLoadingMore: false,
-    selectedCard: null,
   }
 }
 
@@ -53,7 +51,6 @@ export function buildSearchFailureState(
     hasMore: false,
     isLoading: false,
     isLoadingMore: false,
-    selectedCard: null,
   }
 }
 
@@ -68,13 +65,7 @@ export function buildClearedState(current: SearchShellState): SearchShellState {
     hasMore: false,
     isLoading: false,
     isLoadingMore: false,
-    selectedCard: null,
   }
-}
-
-export function getSelectedCardKey(card: SimilarCard | null): string | null {
-  if (!card) return null
-  return `${card.id}-${card.face_ix}-${card.image_side}`
 }
 
 export function getSearchErrorMessage(error: unknown): string {
@@ -95,4 +86,37 @@ export function getSearchErrorMessage(error: unknown): string {
   }
 
   return 'Something interrupted the search. Try again.'
+}
+
+export function isApiDownError(error: unknown): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return true
+  }
+
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  if (error.name === 'AbortError') {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+  if (message.includes('failed to fetch') || message.includes('network')) {
+    return true
+  }
+
+  return /request failed: (502|503|504)\b/.test(message)
+}
+
+export function getApiDownMessage(error: unknown): string {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'You appear to be offline. Reconnect, then retry the connection.'
+  }
+
+  if (error instanceof Error && /request failed: 503\b/i.test(error.message)) {
+    return 'The API is up but not accepting requests right now. Give it a second, then retry the connection.'
+  }
+
+  return 'The API is not responding right now. Give it a second, then retry the connection.'
 }

@@ -11,5 +11,4 @@ export type SearchShellState = {
   hasMore: boolean
   isLoading: boolean
   isLoadingMore: boolean
-  selectedCard: SimilarCard | null
 }

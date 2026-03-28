@@ -7,8 +7,6 @@ interface ResultsGridProps {
   cards: SimilarCard[]
   hasMore: boolean
   isLoadingMore: boolean
-  selectedCardKey: string | null
-  onCardSelect: (card: SimilarCard) => void
   onLoadMore: () => void
 }
 
@@ -38,31 +36,18 @@ function getCardKey(card: SimilarCard): string {
 
 interface ResultCardProps {
   card: SimilarCard
-  isSelected: boolean
-  onCardSelect: (card: SimilarCard) => void
 }
 
-const ResultCard = memo(function ResultCard({ card, isSelected, onCardSelect }: ResultCardProps) {
+const ResultCard = memo(function ResultCard({ card }: ResultCardProps) {
   const title = getCardTitle(card)
 
   return (
-    <button
-      type="button"
-      className={[
-        'group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-[transform,color] duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0',
-        isSelected ? 'text-ot-ink' : '',
-      ].join(' ')}
-      aria-pressed={isSelected}
-      onClick={() => onCardSelect(card)}
+    <article
+      className="group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-transform duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
       style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color) }}
     >
       <span className="relative z-10 flex min-h-5 items-center justify-start bg-ot-surface px-[10px] pb-[9px] pt-2 text-[0.625rem] uppercase tracking-[0.12em]">
-        <span
-          className={[
-            'text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
-            isSelected ? 'text-ot-red' : 'group-hover:text-ot-red',
-          ].join(' ')}
-        >
+        <span className="text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] group-hover:text-ot-red motion-reduce:transition-none">
           {formatSimilarity(card.similarity)}
         </span>
       </span>
@@ -74,7 +59,7 @@ const ResultCard = memo(function ResultCard({ card, isSelected, onCardSelect }: 
           className="block aspect-[63/88] w-full rounded-[4.8%/3.5%] border-0 bg-[#d8d2c8] object-cover"
         />
       </span>
-    </button>
+    </article>
   )
 })
 
@@ -82,8 +67,6 @@ export function ResultsGrid({
   cards,
   hasMore,
   isLoadingMore,
-  selectedCardKey,
-  onCardSelect,
   onLoadMore,
 }: ResultsGridProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null)
@@ -113,14 +96,10 @@ export function ResultsGrid({
       aria-busy={isLoadingMore}
     >
       {cards.map((card) => {
-        const cardKey = getCardKey(card)
-
         return (
           <ResultCard
-            key={cardKey}
+            key={getCardKey(card)}
             card={card}
-            isSelected={selectedCardKey === cardKey}
-            onCardSelect={onCardSelect}
           />
         )
       })}

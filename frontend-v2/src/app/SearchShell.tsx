@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CardOverlay } from '../components/CardOverlay'
 import { FilterBar } from '../components/FilterBar'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
@@ -8,17 +7,20 @@ import { HomeEditorialText } from '../components/background/HomeEditorialText'
 import {
   buildClearedState,
   buildSearchFailureState,
+  getApiDownMessage,
   buildSearchLoadingState,
   buildSearchSuccessState,
+  isApiDownError,
   getSearchErrorMessage,
-  getSelectedCardKey,
 } from './searchShellState'
 import { normalizeFilterState } from '../lib/filters'
 import { getOracleSamples, searchOracleText } from '../lib/api'
 import { reportError, track } from '../lib/observability'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
-import type { FilterState, OracleSamples, SimilarCard } from '../types/api'
+import type { FilterState, OracleSamples } from '../types/api'
 import type { SearchShellState } from '../types/ui'
+import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
+import { SearchErrorPanel } from '../components/errors/SearchErrorPanel'
 
 const RESULTS_PAGE_SIZE = 24
 const LEFT_STRIPE_WIDTH_PX = 6
@@ -37,7 +39,6 @@ const INITIAL_STATE: SearchShellState = {
   hasMore: false,
   isLoading: false,
   isLoadingMore: false,
-  selectedCard: null,
 }
 
 const EMPTY_ORACLE_SAMPLES: OracleSamples = {
@@ -81,6 +82,8 @@ function getInitialState(): SearchShellState {
 export function SearchShell() {
   const [state, setState] = useState<SearchShellState>(getInitialState)
   const [oracleSamples, setOracleSamples] = useState<OracleSamples>(EMPTY_ORACLE_SAMPLES)
+  const [apiDownMessage, setApiDownMessage] = useState<string | null>(null)
+  const [isRetryingApi, setIsRetryingApi] = useState(false)
   const [viewport, setViewport] = useState<ViewportSize>(getViewportSize)
   const activeSearchRequestRef = useRef<AbortController | null>(null)
   const activeLoadMoreRequestRef = useRef<AbortController | null>(null)
@@ -89,8 +92,8 @@ export function SearchShell() {
   const resizeFrameRef = useRef<number | null>(null)
 
   const isHome = state.submittedQuery === null
-  const selectedCardKey = getSelectedCardKey(state.selectedCard)
   const hasOracleBackground = oracleSamples.texts.length > 0
+  const apiDownContext = isHome ? 'home' : 'results'
 
   const handleDraftChange = useCallback((value: string) => {
     setState((current) => ({
@@ -101,6 +104,15 @@ export function SearchShell() {
 
   const fetchFirstPage = useCallback(async (query: string, filters: SearchShellState['filters'], signal: AbortSignal) => {
     return searchOracleText(query, 0, RESULTS_PAGE_SIZE, filters, signal)
+  }, [])
+
+  const loadOracleSamples = useCallback(async (signal?: AbortSignal) => {
+    const nextSamples = await getOracleSamples(signal)
+    if (signal?.aborted) return false
+
+    setOracleSamples(nextSamples)
+    setApiDownMessage(null)
+    return true
   }, [])
 
   const runSearch = useCallback(async (query: string, filters: FilterState) => {
@@ -117,6 +129,7 @@ export function SearchShell() {
 
       if (controller.signal.aborted) return
 
+      setApiDownMessage(null)
       setState((current) => buildSearchSuccessState(current, query, filters, page))
     } catch (error) {
       if (controller.signal.aborted) return
@@ -126,6 +139,22 @@ export function SearchShell() {
         query,
         filters,
       })
+      if (isApiDownError(error)) {
+        setApiDownMessage(getApiDownMessage(error))
+        setState((current) => ({
+          ...current,
+          submittedQuery: query,
+          filters,
+          error: null,
+          results: [],
+          hasMore: false,
+          isLoading: false,
+          isLoadingMore: false,
+        }))
+        return
+      }
+
+      setApiDownMessage(null)
       setState((current) => buildSearchFailureState(current, query, filters, getSearchErrorMessage(error)))
     }
   }, [fetchFirstPage])
@@ -217,6 +246,7 @@ export function SearchShell() {
 
       if (controller.signal.aborted) return
 
+      setApiDownMessage(null)
       setState((current) => ({
         ...current,
         error: null,
@@ -233,6 +263,17 @@ export function SearchShell() {
         offset: state.results.length,
         filters: state.filters,
       })
+      if (isApiDownError(error)) {
+        setApiDownMessage(getApiDownMessage(error))
+        setState((current) => ({
+          ...current,
+          error: null,
+          isLoadingMore: false,
+        }))
+        return
+      }
+
+      setApiDownMessage(null)
       setState((current) => ({
         ...current,
         error: getSearchErrorMessage(error),
@@ -248,43 +289,6 @@ export function SearchShell() {
     state.submittedQuery,
   ])
 
-  const handleSelectCard = useCallback((card: SimilarCard) => {
-    const nextIsOpen =
-      !(
-        state.selectedCard &&
-        state.selectedCard.id === card.id &&
-        state.selectedCard.face_ix === card.face_ix &&
-        state.selectedCard.image_side === card.image_side
-      )
-
-    if (nextIsOpen) {
-      track('card_opened', {
-        cardId: card.id,
-        faceIx: card.face_ix,
-        imageSide: card.image_side,
-        similarity: Math.round(card.similarity * 100),
-      })
-    }
-
-    setState((current) => ({
-      ...current,
-      selectedCard:
-        current.selectedCard &&
-        current.selectedCard.id === card.id &&
-        current.selectedCard.face_ix === card.face_ix &&
-        current.selectedCard.image_side === card.image_side
-          ? null
-          : card,
-    }))
-  }, [state.selectedCard])
-
-  const handleCloseOverlay = useCallback(() => {
-    setState((current) => ({
-      ...current,
-      selectedCard: null,
-    }))
-  }, [])
-
   const handleReset = useCallback(() => {
     activeSearchRequestRef.current?.abort()
     activeLoadMoreRequestRef.current?.abort()
@@ -292,19 +296,45 @@ export function SearchShell() {
     setState((current) => buildClearedState(current))
   }, [])
 
+  const handleRetryApi = useCallback(async () => {
+    setIsRetryingApi(true)
+
+    try {
+      if (state.submittedQuery) {
+        await runSearch(state.submittedQuery, state.filters)
+        return
+      }
+
+      await loadOracleSamples()
+    } finally {
+      setIsRetryingApi(false)
+    }
+  }, [loadOracleSamples, runSearch, state.filters, state.submittedQuery])
+
   useEffect(() => {
     const controller = new AbortController()
 
     void (async () => {
-      const nextSamples = await getOracleSamples(controller.signal)
+      try {
+        await loadOracleSamples(controller.signal)
+      } catch (error) {
+        if (controller.signal.aborted) return
 
-      if (!controller.signal.aborted) {
-        setOracleSamples(nextSamples)
+        reportError(error, {
+          source: 'home.oracle-samples',
+        })
+
+        if (isApiDownError(error)) {
+          setApiDownMessage(getApiDownMessage(error))
+        } else {
+          setApiDownMessage(null)
+          setOracleSamples(EMPTY_ORACLE_SAMPLES)
+        }
       }
     })()
 
     return () => controller.abort()
-  }, [])
+  }, [loadOracleSamples])
 
   useEffect(() => {
     const updateViewport = () => {
@@ -339,21 +369,6 @@ export function SearchShell() {
     if (!state.submittedQuery) return
     void runSearch(state.submittedQuery, state.filters)
   }, [runSearch, state.filters, state.submittedQuery])
-
-  useEffect(() => {
-    if (!state.selectedCard) return
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setState((current) => ({
-        ...current,
-        selectedCard: null,
-      }))
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [state.selectedCard])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -484,9 +499,6 @@ export function SearchShell() {
                     {state.hasMore || state.isLoadingMore ? '+' : ''} cards
                   </span>
                 ) : null}
-                <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
-                  Select a card to open the detail rail.
-                </span>
               </div>
             </section>
 
@@ -512,48 +524,32 @@ export function SearchShell() {
                   </div>
                 </div>
               ) : null}
-              {!state.isLoading && state.error ? (
-                <div className="grid gap-1 border-2 border-ot-red bg-[color:color-mix(in_srgb,var(--color-ot-red)_7%,var(--color-ot-bg))] px-4 py-4 max-[720px]:px-3">
-                  <p className="eyebrow text-ot-red">Search interrupted</p>
-                  <p className="m-0 font-display text-[clamp(1.4rem,3vw,1.9rem)] font-black uppercase leading-[0.92] tracking-[-0.02em] text-ot-ink">
-                    Results did not land cleanly.
-                  </p>
-                  <p className="m-0 max-w-[62ch] text-[0.75rem] uppercase leading-[1.6] tracking-[0.11em] text-ot-muted">
-                    {state.error}
-                  </p>
-                </div>
-              ) : null}
+              {!state.isLoading && state.error ? <SearchErrorPanel message={state.error} /> : null}
               {!state.isLoading && !state.error && state.results.length === 0 ? (
                 <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
                   No cards matched {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
                 </p>
               ) : null}
               {state.results.length > 0 ? (
-                <div className="grid items-start gap-7 [grid-template-columns:minmax(0,1fr)_340px] max-[900px]:grid-cols-1">
-                  {state.selectedCard ? (
-                    <div className="hidden max-[900px]:block">
-                      <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
-                    </div>
-                  ) : null}
-                  <ResultsGrid
-                    cards={state.results}
-                    hasMore={state.hasMore}
-                    isLoadingMore={state.isLoadingMore}
-                    selectedCardKey={selectedCardKey}
-                    onCardSelect={handleSelectCard}
-                    onLoadMore={handleLoadMore}
-                  />
-                  {state.selectedCard ? (
-                    <div className="max-[900px]:hidden">
-                      <CardOverlay card={state.selectedCard} onClose={handleCloseOverlay} />
-                    </div>
-                  ) : null}
-                </div>
+                <ResultsGrid
+                  cards={state.results}
+                  hasMore={state.hasMore}
+                  isLoadingMore={state.isLoadingMore}
+                  onLoadMore={handleLoadMore}
+                />
               ) : null}
             </section>
           </>
         )}
       </div>
+      {apiDownMessage ? (
+        <ApiDownOverlay
+          context={apiDownContext}
+          message={apiDownMessage}
+          isRetrying={isRetryingApi}
+          onRetry={handleRetryApi}
+        />
+      ) : null}
     </main>
   )
 }

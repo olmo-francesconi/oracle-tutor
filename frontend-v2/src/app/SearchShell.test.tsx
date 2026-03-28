@@ -35,10 +35,6 @@ vi.mock('../components/background/HomeEditorialText', () => ({
   HomeEditorialText: () => null,
 }))
 
-vi.mock('../components/CardOverlay', () => ({
-  CardOverlay: () => <div>overlay</div>,
-}))
-
 vi.mock('../components/SearchBox/SearchBox', () => ({
   SearchBox: ({
     value,
@@ -113,7 +109,6 @@ const BASE_STATE: SearchShellState = {
   hasMore: false,
   isLoading: false,
   isLoadingMore: false,
-  selectedCard: null,
 }
 
 function createPage(name: string, hasMore: boolean = false): SimilarCardsPage {
@@ -170,7 +165,7 @@ describe('SearchShell state helpers', () => {
       hasMore: true,
       isLoading: true,
       isLoadingMore: true,
-    })
+    } as SearchShellState)
 
     expect(clearedState).toEqual(BASE_STATE)
   })
@@ -303,5 +298,39 @@ describe('SearchShell integration', () => {
     expect(trackMock.mock.calls.filter(([eventName]) => eventName === 'filters_cleared')).toHaveLength(1)
     expect(searchOracleTextMock).toHaveBeenNthCalledWith(3, 'value', 0, 24, {}, expect.any(AbortSignal))
     expect(window.location.search).toBe('?q=value')
+  })
+
+  it('shows a global api-down overlay on home when bootstrap samples cannot load', async () => {
+    getOracleSamplesMock.mockRejectedValueOnce(new Error('Failed to fetch'))
+
+    render(<SearchShell />)
+
+    expect(await screen.findByText('The catalog is off the wire.')).toBeInTheDocument()
+    expect(screen.getByText('The front page cannot reach the catalog right now.')).toBeInTheDocument()
+  })
+
+  it('shows a global api-down overlay on results when the search request cannot reach the api', async () => {
+    searchOracleTextMock.mockRejectedValueOnce(new Error('Failed to fetch'))
+
+    render(<SearchShell />)
+
+    fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
+    fireEvent.click(screen.getByText('submit search'))
+
+    expect(await screen.findByText('The catalog is off the wire.')).toBeInTheDocument()
+    expect(screen.getByText('The results shell lost contact with the catalog.')).toBeInTheDocument()
+    expect(screen.queryByText('Results did not land cleanly.')).not.toBeInTheDocument()
+  })
+
+  it('keeps non-network search failures as local search errors', async () => {
+    searchOracleTextMock.mockRejectedValueOnce(new Error('Request failed: 422 - invalid query'))
+
+    render(<SearchShell />)
+
+    fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
+    fireEvent.click(screen.getByText('submit search'))
+
+    expect(await screen.findByText('Results did not land cleanly.')).toBeInTheDocument()
+    expect(screen.queryByText('The catalog is off the wire.')).not.toBeInTheDocument()
   })
 })
