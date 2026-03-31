@@ -90,10 +90,12 @@ def train(
     direct_text_pairs: list[tuple[str, str]] = [
         (a, b) for a, b in payload.get("direct_text_pairs", [])
     ]
+    template_query_examples = int(payload.get("template_query_examples", 0))
     print(
         f"Dataset loaded. faces={len(face_texts):,} "
         f"pairs={len(pair_ids):,} "
-        f"direct={len(direct_text_pairs):,}"
+        f"direct={len(direct_text_pairs):,} "
+        f"template_queries={template_query_examples:,}"
     )
 
     # -- Training --------------------------------------------------------------
