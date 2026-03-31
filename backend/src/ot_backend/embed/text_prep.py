@@ -208,23 +208,23 @@ def _is_pt_variable(s: str) -> bool:
 def _normalize_power_toughness(text: str) -> str:
     def repl(m: re.Match[str]) -> str:
         p_sign, p_val_str, t_sign, t_val_str = m.groups()
-        p_sign = (p_sign or "+").strip()
-        t_sign = (t_sign or "+").strip()
-        p_word = "plus" if p_sign == "+" else "minus"
-        t_word = "plus" if t_sign == "+" else "minus"
+        # None means no explicit sign (e.g. token "1/1" → "one strength and one toughness").
+        # An explicit "+" or "-" means a modifier (e.g. "+1/+1 counter" or "-1/-1 counter").
+        p_prefix = ("plus " if p_sign == "+" else "minus ") if p_sign else ""
+        t_prefix = ("plus " if t_sign == "+" else "minus ") if t_sign else ""
         parts = []
         if _is_pt_variable(p_val_str):
-            parts.append(f"{p_word} {p_val_str.lower()} power")
+            parts.append(f"{p_prefix}{p_val_str.lower()} power")
         else:
             p_val = int(p_val_str)
             if p_val != 0:
-                parts.append(f"{p_word} {_number_word(p_val)} strength")
+                parts.append(f"{p_prefix}{_number_word(p_val)} strength")
         if _is_pt_variable(t_val_str):
-            parts.append(f"{t_word} {t_val_str.lower()} toughness")
+            parts.append(f"{t_prefix}{t_val_str.lower()} toughness")
         else:
             t_val = int(t_val_str)
             if t_val != 0:
-                parts.append(f"{t_word} {_number_word(t_val)} toughness")
+                parts.append(f"{t_prefix}{_number_word(t_val)} toughness")
         if not parts:
             return " "
         return " " + " and ".join(parts) + " "
