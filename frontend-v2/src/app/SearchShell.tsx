@@ -13,7 +13,7 @@ import {
   isApiDownError,
   getSearchErrorMessage,
 } from './searchShellState'
-import { normalizeFilterState } from '../lib/filters'
+import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
 import { getOracleSamples, searchOracleText } from '../lib/api'
 import { reportError, track } from '../lib/observability'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
@@ -84,6 +84,7 @@ export function SearchShell() {
   const [oracleSamples, setOracleSamples] = useState<OracleSamples>(EMPTY_ORACLE_SAMPLES)
   const [apiDownMessage, setApiDownMessage] = useState<string | null>(null)
   const [isRetryingApi, setIsRetryingApi] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [viewport, setViewport] = useState<ViewportSize>(getViewportSize)
   const activeSearchRequestRef = useRef<AbortController | null>(null)
   const activeLoadMoreRequestRef = useRef<AbortController | null>(null)
@@ -92,6 +93,7 @@ export function SearchShell() {
   const resizeFrameRef = useRef<number | null>(null)
 
   const isHome = state.submittedQuery === null
+  const activeFilterCount = getActiveFilterCount(state.filters)
   const hasOracleBackground = oracleSamples.texts.length > 0
   const handleDraftChange = useCallback((value: string) => {
     setState((current) => ({
@@ -458,7 +460,8 @@ export function SearchShell() {
           </section>
         ) : (
           <>
-            <header className="sticky top-0 z-30 grid min-h-[58px] grid-cols-[clamp(148px,16vw,176px)_minmax(0,1fr)] items-stretch border-b-2 border-ot-ink bg-ot-bg max-[720px]:grid-cols-[auto_minmax(0,1fr)]">
+            <div className="sticky top-0 z-30 max-[720px]:static">
+            <header className="grid min-h-[58px] grid-cols-[clamp(148px,16vw,176px)_minmax(0,1fr)_auto] items-stretch border-b-2 border-ot-ink bg-ot-bg max-[720px]:grid-cols-[auto_minmax(0,1fr)_auto]">
               <button
                 type="button"
                 className="flex min-w-0 cursor-pointer items-center justify-center border-0 border-r-2 border-ot-ink bg-transparent px-[18px] py-0 font-display text-[20px] font-black uppercase leading-none tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[720px]:min-h-14 max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0 max-[720px]:text-[18px]"
@@ -478,10 +481,32 @@ export function SearchShell() {
                   variant="topbar"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => setShowFilters((v) => !v)}
+                className={[
+                  'flex shrink-0 cursor-pointer items-center justify-center gap-2 border-l-2 border-ot-ink px-4 font-display text-[0.6875rem] font-black uppercase tracking-[0.12em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0',
+                  showFilters || activeFilterCount > 0
+                    ? 'bg-ot-ink text-ot-bg'
+                    : 'bg-transparent text-ot-ink hover:bg-ot-ink hover:text-ot-bg',
+                ].join(' ')}
+                aria-expanded={showFilters}
+                aria-label="Toggle filters"
+              >
+                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden="true">
+                  <path d="M1 3h14l-5 5.5V13l-4 1.5V8.5L1 3Z" />
+                </svg>
+                <span className="max-[720px]:hidden">Filters</span>
+                {activeFilterCount > 0 && (
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center bg-ot-red font-display text-[0.5625rem] font-black text-white max-[720px]:hidden">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
             </header>
 
             <section
-              className="relative z-20 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink bg-ot-bg px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink bg-ot-bg px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
               aria-label="Results summary"
             >
               <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">
@@ -500,7 +525,10 @@ export function SearchShell() {
               </div>
             </section>
 
-            <FilterBar filters={state.filters} onChange={handleFiltersChange} onClear={handleClearFilters} />
+            {showFilters && (
+              <FilterBar filters={state.filters} onChange={handleFiltersChange} onClear={handleClearFilters} />
+            )}
+            </div>
 
             <section
               className="px-6 pb-14 pl-[38px] pr-6 pt-6 max-[720px]:px-4 max-[720px]:pl-6"
