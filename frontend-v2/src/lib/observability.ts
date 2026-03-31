@@ -10,6 +10,7 @@ type AnalyticsEventName =
   | 'filters_cleared'
   | 'load_more_requested'
   | 'card_opened'
+  | 'card_selected'
 
 type ErrorPayload = {
   message: string

@@ -81,6 +81,7 @@ export function SearchSuggestions({
             'flex w-full items-center justify-between gap-3 border-0 border-b-2 border-ot-line bg-ot-surface px-[14px] py-3 text-left text-ot-ink transition-[background-color,color] duration-120 ease-[cubic-bezier(0.25,1,0.5,1)] last:border-b-0 motion-reduce:transition-none',
             activeIndex === index ? 'bg-ot-ink text-ot-bg' : '',
           ].join(' ')}
+          onMouseDown={(e) => e.preventDefault()}
           onMouseEnter={() => onHover(index)}
           onClick={() => onSelect(item)}
         >

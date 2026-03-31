@@ -12,6 +12,7 @@ interface SearchBoxProps {
   value: string
   onChange: (value: string) => void
   onSubmit: (submittedValue?: string) => void
+  onCardSelect?: (card: CardMatch) => void
   autoFocus?: boolean
   showManaRail?: boolean
   variant?: 'home' | 'topbar'
@@ -22,6 +23,7 @@ export function SearchBox({
   value,
   onChange,
   onSubmit,
+  onCardSelect,
   autoFocus = false,
   showManaRail = true,
   variant = 'home',
@@ -109,7 +111,11 @@ export function SearchBox({
   const handleSelect = (card: CardMatch) => {
     onChange(card.name)
     setIsOpen(false)
-    onSubmit(card.name)
+    if (card.oracle_id && onCardSelect) {
+      onCardSelect(card)
+    } else {
+      onSubmit(card.name)
+    }
   }
 
   const handleArrowNavigate = (direction: 'up' | 'down') => {

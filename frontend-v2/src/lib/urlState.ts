@@ -8,6 +8,8 @@ import {
 import type { FilterState } from '../types/api'
 
 const QUERY_PARAM = 'q'
+const CARD_PARAM = 'card'
+const FACE_PARAM = 'face'
 const COLORS_PARAM = 'colors'
 const CARD_TYPE_PARAM = 'type'
 const FORMAT_PARAM = 'format'
@@ -19,6 +21,7 @@ const COLOR_FEATURE_PARAM = 'colorBy'
 
 type SearchUrlState = {
   query: string | null
+  pinnedCard: { oracle_id: string; face_ix: number } | null
   filters: FilterState
 }
 
@@ -33,6 +36,8 @@ function readNumberParam(params: URLSearchParams, key: string): number | undefin
 export function readSearchStateFromUrl(): SearchUrlState {
   const params = new URLSearchParams(window.location.search)
   const query = params.get(QUERY_PARAM)?.trim() ?? ''
+  const cardId = params.get(CARD_PARAM)?.trim() ?? ''
+  const faceIx = cardId ? (readNumberParam(params, FACE_PARAM) ?? 0) : 0
   const rarities = params.get(RARITIES_PARAM)?.split(',').filter(Boolean)
 
   const filters = normalizeFilterState({
@@ -48,19 +53,30 @@ export function readSearchStateFromUrl(): SearchUrlState {
 
   return {
     query: query || null,
+    pinnedCard: cardId ? { oracle_id: cardId, face_ix: faceIx } : null,
     filters,
   }
 }
 
-export function writeSearchStateToUrl(query: string | null, filters: FilterState) {
+export function writeSearchStateToUrl(
+  query: string | null,
+  filters: FilterState,
+  pinnedCard?: { oracle_id: string; face_ix: number } | null
+) {
   const url = new URL(window.location.href)
   const params = new URLSearchParams(url.search)
   const normalizedFilters = normalizeFilterState(filters)
 
-  if (query) {
-    params.set(QUERY_PARAM, query)
-  } else {
+  if (pinnedCard) {
+    params.set(CARD_PARAM, pinnedCard.oracle_id)
+    if (pinnedCard.face_ix > 0) params.set(FACE_PARAM, String(pinnedCard.face_ix))
+    else params.delete(FACE_PARAM)
     params.delete(QUERY_PARAM)
+  } else {
+    params.delete(CARD_PARAM)
+    params.delete(FACE_PARAM)
+    if (query) params.set(QUERY_PARAM, query)
+    else params.delete(QUERY_PARAM)
   }
 
   if (normalizedFilters.colors) params.set(COLORS_PARAM, normalizedFilters.colors)

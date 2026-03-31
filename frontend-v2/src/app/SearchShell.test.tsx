@@ -103,6 +103,7 @@ vi.mock('../components/ResultsGrid', () => ({
 const BASE_STATE: SearchShellState = {
   draftQuery: '',
   submittedQuery: null,
+  pinnedCard: null,
   filters: {},
   error: null,
   results: [],

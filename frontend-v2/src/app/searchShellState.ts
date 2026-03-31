@@ -1,5 +1,5 @@
 import type { FilterState, SimilarCardsPage } from '../types/api'
-import type { SearchShellState } from '../types/ui'
+import type { PinnedCard, SearchShellState } from '../types/ui'
 
 export function buildSearchLoadingState(
   current: SearchShellState,
@@ -9,11 +9,51 @@ export function buildSearchLoadingState(
   return {
     ...current,
     submittedQuery: query,
+    pinnedCard: null,
     filters,
     error: null,
     results: [],
     hasMore: false,
     isLoading: true,
+    isLoadingMore: false,
+  }
+}
+
+export function buildCardLoadingState(
+  current: SearchShellState,
+  card: PinnedCard,
+  filters: FilterState
+): SearchShellState {
+  return {
+    ...current,
+    draftQuery: card.name || current.draftQuery,
+    submittedQuery: card.name,
+    pinnedCard: card,
+    filters,
+    error: null,
+    results: [],
+    hasMore: false,
+    isLoading: true,
+    isLoadingMore: false,
+  }
+}
+
+export function buildCardSuccessState(
+  current: SearchShellState,
+  card: PinnedCard,
+  filters: FilterState,
+  page: SimilarCardsPage
+): SearchShellState {
+  return {
+    ...current,
+    draftQuery: card.name,
+    submittedQuery: card.name,
+    pinnedCard: card,
+    filters,
+    error: null,
+    results: page.items,
+    hasMore: page.has_more,
+    isLoading: false,
     isLoadingMore: false,
   }
 }
@@ -59,6 +99,7 @@ export function buildClearedState(current: SearchShellState): SearchShellState {
     ...current,
     draftQuery: '',
     submittedQuery: null,
+    pinnedCard: null,
     filters: {},
     error: null,
     results: [],

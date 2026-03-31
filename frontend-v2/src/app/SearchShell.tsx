@@ -5,6 +5,8 @@ import { SearchBox } from '../components/SearchBox/SearchBox'
 import { DenseTextBackground } from '../components/background/DenseTextBackground'
 import { HomeEditorialText } from '../components/background/HomeEditorialText'
 import {
+  buildCardLoadingState,
+  buildCardSuccessState,
   buildClearedState,
   buildSearchFailureState,
   getApiDownMessage,
@@ -14,11 +16,11 @@ import {
   getSearchErrorMessage,
 } from './searchShellState'
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
-import { getOracleSamples, searchOracleText } from '../lib/api'
+import { getCard, getOracleSamples, getSimilarCards, searchOracleText } from '../lib/api'
 import { reportError, track } from '../lib/observability'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
-import type { FilterState, OracleSamples } from '../types/api'
-import type { SearchShellState } from '../types/ui'
+import type { CardMatch, FilterState, OracleSamples } from '../types/api'
+import type { PinnedCard, SearchShellState } from '../types/ui'
 import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
 import { SearchErrorPanel } from '../components/errors/SearchErrorPanel'
 
@@ -33,6 +35,7 @@ type ViewportSize = {
 const INITIAL_STATE: SearchShellState = {
   draftQuery: '',
   submittedQuery: null,
+  pinnedCard: null,
   filters: {},
   error: null,
   results: [],
@@ -64,8 +67,17 @@ function getViewportSize(): ViewportSize {
 
 function getInitialState(): SearchShellState {
   const initialUrlState = readSearchStateFromUrl()
-  const initialQuery = initialUrlState.query
 
+  if (initialUrlState.pinnedCard) {
+    return {
+      ...INITIAL_STATE,
+      pinnedCard: { ...initialUrlState.pinnedCard, name: '' },
+      filters: initialUrlState.filters,
+      isLoading: true,
+    }
+  }
+
+  const initialQuery = initialUrlState.query
   if (!initialQuery) {
     return INITIAL_STATE
   }
@@ -104,6 +116,46 @@ export function SearchShell() {
 
   const fetchFirstPage = useCallback(async (query: string, filters: SearchShellState['filters'], signal: AbortSignal) => {
     return searchOracleText(query, 0, RESULTS_PAGE_SIZE, filters, signal)
+  }, [])
+
+  const runCardSearch = useCallback(async (oracleId: string, faceIx: number, name: string, filters: FilterState) => {
+    activeSearchRequestRef.current?.abort()
+    activeLoadMoreRequestRef.current?.abort()
+
+    const controller = new AbortController()
+    activeSearchRequestRef.current = controller
+
+    setState((current) => buildCardLoadingState(current, { oracle_id: oracleId, face_ix: faceIx, name }, filters))
+
+    try {
+      const [cardData, page] = await Promise.all([
+        name ? Promise.resolve({ name }) : getCard(oracleId, controller.signal),
+        getSimilarCards(oracleId, faceIx, 0, RESULTS_PAGE_SIZE, filters, controller.signal),
+      ])
+
+      if (controller.signal.aborted) return
+
+      const pinnedCard: PinnedCard = { oracle_id: oracleId, face_ix: faceIx, name: cardData.name }
+      setApiDownMessage(null)
+      setState((current) => buildCardSuccessState(current, pinnedCard, filters, page))
+    } catch (error) {
+      if (controller.signal.aborted) return
+
+      reportError(error, { source: 'card.similar', oracleId })
+      if (isApiDownError(error)) {
+        setApiDownMessage(getApiDownMessage(error))
+        setState((current) => ({ ...current, isLoading: false, isLoadingMore: false }))
+        return
+      }
+
+      setApiDownMessage(null)
+      setState((current) => ({
+        ...current,
+        error: getSearchErrorMessage(error),
+        isLoading: false,
+        isLoadingMore: false,
+      }))
+    }
   }, [])
 
   const loadOracleSamples = useCallback(async (signal?: AbortSignal) => {
@@ -176,6 +228,12 @@ export function SearchShell() {
     void runSearch(nextQuery, state.filters)
   }, [runSearch, state.draftQuery, state.filters])
 
+  const handleCardSelect = useCallback((card: CardMatch) => {
+    if (!card.oracle_id) return
+    track('card_selected', { oracleId: card.oracle_id, name: card.name })
+    void runCardSearch(card.oracle_id, card.face_ix, card.name, state.filters)
+  }, [runCardSearch, state.filters])
+
   const handleFiltersChange = useCallback((nextFilters: FilterState) => {
     const normalizedFilters = normalizeFilterState(nextFilters)
     const nextFilterKeys = Object.keys(normalizedFilters).sort()
@@ -194,8 +252,12 @@ export function SearchShell() {
     })
 
     if (!state.submittedQuery) return
+    if (state.pinnedCard) {
+      void runCardSearch(state.pinnedCard.oracle_id, state.pinnedCard.face_ix, state.pinnedCard.name, normalizedFilters)
+      return
+    }
     void runSearch(state.submittedQuery, normalizedFilters)
-  }, [runSearch, state.filters, state.submittedQuery])
+  }, [runSearch, runCardSearch, state.filters, state.pinnedCard, state.submittedQuery])
 
   const handleClearFilters = useCallback(() => {
     const previousKeys = Object.keys(state.filters).sort()
@@ -211,8 +273,12 @@ export function SearchShell() {
     }))
 
     if (!state.submittedQuery) return
+    if (state.pinnedCard) {
+      void runCardSearch(state.pinnedCard.oracle_id, state.pinnedCard.face_ix, state.pinnedCard.name, {})
+      return
+    }
     void runSearch(state.submittedQuery, {})
-  }, [runSearch, state.filters, state.submittedQuery])
+  }, [runSearch, runCardSearch, state.filters, state.pinnedCard, state.submittedQuery])
 
   const handleLoadMore = useCallback(async () => {
     if (!state.submittedQuery || state.isLoading || state.isLoadingMore || !state.hasMore) {
@@ -236,13 +302,22 @@ export function SearchShell() {
     }))
 
     try {
-      const page = await searchOracleText(
-        state.submittedQuery,
-        state.results.length,
-        RESULTS_PAGE_SIZE,
-        state.filters,
-        controller.signal
-      )
+      const page = state.pinnedCard
+        ? await getSimilarCards(
+            state.pinnedCard.oracle_id,
+            state.pinnedCard.face_ix,
+            state.results.length,
+            RESULTS_PAGE_SIZE,
+            state.filters,
+            controller.signal
+          )
+        : await searchOracleText(
+            state.submittedQuery!,
+            state.results.length,
+            RESULTS_PAGE_SIZE,
+            state.filters,
+            controller.signal
+          )
 
       if (controller.signal.aborted) return
 
@@ -285,6 +360,7 @@ export function SearchShell() {
     state.hasMore,
     state.isLoading,
     state.isLoadingMore,
+    state.pinnedCard,
     state.results.length,
     state.submittedQuery,
   ])
@@ -366,13 +442,25 @@ export function SearchShell() {
     if (hasLoadedInitialQueryRef.current) return
     hasLoadedInitialQueryRef.current = true
 
+    if (state.pinnedCard) {
+      void runCardSearch(state.pinnedCard.oracle_id, state.pinnedCard.face_ix, '', state.filters)
+      return
+    }
+
     if (!state.submittedQuery) return
     void runSearch(state.submittedQuery, state.filters)
-  }, [runSearch, state.filters, state.submittedQuery])
+  }, [runSearch, runCardSearch, state.filters, state.pinnedCard, state.submittedQuery])
 
   useEffect(() => {
     const handlePopState = () => {
       const nextState = readSearchStateFromUrl()
+
+      if (nextState.pinnedCard) {
+        skipNextUrlWriteRef.current = true
+        void runCardSearch(nextState.pinnedCard.oracle_id, nextState.pinnedCard.face_ix, '', nextState.filters)
+        return
+      }
+
       const nextQuery = nextState.query
 
       if (!nextQuery) {
@@ -404,9 +492,9 @@ export function SearchShell() {
       return
     }
 
-    if (state.submittedQuery === null) return
-    writeSearchStateToUrl(state.submittedQuery, state.filters)
-  }, [state.filters, state.submittedQuery])
+    if (state.submittedQuery === null && !state.pinnedCard) return
+    writeSearchStateToUrl(state.submittedQuery, state.filters, state.pinnedCard)
+  }, [state.filters, state.submittedQuery, state.pinnedCard?.oracle_id, state.pinnedCard?.face_ix])
 
   return (
     <main
@@ -452,6 +540,7 @@ export function SearchShell() {
                 value={state.draftQuery}
                 onChange={handleDraftChange}
                 onSubmit={handleSubmit}
+                onCardSelect={handleCardSelect}
                 autoFocus
                 showManaRail
                 variant="home"
@@ -476,6 +565,7 @@ export function SearchShell() {
                   value={state.draftQuery}
                   onChange={handleDraftChange}
                   onSubmit={handleSubmit}
+                  onCardSelect={handleCardSelect}
                   autoFocus={false}
                   showManaRail={false}
                   variant="topbar"
@@ -510,7 +600,7 @@ export function SearchShell() {
               aria-label="Results summary"
             >
               <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">
-                <p className="eyebrow">Results</p>
+                <p className="eyebrow">{state.pinnedCard ? 'Similar to' : 'Results'}</p>
                 <h2 className="m-0 font-display text-[clamp(2.2rem,4.4vw,3.35rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
                   {state.submittedQuery}
                 </h2>
