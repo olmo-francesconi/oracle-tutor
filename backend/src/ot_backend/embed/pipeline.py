@@ -599,6 +599,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Load pre-computed embeddings from a .npz file into DB. "
         "Omit the path to use the latest run (runs/latest/embeddings/embeddings.npz).",
     )
+    parser.add_argument(
+        "--eval",
+        nargs="?",
+        const=str(_DEFAULT_EVAL_PATH),
+        default=None,
+        metavar="PATH",
+        help="Run eval queries against the latest run's embeddings and print ranked results. "
+        "Omit the path to use scripts/eval_queries.json.",
+    )
     return parser
 
 
@@ -669,6 +678,81 @@ def _load_embeddings_from_file(path: Path) -> int:
         db.close()
 
 
+_DEFAULT_EVAL_PATH = Path(__file__).parents[4] / "scripts" / "eval_queries.json"
+_EVAL_TOP_K = 5
+_EVAL_TEXT_PREVIEW = 90
+
+
+def _run_eval(runs_dir: Path, model_source: str | None, eval_path: Path) -> int:
+    try:
+        import numpy as np
+    except ImportError as exc:
+        raise RuntimeError("numpy is required for eval.") from exc
+
+    if not eval_path.exists():
+        raise FileNotFoundError(f"Eval queries file not found: {eval_path}")
+
+    latest = runs_dir / "latest"
+    npz_path = latest / "embeddings" / "embeddings.npz"
+    dataset_path = latest / TRAINING_DATASET_FILE_NAME
+
+    if not npz_path.exists():
+        raise FileNotFoundError(
+            f"Embeddings not found at {npz_path}\n"
+            "Run the pipeline first to produce embeddings."
+        )
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Training dataset not found at {dataset_path}")
+
+    resolved_model = model_source or str(latest / "models" / "pytorch")
+    logger.info("Loading model from %s", resolved_model)
+    SentenceTransformer = _load_sentence_transformer_class()
+    model = SentenceTransformer(resolved_model)
+
+    logger.info("Loading embeddings from %s", npz_path)
+    data = np.load(npz_path, allow_pickle=False)
+    oracle_ids: list[str] = data["oracle_ids"].tolist()
+    face_ixs: list[int] = data["face_ixs"].tolist()
+    embeddings: np.ndarray = data["embeddings"]  # (N, D), already L2-normalized
+
+    logger.info("Loading face texts from %s", dataset_path)
+    dataset_state = load_training_dataset(dataset_path)
+    face_texts = dataset_state.face_texts
+
+    import json as _json
+    queries = _json.loads(eval_path.read_text(encoding="utf-8"))["queries"]
+    logger.info("Running eval. queries=%d top_k=%d", len(queries), _EVAL_TOP_K)
+
+    for item in queries:
+        query: str = item["query"]
+        expected: list[str] = item.get("expected_cards", [])
+        notes: str = item.get("notes", "")
+
+        query_emb = model.encode(
+            [query], normalize_embeddings=True, show_progress_bar=False
+        )[0]
+        scores: np.ndarray = embeddings @ query_emb
+        top_indices = scores.argsort()[::-1][:_EVAL_TOP_K]
+
+        print(f"\n{'─' * 72}")
+        print(f"Query : {query!r}")
+        if notes:
+            print(f"Notes : {notes}")
+        if expected:
+            print(f"Expect: {', '.join(expected[:4])}")
+        print("Results:")
+        for rank, idx in enumerate(top_indices, 1):
+            oid = oracle_ids[idx]
+            fix = face_ixs[idx]
+            score = float(scores[idx])
+            text = face_texts.get((oid, fix), "")[:_EVAL_TEXT_PREVIEW].replace("\n", " ")
+            print(f"  {rank}. [{score:.3f}] {oid[:8]}… | {text}")
+
+    print(f"\n{'─' * 72}")
+    logger.info("Eval complete.")
+    return 0
+
+
 def _export_dataset_and_exit(output_path: Path) -> int:
     logger.info("Exporting training dataset to %s", output_path)
     db = SessionLocal()
@@ -707,6 +791,13 @@ def main(argv: list[str] | None = None) -> int:
 
     config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
     _apply_cli_overrides(config, args)
+
+    if args.eval is not None:
+        return _run_eval(
+            runs_dir=config.runs_dir,
+            model_source=config.base_model if args.base_model else None,
+            eval_path=Path(args.eval),
+        )
 
     if args.reembed_only:
         runs_dir = config.runs_dir
