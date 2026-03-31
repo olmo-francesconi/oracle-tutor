@@ -22,6 +22,7 @@ from ..core.config import huggingface_cache_dir
 from ..core.database import SessionLocal
 from ..core.logging_config import setup_loggers
 from ..core.models import CardFace
+from .query_gen import generate_template_queries
 from .text_prep import face_to_text, normalize_oracle_text
 
 logger = logging.getLogger("ot_backend.embed.pipeline")
@@ -55,6 +56,7 @@ class TrainingDatasetState:
     simcse_examples: int
     tag_pair_examples: int
     tag_desc_pair_examples: int
+    template_query_examples: int = 0
 
 
 class LazyInputExampleDataset:
@@ -250,20 +252,30 @@ def build_training_dataset_state(
         for face_key in sampled:
             direct_text_pairs.append((anchor, face_texts[face_key]))
 
+    logger.info("Building template query pairs.")
+    template_query_examples = 0
+    for face_key, oracle_text in face_texts.items():
+        for query in generate_template_queries(oracle_text):
+            direct_text_pairs.append((query, oracle_text))
+            template_query_examples += 1
+    logger.info("Template query pairs built. count=%d", template_query_examples)
+
     pair_ids = self_pair_ids + tag_pair_ids
     random.shuffle(pair_ids)
     random.shuffle(direct_text_pairs)
+    tag_desc_count = len(direct_text_pairs) - template_query_examples
     return TrainingDatasetState(
         face_texts=face_texts,
         pair_ids=pair_ids,
         direct_text_pairs=direct_text_pairs,
         simcse_examples=len(self_pair_ids),
         tag_pair_examples=len(tag_pair_ids),
-        tag_desc_pair_examples=len(direct_text_pairs),
+        tag_desc_pair_examples=tag_desc_count,
+        template_query_examples=template_query_examples,
     )
 
 
-TRAINING_DATASET_VERSION = 3
+TRAINING_DATASET_VERSION = 4
 
 
 def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Path) -> None:
@@ -282,6 +294,7 @@ def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Pa
         "simcse_examples": dataset_state.simcse_examples,
         "tag_pair_examples": dataset_state.tag_pair_examples,
         "tag_desc_pair_examples": dataset_state.tag_desc_pair_examples,
+        "template_query_examples": dataset_state.template_query_examples,
     }
     output_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -289,7 +302,7 @@ def export_training_dataset(dataset_state: TrainingDatasetState, output_path: Pa
 def load_training_dataset(input_path: Path) -> TrainingDatasetState:
     payload = json.loads(input_path.read_text(encoding="utf-8"))
     version = int(payload["version"])
-    if version not in (2, 3):
+    if version not in (2, 3, 4):
         raise ValueError(f"Unsupported training dataset format version: {version}.")
     face_texts = {
         (str(r["oracle_id"]), int(r["face_ix"])): str(r["text"])
@@ -309,6 +322,7 @@ def load_training_dataset(input_path: Path) -> TrainingDatasetState:
         simcse_examples=int(payload["simcse_examples"]),
         tag_pair_examples=int(payload["tag_pair_examples"]),
         tag_desc_pair_examples=int(payload.get("tag_desc_pair_examples", 0)),
+        template_query_examples=int(payload.get("template_query_examples", 0)),
     )
 
 
@@ -506,6 +520,7 @@ def run_pipeline(config: PipelineConfig, run_dir: Path) -> int:
             "simcse_examples": dataset_state.simcse_examples,
             "tag_pair_examples": dataset_state.tag_pair_examples,
             "tag_desc_pair_examples": dataset_state.tag_desc_pair_examples,
+            "template_query_examples": dataset_state.template_query_examples,
         }
 
         # -- Training
@@ -663,12 +678,13 @@ def _export_dataset_and_exit(output_path: Path) -> int:
         db.close()
     export_training_dataset(dataset_state, output_path)
     logger.info(
-        "Exported dataset. normalized_faces=%d total_examples=%d simcse_examples=%d tag_pair_examples=%d tag_desc_pair_examples=%d",
+        "Exported dataset. normalized_faces=%d total_examples=%d simcse_examples=%d tag_pair_examples=%d tag_desc_pair_examples=%d template_query_examples=%d",
         len(dataset_state.face_texts),
         len(dataset_state.pair_ids) + len(dataset_state.direct_text_pairs),
         dataset_state.simcse_examples,
         dataset_state.tag_pair_examples,
         dataset_state.tag_desc_pair_examples,
+        dataset_state.template_query_examples,
     )
     return 0
 
