@@ -678,7 +678,7 @@ def _load_embeddings_from_file(path: Path) -> int:
         db.close()
 
 
-_DEFAULT_EVAL_PATH = Path(__file__).parents[4] / "scripts" / "eval_queries.json"
+_DEFAULT_EVAL_PATH = Path(__file__).parents[3] / "scripts" / "eval_queries.json"
 _EVAL_TOP_K = 5
 _EVAL_TEXT_PREVIEW = 90
 
@@ -702,7 +702,18 @@ def _run_eval(runs_dir: Path, model_source: str | None, eval_path: Path) -> int:
             "Run the pipeline first to produce embeddings."
         )
     if not dataset_path.exists():
-        raise FileNotFoundError(f"Training dataset not found at {dataset_path}")
+        # Modal runs don't include the dataset in the zip — fall back to the
+        # default export location next to the runs dir.
+        fallback = runs_dir.parent.parent / "training-dataset.json"
+        if fallback.exists():
+            logger.info("Dataset not in run dir, using fallback: %s", fallback)
+            dataset_path = fallback
+        else:
+            raise FileNotFoundError(
+                f"Training dataset not found at {dataset_path} or {fallback}\n"
+                "Export it first: uv run python -m ot_backend.embed.pipeline "
+                "--export-dataset data/training-dataset.json"
+            )
 
     resolved_model = model_source or str(latest / "models" / "pytorch")
     logger.info("Loading model from %s", resolved_model)

@@ -164,7 +164,7 @@ _RULES: tuple[_Rule, ...] = (
     ),
     _Rule(
         re.compile(r"\btap this card: Add (?:two|three|four)\b", _I),
-        ("produce multiple mana", "mana ramp", "mana acceleration"),
+        ("produce multiple mana", "mana acceleration"),
     ),
     _Rule(
         re.compile(r"\btap this card: Add.*mana of any color\b", _I),
@@ -219,7 +219,7 @@ _RULES: tuple[_Rule, ...] = (
     # ------------------------------------------------------------------
     _Rule(
         re.compile(r"\bsearch your library for (?:a|an) (?:\w+ )*(?:basic )?land\b", _I),
-        ("land tutor", "fetch land", "search for land", "ramp spell"),
+        ("land tutor", "fetch land", "search for land", "mana ramp", "ramp spell"),
     ),
     _Rule(
         re.compile(r"\bsearch your library for (?:a|an) (?:\w+ )*creature\b", _I),

@@ -6,11 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
 from ot_backend.core.models import Card, CardFace, CardRaw, CardTagging, Tag
+from ot_backend.embed import pipeline as pipeline_module
 from ot_backend.embed.pipeline import (
     LazyInputExampleDataset,
     PipelineConfig,
@@ -743,3 +745,97 @@ def test_reembed_only_defaults_to_latest_pytorch(
 
     assert exit_code == 0
     assert loaded == [str(tmp_path / "latest" / "models" / "pytorch")]
+
+
+# ---------------------------------------------------------------------------
+# Eval dataset lookup
+# ---------------------------------------------------------------------------
+
+
+def _write_eval_fixture_files(runs_dir: Path, eval_path: Path) -> None:
+    latest = runs_dir / "latest"
+    embeddings_dir = latest / "embeddings"
+    embeddings_dir.mkdir(parents=True)
+    np.savez_compressed(
+        embeddings_dir / "embeddings.npz",
+        oracle_ids=np.array(["oracle-1"]),
+        face_ixs=np.array([0], dtype=np.int32),
+        embeddings=np.array([[1.0, 0.0]], dtype=np.float32),
+    )
+    eval_path.write_text(json.dumps({"queries": [{"query": "burn spell"}]}), encoding="utf-8")
+
+
+def _write_training_dataset_fixture(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 4,
+                "face_texts": [
+                    {"oracle_id": "oracle-1", "face_ix": 0, "text": "this card deals three damage to any target."}
+                ],
+                "pair_ids": [],
+                "direct_text_pairs": [],
+                "simcse_examples": 0,
+                "tag_pair_examples": 0,
+                "tag_desc_pair_examples": 0,
+                "template_query_examples": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_run_eval_uses_dataset_from_latest_run_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    runs_dir = tmp_path / "semantic" / "runs"
+    eval_path = tmp_path / "eval.json"
+    _write_eval_fixture_files(runs_dir, eval_path)
+    _write_training_dataset_fixture(runs_dir / "latest" / "training-dataset.json")
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_source: str) -> None:
+            self.model_source = model_source
+
+        def encode(self, texts: list[str], normalize_embeddings: bool, show_progress_bar: bool) -> np.ndarray:
+            assert texts == ["burn spell"]
+            assert normalize_embeddings is True
+            assert show_progress_bar is False
+            return np.array([[1.0, 0.0]], dtype=np.float32)
+
+    monkeypatch.setattr("ot_backend.embed.pipeline._load_sentence_transformer_class", lambda: FakeSentenceTransformer)
+
+    assert pipeline_module._run_eval(runs_dir=runs_dir, model_source=None, eval_path=eval_path) == 0
+
+
+def test_run_eval_falls_back_to_export_dataset_outside_run_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runs_dir = tmp_path / "semantic" / "runs"
+    eval_path = tmp_path / "eval.json"
+    _write_eval_fixture_files(runs_dir, eval_path)
+    _write_training_dataset_fixture(tmp_path / "training-dataset.json")
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_source: str) -> None:
+            self.model_source = model_source
+
+        def encode(self, texts: list[str], normalize_embeddings: bool, show_progress_bar: bool) -> np.ndarray:
+            return np.array([[1.0, 0.0]], dtype=np.float32)
+
+    monkeypatch.setattr("ot_backend.embed.pipeline._load_sentence_transformer_class", lambda: FakeSentenceTransformer)
+
+    assert pipeline_module._run_eval(runs_dir=runs_dir, model_source=None, eval_path=eval_path) == 0
+
+
+def test_run_eval_raises_actionable_error_when_dataset_missing(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "semantic" / "runs"
+    eval_path = tmp_path / "eval.json"
+    _write_eval_fixture_files(runs_dir, eval_path)
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        pipeline_module._run_eval(runs_dir=runs_dir, model_source=None, eval_path=eval_path)
+
+    message = str(excinfo.value)
+    assert str(runs_dir / "latest" / "training-dataset.json") in message
+    assert str(tmp_path / "training-dataset.json") in message
+    assert "--export-dataset data/training-dataset.json" in message
