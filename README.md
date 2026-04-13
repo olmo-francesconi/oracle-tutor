@@ -37,7 +37,13 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 docker compose up --build
 ```
 
-This starts Postgres, the API (`:8000`), and the React frontend (`:5173`). Workers are one-shot — run them manually when needed.
+This starts Postgres, the API (`:8000`), the React frontend (`:5173`), and the one-shot `scryfall-sync` worker.
+
+If you want the app stack without kicking off ingestion, start only the long-running services:
+
+```bash
+docker compose up --build db api frontend
+```
 
 ### Backend (without Docker)
 
@@ -70,16 +76,60 @@ The previous SPA is preserved in `frontend-legacy/` as a rollback snapshot. It i
 uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 ```
 
-Downloads Scryfall bulk data, populates `cards_raw` (~300k rows), derives `cards` and `card_faces` (~30k oracle-unique cards).
+`scryfall-sync` is a stale-aware one-shot worker. It compares remote Scryfall metadata, local bulk metadata, and DB metadata before deciding whether it needs to download and ingest anything.
 
-### Run oracle-embed locally
+When work is needed, it:
+- downloads the latest Oracle Cards bulk file
+- diff-ingests `cards_raw`, `cards`, and `card_faces`
+- computes card uniqueness scores
+- refreshes community tags unless `--skip-tags` is set
+
+Useful variants:
 
 ```bash
-# From backend/ — requires a GPU or patience
+# Force a full refresh even if metadata says the DB is current
+uv run python -m ot_backend.ingest.main --force --strict --trigger-type manual
+
+# Refresh Tagger data for every card
+uv run python -m ot_backend.ingest.main --refresh-tags --strict --trigger-type manual
+
+# Load card data only, skip Tagger sync
+uv run python -m ot_backend.ingest.main --skip-tags --strict --trigger-type manual
+```
+
+### Run the semantic pipeline locally
+
+```bash
+# From backend/ — requires the `oracle-embed` dependencies and some patience
 uv run python -m ot_backend.embed.pipeline
 ```
 
-Trains/exports ONNX model and computes embeddings for all card faces.
+The semantic pipeline can:
+- build a training dataset from normalized oracle text plus community tags
+- fine-tune a sentence-transformer model
+- export ONNX artifacts for API inference
+- compute and store face embeddings in Postgres
+
+By default, runs are written under `backend/data/semantic/runs/<run-id>/`, and the latest successful run is linked at `backend/data/semantic/runs/latest/`. The API defaults `SEMANTIC_MODEL_PATH` to `data/semantic/runs/latest/models/onnx`.
+
+Common workflows:
+
+```bash
+# Full fine-tune + ONNX export + DB embeddings
+uv run python -m ot_backend.embed.pipeline
+
+# Skip fine-tuning and embed from the base model only
+uv run python -m ot_backend.embed.pipeline --no-fine-tune
+
+# Recompute DB embeddings from the latest saved PyTorch model
+uv run python -m ot_backend.embed.pipeline --reembed-only
+
+# Export the training dataset without training
+uv run python -m ot_backend.embed.pipeline --export-dataset data/training-dataset.json
+
+# Evaluate the latest run against scripted queries
+uv run python -m ot_backend.embed.pipeline --eval
+```
 
 ## API endpoints
 
@@ -87,14 +137,14 @@ Trains/exports ONNX model and computes embeddings for all card faces.
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/version` | Schema + API version |
+| GET | `/oracle-samples` | Random sample oracle text and keyword pool used by the UI |
 | GET | `/search?q=` | Name search with trigram similarity |
-| GET | `/suggest-names?q=` | Fast name autocomplete |
-| GET | `/search-oracle?q=` | Semantic oracle-text search |
 | GET | `/card/{oracle_id}` | Full card by oracle ID |
-| GET | `/similar-cards/{oracle_id}` | Semantically similar cards |
+| GET | `/similar-cards?oracle_id=` | Similar cards to a known oracle ID |
+| GET | `/similar-cards?q=` | Semantic free-text search with optional filters |
 
 ```bash
-curl "http://localhost:8000/search-oracle?q=deals+3+damage+to+any+target&limit=10"
+curl "http://localhost:8000/similar-cards?q=deals+3+damage+to+any+target&limit=10"
 ```
 
 ## Database schema
@@ -121,7 +171,7 @@ The repo is designed to deploy as **three Railway services** + Railway Postgres.
 | scryfall-sync | `backend/Dockerfile.scryfall-sync` | Daily ingest cron |
 | Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
 
-`oracle-embed` (model training + embedding) is a plain Python CLI script — run locally or as a one-off Railway job, no dedicated Docker service.
+`oracle-embed` (dataset export, training, ONNX export, re-embedding, and eval) is a plain Python CLI workflow — run locally or as a one-off Railway job, no dedicated Docker service.
 
 ### Required environment variables
 
@@ -130,14 +180,15 @@ The repo is designed to deploy as **three Railway services** + Railway Postgres.
 - `ORACLE_TUTOR_API_ENV=production`
 
 **API (runtime inference):**
-- `SEMANTIC_MODEL_PATH` — path to directory with `onnx/model.onnx` and tokenizer assets
+- `SEMANTIC_MODEL_PATH` — optional override for the ONNX model directory; defaults to `data/semantic/runs/latest/models/onnx`
+- `SEMANTIC_BASE_MODEL` — optional Hugging Face base model ID for training and fallback model loading
 
 **Frontend:**
 - `API_PROXY_TARGET` — internal URL of the API service
 
 ### scryfall-sync cron schedule
 
-Set a **Railway Cron** on the `scryfall-sync` service, e.g. `0 2 * * *` (daily at 02:00 UTC). It runs the stale-aware update once and exits.
+Set a **Railway Cron** on the `scryfall-sync` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container command already runs the one-shot stale-aware worker once and exits.
 
 ## License
 

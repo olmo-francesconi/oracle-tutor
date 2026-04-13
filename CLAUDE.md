@@ -24,13 +24,13 @@ backend/                FastAPI service + Pytest suite
   Dockerfile.scryfall-sync    Scryfall ingest image
 frontend/               React + Vite SPA
   src/
-    components/         UI components (grid, filters, overlays, mobile)
-    pages/              OracleSearchPage, CardPage
-    lib/                Small helpers (cn, seo.ts)
-    api.ts              All HTTP calls go through here (Axios)
+    app/                Search shell and route-level orchestration
+    components/         UI components, overlays, and shared presentation
+    lib/                API client, filters, URL state, and helpers
+    test/               Vitest setup helpers
   nginx/                Nginx config/template for production
   Dockerfile            Multi-stage build (Vite dev + nginx runtime)
-.github/workflows/      ci.yml (frontend + workers), api-ci.yml (pytest + API build)
+.github/workflows/      ci.yml (frontend), api-ci.yml (backend)
 docker-compose.yml      Local dev: db + api + scryfall-sync + frontend
 ```
 
@@ -56,38 +56,35 @@ Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationsh
 | `/` | GET | Root health check |
 | `/health` | GET | `{"status": "ok"}` |
 | `/version` | GET | `{"version": API_VERSION}` |
+| `/oracle-samples` | GET | Random oracle text and keyword samples for the UI |
 | `/search` | GET | Name-based card search (param: `q`) |
 | `/card/{oracle_id}` | GET | Card detail with faces |
 | `/similar-cards` | GET | Semantic search (params: `oracle_id` or `q`, `face_ix`, `limit`, `offset`, filters) |
+| `/telemetry/client-error` | POST | Client error ingest |
+| `/telemetry/analytics` | POST | Frontend analytics ingest |
 
 Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`)
-
-Current state: `/search` uses name ILIKE. Migration to semantic-only is in progress on `semantic-api`.
 
 ### Key files
 - `api/main.py` — FastAPI app, lifespan, all routes, CORS middleware, exception handlers
 - `core/models.py` — ORM: 9 tables with composite PKs for card_faces and embeddings
 - `core/db_init.py` — runs `alembic upgrade head` on every startup; advisory locking for concurrency; migration state FSM (READY → MIGRATING → FAILED)
-- `ingest/data_builder.py` — streams Scryfall bulk JSON, upserts cards_raw, derives oracle-unique cards/faces
-- `embed/pipeline.py` — offline training: dataset → fine-tune → ONNX export → write embeddings to DB
+- `ingest/data_builder.py` — stale-aware Scryfall bulk ingest, card derivation, tag sync, uniqueness scoring
+- `embed/pipeline.py` — offline dataset export, fine-tune, ONNX export, re-embedding, and eval
 - `embed/index.py` — runtime: lazy-loads ONNX model, encodes queries, pgvector cosine search with server-side filters
-- `frontend/src/api.ts` — Axios client with: `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`, `getApiHealth`, `getApiVersion`
+- `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`, and helpers
 
 ### Frontend conventions
-- **Style guide:** `frontend/STYLEGUIDE.md` — Bauhaus design system: colors, typography, layout pattern, component rules. Read before touching any UI.
 - Server state: TanStack Query; routing state: React Router params/query string; transient UI: component state
-- UI components do not fetch directly — use `api.ts`
+- UI components do not fetch directly — use `src/lib/api.ts`
 - Filters (color, CMC, type, rarity, format) are applied server-side in `embed/index.py`
 
-## Current focus
+## Operational notes
 
-Branch: `semantic-api`
-
-- [ ] Remove name-search fallback; route `/search` entirely through semantic index
-- [x] Server-side filtering in semantic endpoints — `card_type`, `colors`, `cmc_min/max`, `format`, `rarity`, `color_feature`, `match_mode` all implemented in `embed/index.py`
-- [ ] Wire `cards_raw` data into card detail API response (set info, prices, image URIs per printing)
-- [ ] Add `.env.example` for local dev onboarding
-- [ ] Confirm Railway Cron schedule and scryfall-sync token rotation process
+- `/search` is still name-based; semantic free-text search runs through `/similar-cards?q=...`
+- API startup attempts to load the semantic ONNX model and returns `503` from semantic endpoints when artifacts are missing
+- `scryfall-sync` is a one-shot worker; it can skip download/ingestion entirely when DB metadata already matches the latest Scryfall bulk timestamp
+- The default semantic artifact path is `backend/data/semantic/runs/latest/models/onnx`
 
 ## Branch conventions
 
@@ -120,9 +117,10 @@ Branch: `semantic-api`
 | `DB_POOL_TIMEOUT` | `30` | |
 | `ORACLE_TUTOR_API_ENV` | `development` | `development` \| `production` |
 | `ORACLE_TUTOR_API_CORS_ORIGINS` | — | Comma-separated allowed origins |
-| `SEMANTIC_MODEL_PATH` | — | Directory containing `onnx/model.onnx` + tokenizer assets |
+| `SEMANTIC_MODEL_PATH` | `data/semantic/runs/latest/models/onnx` | Directory containing `onnx/model.onnx` + tokenizer assets |
 | `SEMANTIC_BASE_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Base model for training |
-| `HF_HOME` | — | Hugging Face cache directory |
+| `SEMANTIC_RUNS_DIR` | `data/semantic/runs` | Output root for semantic pipeline runs |
+| `HF_HOME` | `data/huggingface` | Hugging Face cache directory |
 | `ORACLE_TUTOR_LOG_TO_FILES` | — | Enable file logging |
 
 **Frontend:**
@@ -135,7 +133,7 @@ Branch: `semantic-api`
 
 ### Local dev
 ```bash
-docker compose up --build   # db + api + frontend (scryfall-sync is one-shot, run manually)
+docker compose up --build   # db + api + frontend + one-shot scryfall-sync
 ```
 
 ### Backend (run in `backend/`)
@@ -146,8 +144,11 @@ uv run ruff check src/ --fix        # lint
 uv run basedpyright src/            # type check (errors only; ~546 reportAny warnings are noise)
 uv run pytest -x -q                 # tests
 
-# Run scryfall-sync manually (one-shot, needs DB running):
-docker compose run --rm scryfall-sync
+# Run scryfall-sync manually:
+uv run python -m ot_backend.ingest.main --strict --trigger-type manual
+
+# Run semantic pipeline:
+uv run python -m ot_backend.embed.pipeline
 
 # Apply migrations standalone:
 uv run alembic upgrade head
@@ -158,12 +159,13 @@ uv run alembic upgrade head
 npm install        # once
 npm run dev        # localhost:5173, proxies /api to backend
 npm run lint
+npm run test
 npm run build
 ```
 
 ## Rules
 
-- Backend versioned independently from frontend: `backend/pyproject.toml` = `2.0.0`, `frontend/package.json` = `1.4.0`
+- Backend versioned independently from frontend: `backend/pyproject.toml` = `2.0.0`, `frontend/package.json` = `2.0.0`
 - Worker is a one-shot container; runs daily via Railway Cron and exits
 - Never run destructive Alembic migrations in production without reviewing the migration file first
 - Backend tests run against SQLite in-memory — pgvector ops, trigram, JSONB, and extension DDL are not covered by automated tests

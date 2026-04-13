@@ -11,7 +11,7 @@ Backend code lives in `backend/src/ot_backend/` under `api/`, `core/`, `ingest/`
 
 ## Build, Test, and Development Commands
 
-Run the full stack from the repo root with `docker compose up --build`.
+Run the full local stack from the repo root with `docker compose up --build` (this also starts the one-shot `scryfall-sync` worker).
 
 Backend:
 - `cd backend && uv sync --all-extras --group dev`: install Python dependencies.
