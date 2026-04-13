@@ -1,27 +1,17 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { HelmetProvider } from 'react-helmet-async'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import './index.css'
-import 'mana-font/css/mana.min.css'
+import './styles.css'
+import './mana-font.css'
 import App from './App.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { setupGlobalErrorHandlers } from './lib/observability'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: 1,
-    },
-  },
-})
+setupGlobalErrorHandlers()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <HelmetProvider>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    </HelmetProvider>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>
 )

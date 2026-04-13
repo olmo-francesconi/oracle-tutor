@@ -2,12 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository is split into two apps:
+This repository is split into two active apps:
 
 - `backend/`: FastAPI service, Alembic migrations, ingestion jobs, and tests.
 - `frontend/`: React 19 + TypeScript SPA built with Vite.
 
-Backend code lives in `backend/src/ot_backend/` under `api/`, `core/`, `ingest/`, and `embed/`. Backend tests live in `backend/tests/`. Frontend code lives in `frontend/src/`, with reusable UI in `components/`, route pages in `pages/`, and helpers in `lib/`. Static assets live in `frontend/public/`.
+Backend code lives in `backend/src/ot_backend/` under `api/`, `core/`, `ingest/`, and `embed/`. Backend tests live in `backend/tests/`. Frontend code lives in `frontend/src/`, with reusable UI in `components/`, app-level flow in `app/`, and helpers in `lib/`. Frontend tests live under `frontend/src/`. The pre-promotion SPA is archived in `frontend-legacy/` and should only be touched for rollback or reference work.
 
 ## Build, Test, and Development Commands
 
@@ -24,6 +24,7 @@ Frontend:
 - `cd frontend && npm install`: install dependencies.
 - `cd frontend && npm run dev`: start the Vite dev server.
 - `cd frontend && npm run lint`: run ESLint.
+- `cd frontend && npm run test`: run Vitest.
 - `cd frontend && npm run build`: type-check and build production assets.
 
 ## Coding Style & Naming Conventions
@@ -32,7 +33,7 @@ Prefer explicit, readable code over compact tricks. Avoid magic numbers; name im
 
 ## Testing Guidelines
 
-Backend tests use `pytest`; place new tests in `backend/tests/` as `test_*.py`. Write tests for new logic and prefer integration-style coverage over heavy mocking. The frontend currently has no committed test suite, so at minimum run `npm run lint` and `npm run build` before a PR.
+Backend tests use `pytest`; place new tests in `backend/tests/` as `test_*.py`. Write tests for new logic and prefer integration-style coverage over heavy mocking. Frontend tests use Vitest; run `npm run lint`, `npm run test`, and `npm run build` before a PR.
 
 ## Commit & Pull Request Guidelines
 

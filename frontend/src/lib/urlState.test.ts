@@ -19,6 +19,7 @@ describe('urlState', () => {
 
     expect(readSearchStateFromUrl()).toEqual({
       query: 'bolt',
+      pinnedCard: null,
       filters: {
         colors: 'UR',
         cardType: ['instant', 'sorcery'],
@@ -37,6 +38,7 @@ describe('urlState', () => {
 
     expect(readSearchStateFromUrl()).toEqual({
       query: 'test',
+      pinnedCard: null,
       filters: {
         cmcMax: 4,
       },

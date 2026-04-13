@@ -8,19 +8,23 @@ server {
   client_max_body_size 32k;
   limit_req_status 429;
 
+  # Basic hardening headers (safe defaults for a static SPA).
   add_header X-Content-Type-Options "nosniff" always;
   add_header X-Frame-Options "DENY" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests" always;
 
+  # --- Drop common probe/scanner requests early (no response) ---
+  # Allow ACME / well-known endpoints if you ever add them.
   location ^~ /.well-known/ {
     try_files $uri =404;
   }
 
+  # Dotfiles and secrets (covers /.env, /.git/*, /.DS_Store, etc.)
   location ~ /\.(?!well-known)(?:.*)$ {
     return 444;
   }
 
+  # WordPress / PHP probes
   location = /xmlrpc.php { return 444; }
   location = /wp-login.php { return 444; }
   location ^~ /wp-admin { return 444; }
@@ -30,6 +34,8 @@ server {
   location ^~ /wp { return 444; }
   location ^~ /phpmyadmin { return 444; }
 
+  # Serve the SPA (React router) with an index.html fallback.
+  # Crawler allowlist: return 403 for bots on disallowed paths.
   location / {
     set $block_bot 0;
     if ($is_bot) { set $block_bot "${block_bot}1"; }
@@ -40,7 +46,6 @@ server {
 
   location = /api/health {
     if ($is_bot) { return 403; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -59,7 +64,6 @@ server {
 
   location = /api/version {
     if ($is_bot) { return 403; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -78,12 +82,10 @@ server {
 
   location = /api/search {
     if ($is_bot) { return 403; }
-
     limit_req zone=api_global burst=30 nodelay;
     limit_req zone=api_search burst=20 nodelay;
     limit_conn api_conn 20;
     limit_except GET { deny all; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -102,12 +104,10 @@ server {
 
   location = /api/similar-cards {
     if ($is_bot) { return 403; }
-
     limit_req zone=api_global burst=30 nodelay;
     limit_req zone=api_semantic burst=10 nodelay;
     limit_conn api_conn 20;
     limit_except GET { deny all; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -126,12 +126,10 @@ server {
 
   location ^~ /api/card/ {
     if ($is_bot) { return 403; }
-
     limit_req zone=api_global burst=30 nodelay;
     limit_req zone=api_read burst=20 nodelay;
     limit_conn api_conn 20;
     limit_except GET { deny all; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -150,12 +148,10 @@ server {
 
   location = /api/oracle-samples {
     if ($is_bot) { return 403; }
-
     limit_req zone=api_global burst=30 nodelay;
     limit_req zone=api_read burst=20 nodelay;
     limit_conn api_conn 20;
     limit_except GET { deny all; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -174,12 +170,10 @@ server {
 
   location ^~ /api/telemetry/ {
     if ($is_bot) { return 403; }
-
     limit_req zone=api_global burst=15 nodelay;
     limit_req zone=api_telemetry burst=10 nodelay;
     limit_conn api_conn 10;
     limit_except POST { deny all; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -198,11 +192,9 @@ server {
 
   location ^~ /api/ {
     if ($is_bot) { return 403; }
-
     limit_req zone=api_global burst=30 nodelay;
     limit_conn api_conn 20;
     limit_except GET { deny all; }
-
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
     proxy_http_version 1.1;
@@ -219,9 +211,11 @@ server {
     proxy_pass $upstream_target;
   }
 
+  # Cache immutable build assets aggressively.
   location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|webp|woff2?)$ {
     expires 30d;
     add_header Cache-Control "public, max-age=2592000, immutable";
     try_files $uri =404;
   }
 }
+

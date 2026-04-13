@@ -57,8 +57,11 @@ cd frontend
 npm install          # first time only
 npm run dev          # dev server at :5173 (proxies /api to backend)
 npm run lint
+npm run test
 npm run build
 ```
+
+The previous SPA is preserved in `frontend-legacy/` as a rollback snapshot. It is no longer wired into Docker, CI, or deployment.
 
 ### Run scryfall-sync locally
 

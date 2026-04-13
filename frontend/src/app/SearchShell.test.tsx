@@ -259,6 +259,7 @@ describe('SearchShell integration', () => {
     fireEvent.click(screen.getByText('submit search'))
     await screen.findByText('Card One')
 
+    fireEvent.click(screen.getByLabelText('Toggle filters'))
     fireEvent.click(screen.getByText('apply modern filter'))
 
     await screen.findByText('Card Modern')
@@ -286,6 +287,7 @@ describe('SearchShell integration', () => {
     fireEvent.click(screen.getByText('submit search'))
     await screen.findByText('Card One')
 
+    fireEvent.click(screen.getByLabelText('Toggle filters'))
     fireEvent.click(screen.getByText('apply modern filter'))
     await screen.findByText('Card Modern')
 

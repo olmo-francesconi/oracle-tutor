@@ -484,7 +484,7 @@ export function SearchShell() {
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [runSearch])
+  }, [runCardSearch, runSearch])
 
   useEffect(() => {
     if (skipNextUrlWriteRef.current) {
@@ -494,7 +494,7 @@ export function SearchShell() {
 
     if (state.submittedQuery === null && !state.pinnedCard) return
     writeSearchStateToUrl(state.submittedQuery, state.filters, state.pinnedCard)
-  }, [state.filters, state.submittedQuery, state.pinnedCard?.oracle_id, state.pinnedCard?.face_ix])
+  }, [state.filters, state.submittedQuery, state.pinnedCard])
 
   return (
     <main

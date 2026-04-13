@@ -1,38 +1,31 @@
-import { useState } from 'react'
-import { ImageBrokenIcon } from '@phosphor-icons/react'
-import { cn } from '../lib/cn'
+import { memo, useState } from 'react'
+import { CardImageFallback } from './errors/CardImageFallback'
 
-type CardImageProps = React.ImgHTMLAttributes<HTMLImageElement>
+type CardImageProps = {
+  src: string
+  alt: string
+  oracleText?: string
+  manaCost?: string
+  className?: string
+}
 
-export function CardImage({ src, alt, className, ...props }: CardImageProps) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null)
-  const hasError = !!src && failedSrc === src
+function CardImageComponent({ src, alt, oracleText, manaCost, className }: CardImageProps) {
+  const [hasError, setHasError] = useState(false)
 
-  if (hasError) {
-    return (
-      <div
-        className={cn(
-          'flex flex-col items-center justify-center border border-white/10 bg-[#1c1c1c] text-white/20 select-none',
-          className
-        )}
-        role="img"
-        aria-label={alt ? `Placeholder for ${alt}` : 'Image placeholder'}
-      >
-        <ImageBrokenIcon className="mb-2 h-8 w-8 opacity-50" />
-        <span className="px-4 text-center text-xs font-medium">
-          {alt || 'Image unavailable'}
-        </span>
-      </div>
-    )
+  if (!src || hasError) {
+    return <CardImageFallback alt={alt} oracleText={oracleText} manaCost={manaCost} className={className} />
   }
 
   return (
     <img
       src={src}
       alt={alt}
-      className={cn(className)}
-      onError={() => setFailedSrc(src ?? null)}
-      {...props}
+      className={className}
+      loading="lazy"
+      decoding="async"
+      onError={() => setHasError(true)}
     />
   )
 }
+
+export const CardImage = memo(CardImageComponent)
