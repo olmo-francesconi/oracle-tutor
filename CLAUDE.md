@@ -44,11 +44,15 @@ docker-compose.yml      Local dev: db + api + scryfall-sync + frontend
 
 Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationships`, `system_metadata`, `ingestion_logs`
 
+Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `semantic_model_embeddings`, `semantic_jobs`
+Note: `card_face_semantic_embeddings` still exists for uniqueness scoring; live search embeddings are in `semantic_model_embeddings`.
+
 ### Semantic search
-- Embeddings stored at face granularity in `card_face_semantic_embeddings`
+- Embeddings stored per-model in `semantic_model_embeddings` (face granularity, filtered by `model_id`)
 - Query → ONNX tokenizer/model → pgvector cosine distance → hydrate via `CardFace → Card`
-- Runtime inference uses local ONNX artifacts only; loaded at startup from `SEMANTIC_MODEL_PATH`
-- Semantic endpoints return 503 if model artifact is missing
+- Active model is determined by `semantic_models.is_active`; index polls DB every `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` seconds
+- Model artifacts (ONNX bundle zip) stored in S3-compatible storage; materialized to `SEMANTIC_TEMP_DIR` on demand
+- Semantic endpoints return 503 if no active model exists in the registry
 
 ### API routes
 | Route | Method | Purpose |
@@ -62,6 +66,15 @@ Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationsh
 | `/similar-cards` | GET | Semantic search (params: `oracle_id` or `q`, `face_ix`, `limit`, `offset`, filters) |
 | `/telemetry/client-error` | POST | Client error ingest |
 | `/telemetry/analytics` | POST | Frontend analytics ingest |
+| `/admin/semantic-models` | GET | List all registered semantic models |
+| `/admin/semantic-models` | POST | Register a new semantic model (bundle zip body) |
+| `/admin/semantic-models/{model_id}` | GET | Get semantic model detail |
+| `/admin/semantic-models/{model_id}/artifacts` | GET | List model artifacts |
+| `/admin/semantic-models/{model_id}/promote` | POST | Queue promotion job for a model |
+| `/admin/semantic-jobs` | GET | List all semantic jobs |
+| `/admin/semantic-jobs/{job_id}` | GET | Get job detail |
+| `/admin/semantic-jobs/train` | POST | Create a training job |
+| `/admin/semantic-jobs/promote` | POST | Create a promotion job |
 
 Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`)
 
@@ -72,6 +85,12 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - `ingest/data_builder.py` — stale-aware Scryfall bulk ingest, card derivation, tag sync, uniqueness scoring
 - `embed/pipeline.py` — offline dataset export, fine-tune, ONNX export, re-embedding, and eval
 - `embed/index.py` — runtime: lazy-loads ONNX model, encodes queries, pgvector cosine search with server-side filters
+- `embed/model_registry.py` — model materialization, embedding population, activation, and promotion logic
+- `embed/artifacts.py` — S3 artifact upload/download and recording
+- `embed/registration.py` — bundle parsing and model registration
+- `embed/semantic_jobs.py` — job queue: create, claim, heartbeat, succeed/fail
+- `embed/promote.py` — promotion worker entry point
+- `embed/semantic_state.py` — semantic data version tracking
 - `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`, and helpers
 
 ### Frontend conventions
@@ -82,9 +101,9 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 ## Operational notes
 
 - `/search` is still name-based; semantic free-text search runs through `/similar-cards?q=...`
-- API startup attempts to load the semantic ONNX model and returns `503` from semantic endpoints when artifacts are missing
+- API startup queries the registry for the active semantic model; returns `503` from semantic endpoints until one is promoted
 - `scryfall-sync` is a one-shot worker; it can skip download/ingestion entirely when DB metadata already matches the latest Scryfall bulk timestamp
-- The default semantic artifact path is `backend/data/semantic/runs/latest/models/onnx`
+- Model bundles are stored in S3 (`SEMANTIC_ARTIFACT_BUCKET`) and cached locally in `SEMANTIC_TEMP_DIR`
 
 ## Branch conventions
 
@@ -117,11 +136,21 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 | `DB_POOL_TIMEOUT` | `30` | |
 | `ORACLE_TUTOR_API_ENV` | `development` | `development` \| `production` |
 | `ORACLE_TUTOR_API_CORS_ORIGINS` | — | Comma-separated allowed origins |
-| `SEMANTIC_MODEL_PATH` | `data/semantic/runs/latest/models/onnx` | Directory containing `onnx/model.onnx` + tokenizer assets |
 | `SEMANTIC_BASE_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Base model for training |
 | `SEMANTIC_RUNS_DIR` | `data/semantic/runs` | Output root for semantic pipeline runs |
+| `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` | `5` | How often the API checks for a new active model |
+| `SEMANTIC_TEMP_DIR` | `$TMPDIR/mtg-search-semantic-models` | Local cache for materialized model bundles |
+| `SEMANTIC_ONNX_INTRA_OP_THREADS` | `1` | ONNX Runtime intra-op thread count |
+| `SEMANTIC_ONNX_INTER_OP_THREADS` | `1` | ONNX Runtime inter-op thread count |
+| `SEMANTIC_JOB_HEARTBEAT_SECONDS` | `600` | Promote worker heartbeat interval |
+| `SEMANTIC_JOB_STALE_SECONDS` | `1200` | Seconds before a running job is considered stale |
 | `HF_HOME` | `data/huggingface` | Hugging Face cache directory |
 | `ORACLE_TUTOR_LOG_TO_FILES` | — | Enable file logging |
+| `SEMANTIC_ARTIFACT_ENDPOINT` | — | S3-compatible endpoint URL for artifact storage |
+| `SEMANTIC_ARTIFACT_ACCESS_KEY_ID` | — | S3 access key ID for artifact storage |
+| `SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY` | — | S3 secret access key for artifact storage |
+| `SEMANTIC_ARTIFACT_REGION` | `auto` | S3 region for artifact storage |
+| `SEMANTIC_ARTIFACT_BUCKET` | — | S3 bucket name for semantic model artifacts |
 
 **Frontend:**
 | Variable | Notes |

@@ -7,7 +7,7 @@ This repository is split into two active apps:
 - `backend/`: FastAPI service, Alembic migrations, ingestion jobs, and tests.
 - `frontend/`: React 19 + TypeScript SPA built with Vite.
 
-Backend code lives in `backend/src/ot_backend/` under `api/`, `core/`, `ingest/`, and `embed/`. Backend tests live in `backend/tests/`. Frontend code lives in `frontend/src/`, with reusable UI in `components/`, app-level flow in `app/`, and helpers in `lib/`. Frontend tests live under `frontend/src/`. The pre-promotion SPA is archived in `frontend-legacy/` and should only be touched for rollback or reference work.
+Backend code lives in `backend/src/ot_backend/` under `api/`, `core/`, `ingest/`, and `embed/`. The `embed/` package contains ONNX inference (`index.py`), model training pipeline (`pipeline.py`), the model registry and promotion logic (`model_registry.py`, `artifacts.py`, `registration.py`, `promote.py`), and the job queue (`semantic_jobs.py`). Backend tests live in `backend/tests/`. Frontend code lives in `frontend/src/`, with reusable UI in `components/`, app-level flow in `app/`, and helpers in `lib/`. Frontend tests live under `frontend/src/`. The pre-promotion SPA is archived in `frontend-legacy/` and should only be touched for rollback or reference work.
 
 ## Build, Test, and Development Commands
 

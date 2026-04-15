@@ -11,7 +11,7 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 - **Name autocomplete** — fast trigram-based name suggestions
 - **Full card data** — 3-layer schema: raw Scryfall printings, oracle-deduplicated canonical cards, and per-face data with image URIs
 - **Community tags** — Scryfall Tagger integration for semantic categories (shocklands, cantrips, etc.)
-- **Daily sync** — Railway Cron `scryfall-sync` pulls Scryfall bulk data and re-ingests changes automatically
+- **Daily sync** — Railway Cron `ingest-worker` pulls Scryfall bulk data and re-ingests changes automatically
 
 ## Tech stack
 
@@ -37,7 +37,7 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 docker compose up --build
 ```
 
-This starts Postgres, the API (`:8000`), the React frontend (`:5173`), and the one-shot `scryfall-sync` worker.
+This starts Postgres, the API (`:8000`), the React frontend (`:5173`), and the one-shot `ingest-worker`.
 
 If you want the app stack without kicking off ingestion, start only the long-running services:
 
@@ -69,14 +69,14 @@ npm run build
 
 The previous SPA is preserved in `frontend-legacy/` as a rollback snapshot. It is no longer wired into Docker, CI, or deployment.
 
-### Run scryfall-sync locally
+### Run ingest-worker locally
 
 ```bash
 # From backend/
 uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 ```
 
-`scryfall-sync` is a stale-aware one-shot worker. It compares remote Scryfall metadata, local bulk metadata, and DB metadata before deciding whether it needs to download and ingest anything.
+`ingest-worker` is a stale-aware one-shot worker. It compares remote Scryfall metadata, local bulk metadata, and DB metadata before deciding whether it needs to download and ingest anything.
 
 When work is needed, it:
 - downloads the latest Oracle Cards bulk file
@@ -142,6 +142,7 @@ uv run python -m ot_backend.embed.pipeline --eval
 | GET | `/card/{oracle_id}` | Full card by oracle ID |
 | GET | `/similar-cards?oracle_id=` | Similar cards to a known oracle ID |
 | GET | `/similar-cards?q=` | Semantic free-text search with optional filters |
+| POST | `/admin/auth/token` | Exchange the configured admin password for an admin bearer token |
 
 ```bash
 curl "http://localhost:8000/similar-cards?q=deals+3+damage+to+any+target&limit=10"
@@ -163,32 +164,47 @@ Migrations are managed with **Alembic** (`backend/alembic/`).
 
 ## Railway deployment
 
-The repo is designed to deploy as **three Railway services** + Railway Postgres.
+The repo is designed to deploy as **four Railway services** + Railway Postgres.
 
 | Service | Dockerfile | Purpose |
 |---|---|---|
 | API | `backend/Dockerfile` | Web process |
-| scryfall-sync | `backend/Dockerfile.scryfall-sync` | Daily ingest cron |
+| ingest-worker | `backend/Dockerfile.ingest-worker` | Daily ingest cron |
+| train-worker | `backend/Dockerfile.train-worker` | Railway-side dataset export + Modal orchestration + model registration |
+| promotion-worker | `backend/Dockerfile.promotion-worker` | Railway-side embedding build + model activation |
 | Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
 
 `oracle-embed` (dataset export, training, ONNX export, re-embedding, and eval) is a plain Python CLI workflow — run locally or as a one-off Railway job, no dedicated Docker service.
 
 ### Required environment variables
 
-**API + scryfall-sync:**
+**API + ingest-worker + train-worker + promotion-worker:**
 - `DATABASE_URL` — Railway Postgres connection string (injected automatically)
 - `ORACLE_TUTOR_API_ENV=production`
+
+**train-worker (Modal orchestration):**
+- `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` — credentials used by the worker container to dispatch remote Modal jobs
+- `SEMANTIC_LLM_MODEL` — optional Modal-side vLLM model ID; defaults to `Qwen/Qwen2.5-7B-Instruct`
+- `SEMANTIC_LLM_MAX_QUERIES_PER_FACE` — optional cap for synthetic LLM queries per card face; defaults to `3`
+- `SEMANTIC_LLM_MAX_FACES` — optional cap on how many faces receive LLM augmentation in one run; defaults to `2500`
+- `SEMANTIC_LLM_MIN_TEMPLATE_COVERAGE` — only augment faces with fewer than this many template queries; defaults to `2`
+- `SEMANTIC_LLM_TEMPERATURE` — optional vLLM sampling temperature; defaults to `0.6`
+- `SEMANTIC_LLM_MAX_TOKENS` — optional max tokens per LLM response; defaults to `500`
 
 **API (runtime inference):**
 - `SEMANTIC_MODEL_PATH` — optional override for the ONNX model directory; defaults to `data/semantic/runs/latest/models/onnx`
 - `SEMANTIC_BASE_MODEL` — optional Hugging Face base model ID for training and fallback model loading
+- `ADMIN_PASSWORD` — password accepted by `POST /admin/auth/token`
+- `ADMIN_JWT_SECRET` — HS256 signing secret for admin bearer tokens
+- `ADMIN_LOGIN_MAX_FAILURES` — optional per-IP admin login failure threshold; defaults to `5`
+- `ADMIN_LOGIN_LOCKOUT_SECONDS` — optional lockout period in seconds after hitting the threshold; defaults to `900`
 
 **Frontend:**
 - `API_PROXY_TARGET` — internal URL of the API service
 
-### scryfall-sync cron schedule
+### ingest-worker cron schedule
 
-Set a **Railway Cron** on the `scryfall-sync` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container command already runs the one-shot stale-aware worker once and exits.
+Set a **Railway Cron** on the `ingest-worker` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container command already runs the one-shot stale-aware worker once and exits.
 
 ## License
 
