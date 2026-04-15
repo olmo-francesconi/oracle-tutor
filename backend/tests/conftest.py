@@ -1,22 +1,42 @@
 import os
+import sqlite3
 import sys
 from collections.abc import Generator
+from datetime import date, datetime
 from pathlib import Path
+
+# Python 3.12 deprecated sqlite3's default datetime/date adapters.
+# Register explicit ones to silence the DeprecationWarning from SQLAlchemy.
+sqlite3.register_adapter(datetime, lambda v: v.isoformat())
+sqlite3.register_adapter(date, lambda v: v.isoformat())
 
 import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
+os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password")
+os.environ.setdefault("ADMIN_JWT_SECRET", "test-admin-jwt-secret-which-is-at-least-32-bytes")
 
 # Ensure the `src/` layout package is importable when running pytest without an editable install.
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from ot_backend.api.main import app  # noqa: E402
+from ot_backend.api.admin_auth import clear_admin_login_attempts_for_tests  # noqa: E402
 from ot_backend.core.database import SessionLocal  # noqa: E402
 from ot_backend.core.db_init import init_db  # noqa: E402
-from ot_backend.core.models import AnalyticsEvent, Card, CardFace, CardRaw, ClientErrorEvent  # noqa: E402
+from ot_backend.core.models import (  # noqa: E402
+    AnalyticsEvent,
+    Card,
+    CardFace,
+    CardRaw,
+    ClientErrorEvent,
+    SemanticJob,
+    SemanticModel,
+    SemanticModelArtifact,
+    SemanticModelEmbedding,
+)
 
 
 def _make_card_raw(
@@ -54,6 +74,10 @@ def _seed_db() -> None:
         # Clean slate (sqlite :memory: persists across tests with StaticPool)
         db.query(AnalyticsEvent).delete()
         db.query(ClientErrorEvent).delete()
+        db.query(SemanticJob).delete()
+        db.query(SemanticModelEmbedding).delete()
+        db.query(SemanticModelArtifact).delete()
+        db.query(SemanticModel).delete()
         db.query(CardFace).delete()
         db.query(Card).delete()
         db.query(CardRaw).delete()
@@ -204,3 +228,10 @@ def client() -> Generator[TestClient, None, None]:
     _seed_db()
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def reset_admin_login_attempt_state() -> Generator[None, None, None]:
+    clear_admin_login_attempts_for_tests()
+    yield
+    clear_admin_login_attempts_for_tests()
