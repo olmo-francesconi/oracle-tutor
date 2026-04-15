@@ -152,11 +152,25 @@ export function isApiDownError(error: unknown): boolean {
 
 export function getApiDownMessage(error: unknown): string {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return 'Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.'
+    return 'Your device appears to be offline. Reconnect, then retry.'
   }
 
-  if (error instanceof Error && /request failed: 503\b/i.test(error.message)) {
-    return 'Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.'
+  if (error instanceof Error) {
+    if (error.message.toLowerCase().includes('semantic index not available')) {
+      return 'No semantic model is loaded. A model must be registered and promoted before search is available.'
+    }
+
+    if (/request failed: 503\b/i.test(error.message)) {
+      return 'The API is temporarily unavailable (503). Give it a moment, then retry.'
+    }
+
+    if (/request failed: 502\b/i.test(error.message)) {
+      return 'The API is unreachable (502 Bad Gateway). Give it a moment, then retry.'
+    }
+
+    if (/request failed: 504\b/i.test(error.message)) {
+      return 'The API timed out (504 Gateway Timeout). Give it a moment, then retry.'
+    }
   }
 
   return 'Oracle Tutor cannot reach the live catalog right now. Give it a second, then retry the connection.'
