@@ -20,6 +20,7 @@ import type {
   SemanticTrainOptions,
 } from '../types/api'
 import { AdminRangeField } from './AdminRangeField'
+import { AdminSelect } from './AdminSelect'
 import { AdminSelectionField } from './AdminSelectionField'
 
 type AdminSnapshot = {
@@ -345,22 +346,29 @@ export function AdminPage({ onLogout }: AdminPageProps) {
                   Sign out
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => void refreshBoard('refresh')}
+                className="border-b-2 border-ot-ink px-4 py-3 text-left font-display text-[1.1rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg active:opacity-80"
+              >
+                {refreshing ? 'Refreshing…' : 'Refresh board'}
+              </button>
               <div className="grid grid-cols-4">
-                <div className="border-r-2 border-ot-ink px-4 py-3">
+                <div className="overflow-hidden border-r-2 border-ot-ink px-2 py-2">
                   <p className="eyebrow">Models</p>
-                  <p className="m-0 pt-1 font-display text-3xl font-black uppercase leading-none">{snapshot.models.length}</p>
+                  <p className="m-0 pt-1 font-display text-2xl font-black uppercase leading-none">{snapshot.models.length}</p>
                 </div>
-                <div className="border-r-2 border-ot-ink px-4 py-3">
+                <div className="overflow-hidden border-r-2 border-ot-ink px-2 py-2">
                   <p className="eyebrow">Datasets</p>
-                  <p className="m-0 pt-1 font-display text-3xl font-black uppercase leading-none">{snapshot.datasets.length}</p>
+                  <p className="m-0 pt-1 font-display text-2xl font-black uppercase leading-none">{snapshot.datasets.length}</p>
                 </div>
-                <div className="border-r-2 border-ot-ink px-4 py-3">
+                <div className="overflow-hidden border-r-2 border-ot-ink px-2 py-2">
                   <p className="eyebrow">Queued</p>
-                  <p className="m-0 pt-1 font-display text-3xl font-black uppercase leading-none">
+                  <p className="m-0 pt-1 font-display text-2xl font-black uppercase leading-none">
                     {snapshot.jobs.filter((job) => job.status === 'pending' || job.status === 'running').length}
                   </p>
                 </div>
-                <div className="px-4 py-3">
+                <div className="overflow-hidden px-2 py-2">
                   <p className="eyebrow">Pulse</p>
                   <p className="m-0 pt-1 font-display text-base font-black uppercase leading-none">
                     {refreshing ? 'syncing' : 'steady'}
@@ -460,26 +468,21 @@ export function AdminPage({ onLogout }: AdminPageProps) {
               />
             </label>
 
-            <label className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
+            <div className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
               <span className="eyebrow">Base model</span>
-              <select
+              <AdminSelect
+                label="Base model"
+                options={baseModels.map((m) => ({ value: m.key, label: m.label }))}
                 value={form.base_model_key}
-                onChange={(event) => handleTrainField('base_model_key', event.target.value)}
-                className="min-h-12 w-full min-w-0 border-2 border-ot-ink bg-ot-bg px-3 py-2 text-[0.95rem] outline-none transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] focus:border-ot-red focus:bg-ot-surface"
-                required
-              >
-                {baseModels.map((model) => (
-                  <option key={model.key} value={model.key}>
-                    {model.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select base model"
+                onChange={(v) => handleTrainField('base_model_key', v)}
+              />
               {selectedBaseModel ? (
                 <span className="break-words text-[0.76rem] uppercase leading-[1.45] tracking-[0.08em] text-ot-muted">
                   {selectedBaseModel.base_model} / dim {selectedBaseModel.embedding_dim}
                 </span>
               ) : null}
-            </label>
+            </div>
 
             <AdminRangeField
               label="Epochs"
@@ -524,30 +527,24 @@ export function AdminPage({ onLogout }: AdminPageProps) {
               }}
             />
 
-            <label className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
+            <div className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
               <span className="eyebrow">Dataset</span>
               {snapshot.datasets.filter((ds) => ds.status === 'ready').length === 0 ? (
                 <p className="m-0 text-[0.76rem] uppercase tracking-[0.08em] text-ot-muted">
                   No ready datasets yet — build one above.
                 </p>
               ) : (
-                <select
-                  value={form.dataset_id}
-                  onChange={(event) => handleTrainField('dataset_id', event.target.value)}
-                  className="min-h-12 w-full min-w-0 border-2 border-ot-ink bg-ot-bg px-3 py-2 text-[0.95rem] outline-none transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] focus:border-ot-red focus:bg-ot-surface"
-                  required
-                >
-                  <option value="">Choose a dataset</option>
-                  {snapshot.datasets
+                <AdminSelect
+                  label="Dataset"
+                  options={snapshot.datasets
                     .filter((ds) => ds.status === 'ready')
-                    .map((ds) => (
-                      <option key={ds.id} value={ds.id}>
-                        {ds.slug} ({ds.augmentation_mode})
-                      </option>
-                    ))}
-                </select>
+                    .map((ds) => ({ value: String(ds.id), label: `${ds.slug} (${ds.augmentation_mode})` }))}
+                  value={form.dataset_id}
+                  placeholder="Choose a dataset"
+                  onChange={(v) => handleTrainField('dataset_id', v)}
+                />
               )}
-            </label>
+            </div>
 
             <div className="grid border-b-2 border-ot-ink">
               <label className="flex cursor-pointer items-start gap-3 bg-[color-mix(in_srgb,var(--color-ot-red)_5%,var(--color-ot-surface))] px-5 py-4">
@@ -703,20 +700,11 @@ export function AdminPage({ onLogout }: AdminPageProps) {
             </section>
 
             <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-              <div className="flex items-end justify-between gap-4 border-b-2 border-ot-ink px-5 py-4 max-[720px]:flex-col max-[720px]:items-start">
-                <div className="grid gap-2">
-                  <p className="eyebrow">Models</p>
-                  <h2 className="m-0 font-display text-[2.1rem] font-black uppercase leading-[0.9] tracking-[-0.03em]">
-                    Available candidates
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void refreshBoard('refresh')}
-                  className="min-h-12 cursor-pointer border-2 border-ot-ink bg-ot-bg px-4 py-2 font-display text-[1rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg active:opacity-80"
-                >
-                  {refreshing ? 'Refreshing…' : 'Refresh board'}
-                </button>
+              <div className="border-b-2 border-ot-ink px-5 py-4">
+                <p className="eyebrow">Models</p>
+                <h2 className="m-0 pt-2 font-display text-[2.1rem] font-black uppercase leading-[0.9] tracking-[-0.03em]">
+                  Available candidates
+                </h2>
               </div>
 
               <div className="overflow-x-auto max-[900px]:hidden">
