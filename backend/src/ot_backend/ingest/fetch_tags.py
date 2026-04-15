@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import TypedDict, cast
 
 import requests
-from sqlalchemy import Row, delete, select
+from sqlalchemy import Row, delete, func, select
 from sqlalchemy.orm import Session
 
 from ..core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
@@ -27,6 +27,8 @@ SESSION_RESET_BACKOFF_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_SESSION_RESETS: int = 5
 ORACLE_FOREIGN_KEY = "oracleId"
+TAG_FETCH_BATCH_SIZE = 500
+TAG_FETCH_COMMIT_INTERVAL = 25
 
 FETCH_CARD_QUERY = """
 query FetchCard(
@@ -103,6 +105,16 @@ class FetchResult:
     outcome: FetchOutcome
     oracle_tag_count: int = 0
     relationship_count: int = 0
+
+
+@dataclass(frozen=True)
+class TagFetchStats:
+    processed_count: int
+    success_count: int
+    failed_count: int
+    reset_session_count: int
+    inserted_oracle_taggings: int
+    inserted_relationships: int
 
 
 class TagRecord(TypedDict):
@@ -324,33 +336,6 @@ def _create_tagger_session() -> tuple[requests.Session, str]:
 # ---------------------------------------------------------------------------
 
 
-def _upsert_tag(db: Session, tag_data: TagRecord) -> None:
-    tag_id = tag_data["id"]
-    tag = db.get(Tag, tag_id)
-    if tag is None:
-        db.add(
-            Tag(
-                id=tag_id,
-                tag_name=tag_data["tag_name"] or "",
-                tag_description=tag_data.get("tag_description"),
-                tag_type=tag_data.get("tag_type"),
-                tag_namespace=tag_data.get("tag_namespace"),
-                tag_slug=tag_data.get("tag_slug"),
-            )
-        )
-        return
-
-    tag.tag_name = tag_data["tag_name"] or tag.tag_name
-    if tag_data.get("tag_description"):
-        tag.tag_description = tag_data["tag_description"]
-    if tag_data.get("tag_type"):
-        tag.tag_type = tag_data["tag_type"]
-    if tag_data.get("tag_namespace"):
-        tag.tag_namespace = tag_data["tag_namespace"]
-    if tag_data.get("tag_slug"):
-        tag.tag_slug = tag_data["tag_slug"]
-
-
 def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEntities) -> None:
     tags = extracted["tags"]
     taggings = extracted["taggings"]
@@ -365,51 +350,86 @@ def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEn
     _ = db.execute(delete(CardRelationship).where(CardRelationship.card_id == card_id))
     _ = db.execute(delete(CardTagging).where(CardTagging.card_id == card_id))
 
+    tag_ids = [tag_data["id"] for tag_data in tags]
+    existing_tags = {
+        tag.id: tag
+        for tag in db.scalars(select(Tag).where(Tag.id.in_(tag_ids))).all()
+    } if tag_ids else {}
+
     for tag_data in tags:
-        _upsert_tag(db, tag_data)
+        tag_id = tag_data["id"]
+        tag = existing_tags.get(tag_id)
+        if tag is None:
+            db.add(
+                Tag(
+                    id=tag_id,
+                    tag_name=tag_data["tag_name"] or "",
+                    tag_description=tag_data.get("tag_description"),
+                    tag_type=tag_data.get("tag_type"),
+                    tag_namespace=tag_data.get("tag_namespace"),
+                    tag_slug=tag_data.get("tag_slug"),
+                )
+            )
+            continue
+
+        tag.tag_name = tag_data["tag_name"] or tag.tag_name
+        if tag_data.get("tag_description"):
+            tag.tag_description = tag_data["tag_description"]
+        if tag_data.get("tag_type"):
+            tag.tag_type = tag_data["tag_type"]
+        if tag_data.get("tag_namespace"):
+            tag.tag_namespace = tag_data["tag_namespace"]
+        if tag_data.get("tag_slug"):
+            tag.tag_slug = tag_data["tag_slug"]
     db.flush()
 
     if direct_tag_ids:
         _ = db.execute(delete(TagAncestorMap).where(TagAncestorMap.tag_id.in_(direct_tag_ids)))
 
-    for edge in ancestor_edges:
-        db.add(TagAncestorMap(tag_id=edge["tag_id"], ancestor_tag_id=edge["ancestor_tag_id"]))
+    if ancestor_edges:
+        db.bulk_insert_mappings(TagAncestorMap, ancestor_edges)
 
-    for tagging_data in taggings:
-        foreign_key = tagging_data.get("foreign_key")
-        _ = db.merge(
-            CardTagging(
-                id=tagging_data["id"],
-                card_id=card_id,
-                tag_id=tagging_data["tag_id"],
-                foreign_key=foreign_key,
-                status=tagging_data.get("status"),
-                tagging_type=tagging_data.get("tagging_type"),
-                weight=tagging_data.get("weight"),
-                annotation=tagging_data.get("annotation"),
-                related_id=tagging_data.get("related_id"),
-            )
+    if taggings:
+        db.bulk_insert_mappings(
+            CardTagging,
+            [
+                {
+                    "id": tagging_data["id"],
+                    "card_id": card_id,
+                    "tag_id": tagging_data["tag_id"],
+                    "foreign_key": tagging_data.get("foreign_key"),
+                    "status": tagging_data.get("status"),
+                    "tagging_type": tagging_data.get("tagging_type"),
+                    "weight": tagging_data.get("weight"),
+                    "annotation": tagging_data.get("annotation"),
+                    "related_id": tagging_data.get("related_id"),
+                }
+                for tagging_data in taggings
+            ],
         )
 
-    for r in relationships:
-        _ = db.merge(
-            CardRelationship(
-                id=r["id"],
-                card_id=card_id,
-                foreign_key=r.get("foreign_key"),
-                classifier=r.get("classifier"),
-                classifier_inverse=r.get("classifier_inverse"),
-                status=r.get("status"),
-                relationship_type=r.get("relationship_type"),
-                weight=r.get("weight"),
-                annotation=r.get("annotation"),
-                subject_remote_id=r.get("subject_remote_id"),
-                subject_name=r.get("subject_name"),
-                related_remote_id=r.get("related_remote_id"),
-                related_name=r.get("related_name"),
-            )
+    if relationships:
+        db.bulk_insert_mappings(
+            CardRelationship,
+            [
+                {
+                    "id": relationship["id"],
+                    "card_id": card_id,
+                    "foreign_key": relationship.get("foreign_key"),
+                    "classifier": relationship.get("classifier"),
+                    "classifier_inverse": relationship.get("classifier_inverse"),
+                    "status": relationship.get("status"),
+                    "relationship_type": relationship.get("relationship_type"),
+                    "weight": relationship.get("weight"),
+                    "annotation": relationship.get("annotation"),
+                    "subject_remote_id": relationship.get("subject_remote_id"),
+                    "subject_name": relationship.get("subject_name"),
+                    "related_remote_id": relationship.get("related_remote_id"),
+                    "related_name": relationship.get("related_name"),
+                }
+                for relationship in relationships
+            ],
         )
-    db.commit()
 
 
 def fetch_and_store_tags(
@@ -483,7 +503,7 @@ def fetch_and_store_tags(
 # ---------------------------------------------------------------------------
 
 
-def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str, str]]]:
+def _cards_needing_tag_fetch_query(refresh_tags: bool):
     query = (
         select(Card.oracle_id, Card.name, CardRaw.set_code, CardRaw.collector_number)
         .join(CardRaw, CardRaw.id == Card.scryfall_id)
@@ -494,22 +514,58 @@ def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tu
             query.outerjoin(CardTagging, CardTagging.card_id == Card.oracle_id)
             .where(CardTagging.id.is_(None))
         )
-    return db.execute(query).all()
+    return query
 
 
-def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
-    cards = _cards_needing_tag_fetch(db, refresh_tags)
-    if not cards:
+def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str, str]]]:
+    return db.execute(_cards_needing_tag_fetch_query(refresh_tags)).all()
+
+
+def _iter_cards_needing_tag_fetch(
+    db: Session,
+    refresh_tags: bool,
+    *,
+    batch_size: int = TAG_FETCH_BATCH_SIZE,
+) -> Iterator[Row[tuple[str, str, str, str]]]:
+    last_oracle_id: str | None = None
+    while True:
+        query = _cards_needing_tag_fetch_query(refresh_tags).limit(batch_size)
+        if last_oracle_id is not None:
+            query = query.where(Card.oracle_id > last_oracle_id)
+        rows = db.execute(query).all()
+        if not rows:
+            return
+        for row in rows:
+            yield row
+        last_oracle_id = rows[-1].oracle_id
+
+
+def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
+    total = db.scalar(select(func.count()).select_from(_cards_needing_tag_fetch_query(refresh_tags).subquery())) or 0
+    if total == 0:
         logger.info("No cards require Tagger refresh. refresh_tags=%s", refresh_tags)
-        return
+        return TagFetchStats(
+            processed_count=0,
+            success_count=0,
+            failed_count=0,
+            reset_session_count=0,
+            inserted_oracle_taggings=0,
+            inserted_relationships=0,
+        )
 
     try:
         tagger_session, csrf_token = _create_tagger_session()
     except Exception as e:
         logger.warning("Tagger session bootstrap failed; skipping community tag ingestion: %s", e)
-        return
+        return TagFetchStats(
+            processed_count=0,
+            success_count=0,
+            failed_count=0,
+            reset_session_count=0,
+            inserted_oracle_taggings=0,
+            inserted_relationships=0,
+        )
 
-    total = len(cards)
     logger.info(
         "Starting tag ingestion. mode=tagger_graphql cards=%d refresh_tags=%s",
         total,
@@ -519,8 +575,11 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
     counts = {FetchOutcome.SUCCESS: 0, FetchOutcome.FAILED: 0, FetchOutcome.RESET_SESSION: 0}
     inserted_oracle_taggings = 0
     inserted_relationships = 0
+    processed = 0
+    pending_commits = 0
 
-    for i, card in enumerate(cards, start=1):
+    for card in _iter_cards_needing_tag_fetch(db, refresh_tags):
+        processed += 1
         oracle_tag_count = 0
         relationship_count = 0
 
@@ -528,7 +587,7 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
             counts[FetchOutcome.FAILED] += 1
             logger.info(
                 _format_progress_line(
-                    current=i,
+                    current=processed,
                     total=total,
                     name=card.name,
                     oracle_id=card.oracle_id,
@@ -587,9 +646,14 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
         relationship_count = result.relationship_count
         inserted_oracle_taggings += oracle_tag_count
         inserted_relationships += relationship_count
+        if result.outcome == FetchOutcome.SUCCESS:
+            pending_commits += 1
+            if pending_commits >= TAG_FETCH_COMMIT_INTERVAL:
+                db.commit()
+                pending_commits = 0
         logger.info(
             _format_progress_line(
-                current=i,
+                current=processed,
                 total=total,
                 name=card.name,
                 oracle_id=card.oracle_id,
@@ -602,6 +666,8 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
         tagger_session.close()
     except Exception:
         logger.debug("Failed to close Tagger session cleanly at end of run.", exc_info=True)
+    if pending_commits:
+        db.commit()
 
     logger.info(
         "Tag ingestion complete. success=%d failed=%d inserted: ot=%d rel=%d",
@@ -609,4 +675,12 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> None:
         counts[FetchOutcome.FAILED],
         inserted_oracle_taggings,
         inserted_relationships,
+    )
+    return TagFetchStats(
+        processed_count=processed,
+        success_count=counts[FetchOutcome.SUCCESS],
+        failed_count=counts[FetchOutcome.FAILED],
+        reset_session_count=counts[FetchOutcome.RESET_SESSION],
+        inserted_oracle_taggings=inserted_oracle_taggings,
+        inserted_relationships=inserted_relationships,
     )

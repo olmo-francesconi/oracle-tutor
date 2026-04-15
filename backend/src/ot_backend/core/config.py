@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 # Project root is /backend (since this file lives in /backend/src/ot_backend/core)
@@ -11,23 +12,38 @@ CARDS_JSON = DATA_DIR / "cards.json"
 DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
 DEFAULT_SEMANTIC_BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_SEMANTIC_RUNS_DIR = Path("data/semantic/runs")
-DEFAULT_SEMANTIC_MODEL_PATH = DEFAULT_SEMANTIC_RUNS_DIR / "latest" / "models" / "onnx"
-DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH = Path("onnx/model.onnx")
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
-DB_SCHEMA_VERSION = "2.6.0"
+DB_SCHEMA_VERSION = "3.0.0"
 
 # API startup migration wait behavior
 SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS", "30"))
 SCHEMA_WAIT_INTERVAL_SECONDS = float(os.getenv("ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS", "1"))
-DEFAULT_ALLOWED_HOSTS = ("localhost", "127.0.0.1", "testserver", "api")
+DEFAULT_ALLOWED_HOSTS: tuple[str, ...] = ("localhost", "127.0.0.1", "testserver", "api")
 MAX_REQUEST_BYTES = int(os.getenv("ORACLE_TUTOR_API_MAX_REQUEST_BYTES", "32768"))
+SEMANTIC_ADMIN_MAX_REQUEST_BYTES = int(os.getenv("SEMANTIC_ADMIN_MAX_REQUEST_BYTES", str(64 * 1024 * 1024)))
 MAX_QUERY_LENGTH = int(os.getenv("ORACLE_TUTOR_API_MAX_QUERY_LENGTH", "200"))
 
 
 def oracle_tutor_env() -> str:
     return os.getenv("ORACLE_TUTOR_API_ENV", "development").lower()
+
+
+def admin_password() -> str | None:
+    return os.getenv("ADMIN_PASSWORD")
+
+
+def admin_jwt_secret() -> str | None:
+    return os.getenv("ADMIN_JWT_SECRET")
+
+
+def admin_login_max_failures() -> int:
+    return max(1, int(os.getenv("ADMIN_LOGIN_MAX_FAILURES", "5")))
+
+
+def admin_login_lockout_seconds() -> int:
+    return max(1, int(os.getenv("ADMIN_LOGIN_LOCKOUT_SECONDS", "900")))
 
 
 def is_production_env() -> bool:
@@ -66,7 +82,7 @@ def allowed_hosts() -> list[str]:
     if explicit:
         return [normalized for host in explicit.split(",") if (normalized := normalize(host))]
 
-    hosts = list(DEFAULT_ALLOWED_HOSTS)
+    hosts: list[str] = list(DEFAULT_ALLOWED_HOSTS)
     for env_key in ("RAILWAY_PUBLIC_DOMAIN", "RAILWAY_PRIVATE_DOMAIN"):
         host = normalize(os.getenv(env_key, ""))
         if host:
@@ -79,30 +95,95 @@ def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def semantic_model_path() -> Path:
-    return Path(os.getenv("SEMANTIC_MODEL_PATH", str(DEFAULT_SEMANTIC_MODEL_PATH)))
-
-
-def semantic_onnx_model_path() -> Path:
-    model_root = semantic_model_path()
-    default_path = model_root / DEFAULT_SEMANTIC_ONNX_RELATIVE_PATH
-    legacy_path = model_root / "model.onnx"
-    if default_path.exists():
-        return default_path
-    if legacy_path.exists():
-        return legacy_path
-    return default_path
-
-
 def semantic_base_model_name() -> str:
     return os.getenv("SEMANTIC_BASE_MODEL", DEFAULT_SEMANTIC_BASE_MODEL)
 
 
-def semantic_model_source() -> str:
-    model_path = semantic_model_path()
-    if model_path.exists():
-        return str(model_path)
-    return semantic_base_model_name()
+
+def semantic_active_model_poll_seconds() -> float:
+    return float(os.getenv("SEMANTIC_ACTIVE_MODEL_POLL_SECONDS", "5"))
+
+
+def semantic_onnx_intra_op_threads() -> int:
+    return max(1, int(os.getenv("SEMANTIC_ONNX_INTRA_OP_THREADS", "1")))
+
+
+def semantic_onnx_inter_op_threads() -> int:
+    return max(1, int(os.getenv("SEMANTIC_ONNX_INTER_OP_THREADS", "1")))
+
+
+def semantic_job_heartbeat_seconds() -> float:
+    return float(os.getenv("SEMANTIC_JOB_HEARTBEAT_SECONDS", "600"))
+
+
+def semantic_job_stale_seconds() -> float:
+    return float(os.getenv("SEMANTIC_JOB_STALE_SECONDS", "1200"))
+
+
+def semantic_train_max_jobs_per_run() -> int:
+    return int(os.getenv("SEMANTIC_TRAIN_MAX_JOBS_PER_RUN", "1"))
+
+
+def semantic_promote_max_jobs_per_run() -> int:
+    return int(os.getenv("SEMANTIC_PROMOTE_MAX_JOBS_PER_RUN", "50"))
+
+
+def semantic_temp_dir() -> Path:
+    return Path(os.getenv("SEMANTIC_TEMP_DIR", str(Path(tempfile.gettempdir()) / "mtg-search-semantic-models")))
+
+
+def modal_token_id() -> str | None:
+    return os.getenv("MODAL_TOKEN_ID")
+
+
+def modal_token_secret() -> str | None:
+    return os.getenv("MODAL_TOKEN_SECRET")
+
+
+def modal_client_configured() -> bool:
+    return bool(modal_token_id() and modal_token_secret())
+
+
+def semantic_llm_model_name() -> str:
+    return os.getenv("SEMANTIC_LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+
+
+def semantic_llm_max_queries_per_face() -> int:
+    return max(1, int(os.getenv("SEMANTIC_LLM_MAX_QUERIES_PER_FACE", "3")))
+
+
+def semantic_llm_max_faces() -> int:
+    return max(1, int(os.getenv("SEMANTIC_LLM_MAX_FACES", "2500")))
+
+
+def semantic_llm_min_template_coverage() -> int:
+    return max(0, int(os.getenv("SEMANTIC_LLM_MIN_TEMPLATE_COVERAGE", "2")))
+
+
+def semantic_llm_temperature() -> float:
+    return float(os.getenv("SEMANTIC_LLM_TEMPERATURE", "0.6"))
+
+
+def semantic_llm_max_tokens() -> int:
+    return max(32, int(os.getenv("SEMANTIC_LLM_MAX_TOKENS", "500")))
+
+
+def artifact_bucket_client():
+    import boto3
+    from botocore.client import Config
+
+    return boto3.client(
+        "s3",
+        endpoint_url=os.environ["SEMANTIC_ARTIFACT_ENDPOINT"],
+        aws_access_key_id=os.environ["SEMANTIC_ARTIFACT_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY"],
+        region_name=os.getenv("SEMANTIC_ARTIFACT_REGION", "auto"),
+        config=Config(signature_version="s3v4"),
+    )
+
+
+def artifact_bucket_name() -> str:
+    return os.environ["SEMANTIC_ARTIFACT_BUCKET"]
 
 
 def huggingface_cache_dir() -> Path:

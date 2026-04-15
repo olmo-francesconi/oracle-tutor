@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
@@ -36,6 +37,10 @@ def _semantic_embedding_type():
 
 def _utcnow_naive() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+
+def _uuid_str() -> str:
+    return str(uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -337,3 +342,129 @@ class CardFaceSemanticEmbedding(Base):
     embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
 
     face: Mapped["CardFace"] = relationship(back_populates="semantic_embedding")
+
+
+class SemanticModel(Base):
+    __tablename__ = "semantic_models"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
+    slug: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    base_model: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="uploaded", index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    embedding_dim: Mapped[int] = mapped_column(Integer, nullable=False, default=SEMANTIC_EMBEDDING_DIMENSION)
+    dataset_id: Mapped[str | None] = mapped_column(ForeignKey("semantic_datasets.id", ondelete="SET NULL"), nullable=True, index=True)
+    config_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    metrics_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+    activated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    embeddings: Mapped[list["SemanticModelEmbedding"]] = relationship(
+        back_populates="model",
+        cascade="all, delete-orphan",
+    )
+    artifacts: Mapped[list["SemanticModelArtifact"]] = relationship(
+        back_populates="model",
+        cascade="all, delete-orphan",
+    )
+    jobs: Mapped[list["SemanticJob"]] = relationship(back_populates="model")
+    dataset: Mapped["SemanticDataset | None"] = relationship(back_populates="models")
+
+
+class SemanticDataset(Base):
+    __tablename__ = "semantic_datasets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
+    slug: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="ready", index=True)
+    augmentation_mode: Mapped[str] = mapped_column(String, nullable=False, default="none")
+    source_semantic_data_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    config_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    metrics_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+
+    artifacts: Mapped[list["SemanticDatasetArtifact"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+    )
+    jobs: Mapped[list["SemanticJob"]] = relationship(back_populates="dataset")
+    models: Mapped[list["SemanticModel"]] = relationship(back_populates="dataset")
+
+
+class SemanticModelArtifact(Base):
+    __tablename__ = "semantic_model_artifacts"
+    __table_args__ = (
+        UniqueConstraint("model_id", "artifact_kind", name="uq_semantic_model_artifacts_model_kind"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
+    model_id: Mapped[str] = mapped_column(ForeignKey("semantic_models.id", ondelete="CASCADE"), nullable=False, index=True)
+    artifact_kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    object_key: Mapped[str] = mapped_column(String, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_type: Mapped[str] = mapped_column(String, nullable=False)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+
+    model: Mapped["SemanticModel"] = relationship(back_populates="artifacts")
+
+
+class SemanticDatasetArtifact(Base):
+    __tablename__ = "semantic_dataset_artifacts"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "artifact_kind", name="uq_semantic_dataset_artifacts_dataset_kind"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("semantic_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    artifact_kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    object_key: Mapped[str] = mapped_column(String, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_type: Mapped[str] = mapped_column(String, nullable=False)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+
+    dataset: Mapped["SemanticDataset"] = relationship(back_populates="artifacts")
+
+
+class SemanticModelEmbedding(Base):
+    __tablename__ = "semantic_model_embeddings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["oracle_id", "face_ix"],
+            ["card_faces.oracle_id", "card_faces.face_ix"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    model_id: Mapped[str] = mapped_column(ForeignKey("semantic_models.id", ondelete="CASCADE"), primary_key=True)
+    oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
+    face_ix: Mapped[int] = mapped_column(Integer, primary_key=True)
+    embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
+
+    model: Mapped["SemanticModel"] = relationship(back_populates="embeddings")
+
+
+class SemanticJob(Base):
+    __tablename__ = "semantic_jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
+    job_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    requested_by: Mapped[str] = mapped_column(String, nullable=False)
+    model_id: Mapped[str | None] = mapped_column(ForeignKey("semantic_models.id", ondelete="SET NULL"), nullable=True, index=True)
+    dataset_id: Mapped[str | None] = mapped_column(ForeignKey("semantic_datasets.id", ondelete="SET NULL"), nullable=True, index=True)
+    payload_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    result_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+    started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    heartbeat_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    model: Mapped["SemanticModel | None"] = relationship(back_populates="jobs")
+    dataset: Mapped["SemanticDataset | None"] = relationship(back_populates="jobs")

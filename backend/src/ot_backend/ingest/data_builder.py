@@ -35,6 +35,7 @@ from ..core.models import (
     IngestionLog,
     SystemMetadata,
 )
+from ..embed.semantic_state import bump_semantic_data_version
 from .fetch_tags import run_fetch_tags
 
 logger = logging.getLogger("ot_backend.ingest")
@@ -675,21 +676,27 @@ def ingest_data_diff(
                     items_in_batch=len(chunk),
                 )
 
-        raw_ids = session.scalars(select(CardRaw.id)).all()
-        obsolete_raw_ids = [raw_id for raw_id in raw_ids if raw_id not in seen_scryfall_ids]
-        if obsolete_raw_ids:
-            logger.info("Stage: delete obsolete raw printings total=%d", len(obsolete_raw_ids))
-            total_raw_delete_batches = (len(obsolete_raw_ids) + CHUNK_SIZE - 1) // CHUNK_SIZE
-            for batch_ix, i in enumerate(range(0, len(obsolete_raw_ids), CHUNK_SIZE), start=1):
-                chunk = obsolete_raw_ids[i : i + CHUNK_SIZE]
-                session.execute(delete(CardRaw).where(CardRaw.id.in_(chunk)))
-                session.commit()
-                _log_batch_progress(
-                    stage="Delete raw",
-                    current=batch_ix,
-                    total=total_raw_delete_batches,
-                    items_in_batch=len(chunk),
-                )
+        obsolete_raw_batch: list[str] = []
+        raw_delete_batches = 0
+        raw_delete_count = 0
+        for raw_id in session.scalars(select(CardRaw.id)):
+            if raw_id in seen_scryfall_ids:
+                continue
+            obsolete_raw_batch.append(raw_id)
+            if len(obsolete_raw_batch) < CHUNK_SIZE:
+                continue
+            raw_delete_batches += 1
+            raw_delete_count += len(obsolete_raw_batch)
+            session.execute(delete(CardRaw).where(CardRaw.id.in_(obsolete_raw_batch)))
+            session.commit()
+            obsolete_raw_batch = []
+        if obsolete_raw_batch:
+            raw_delete_batches += 1
+            raw_delete_count += len(obsolete_raw_batch)
+            session.execute(delete(CardRaw).where(CardRaw.id.in_(obsolete_raw_batch)))
+            session.commit()
+        if raw_delete_count:
+            logger.info("Stage: delete obsolete raw printings complete total=%d", raw_delete_count)
 
         sys_meta = SystemMetadata(
             key="scryfall_data",
@@ -755,7 +762,7 @@ def compute_and_store_uniqueness_scores(session) -> None:
     logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
     t0 = time.perf_counter()
 
-    embedding_rows = session.execute(
+    embedding_query = (
         select(
             CardFaceSemanticEmbedding.oracle_id,
             CardFaceSemanticEmbedding.face_ix,
@@ -767,12 +774,14 @@ def compute_and_store_uniqueness_scores(session) -> None:
             & (CardFaceSemanticEmbedding.face_ix == CardFace.face_ix),
         )
         .order_by(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix)
-    ).all()
-    n = len(embedding_rows)
+    )
+    n = session.query(CardFaceSemanticEmbedding).count()
     if n == 0:
         logger.warning("No semantic embeddings found; skipping uniqueness computation because semantic-worker has not run.")
         return
 
+    card_redundancy: dict[str, float] = {}
+    embedding_rows = session.execute(embedding_query).all()
     face_card_ids = [row[0] for row in embedding_rows]
     matrix = np.asarray([row[2] for row in embedding_rows], dtype=np.float32)
 
@@ -796,8 +805,6 @@ def compute_and_store_uniqueness_scores(session) -> None:
             above = row[row > UNIQUENESS_THRESHOLD]
             face_redundancy[gi] = float(np.power(above, UNIQUENESS_POWER).sum())
 
-    # Aggregate face -> card (max redundancy across faces)
-    card_redundancy: dict[str, float] = {}
     for i, cid in enumerate(face_card_ids):
         val = float(face_redundancy[i])
         if cid not in card_redundancy or val > card_redundancy[cid]:
@@ -904,6 +911,8 @@ def update_scryfall_data(
     # Stateless optimization:
     # If the DB already reflects the latest remote version, we can skip downloading the JSON
     # even if the container has no persisted /app/data directory.
+    semantic_changed = False
+
     if (
         (not force)
         and (not schema_needs_ingest)
@@ -918,9 +927,14 @@ def update_scryfall_data(
         if not skip_tags:
             try:
                 with SessionLocal() as tags_session:
-                    run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                    tag_stats = run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                    semantic_changed = tag_stats.success_count > 0
             except Exception as e:
                 logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+        if semantic_changed:
+            with SessionLocal() as semantic_session:
+                semantic_version = bump_semantic_data_version(semantic_session)
+            logger.info("Semantic data version advanced to %d.", semantic_version)
         return False
 
     # Download decision
@@ -997,6 +1011,7 @@ def update_scryfall_data(
                     compute_and_store_uniqueness_scores(uniqueness_session)
             except Exception as e:
                 logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
+            semantic_changed = True
 
         except Exception as e:
             logger.error("Update process failed: %s", e, exc_info=True)
@@ -1013,8 +1028,14 @@ def update_scryfall_data(
         try:
             logger.info("Stage: ingest community tags")
             with SessionLocal() as tags_session:
-                run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                tag_stats = run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                semantic_changed = semantic_changed or tag_stats.success_count > 0
         except Exception as e:
             logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+
+    if semantic_changed:
+        with SessionLocal() as semantic_session:
+            semantic_version = bump_semantic_data_version(semantic_session)
+        logger.info("Semantic data version advanced to %d.", semantic_version)
 
     return ingestion_needed
