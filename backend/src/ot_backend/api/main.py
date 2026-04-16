@@ -1,130 +1,49 @@
 from __future__ import annotations
 
 import importlib.metadata
-import json
 import logging
-import os
-import random
-import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
-from typing import Final, Literal, Protocol, cast
+from typing import Final
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
-from sqlalchemy.orm import Session, joinedload
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ..core.config import (
-    MAX_QUERY_LENGTH,
     MAX_REQUEST_BYTES,
     SCHEMA_WAIT_INTERVAL_SECONDS,
     SCHEMA_WAIT_TIMEOUT_SECONDS,
+    SEMANTIC_ADMIN_MAX_REQUEST_BYTES,
     allowed_hosts,
+    cors_origins,
 )
 from ..core.database import get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
-from ..core.logging_config import log_performance, setup_loggers
-from ..core.models import AnalyticsEvent, Card, CardFace, CardRaw, ClientErrorEvent
-
-try:
-    from ..embed.index import get_semantic_index
-except ImportError:
-    get_semantic_index = None
-
-from .schemas import (
-    AnalyticsEventIngest,
-    CardMatch,
-    ClientErrorEventIngest,
-    OracleSamplesResponse,
-    SimilarCard,
-    SimilarCardsPage,
-    TelemetryIngestResponse,
+from ..core.logging_config import setup_loggers
+from ..core.models import CardFace, CardRaw
+from ._semantic_index import _get_semantic_index  # noqa: F401 — re-exported for test monkeypatching
+from .routers.admin import router as admin_router
+from .routers.search import (
+    HOME_TERM_POOL_LIMIT,
+    ORACLE_TEXT_POOL_LIMIT,
+    _build_home_term_pool,
 )
+from .routers.search import (
+    router as search_router,
+)
+from .routers.telemetry import router as telemetry_router
 
 logger = logging.getLogger("ot_backend.api")
 
-
-class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if request.method in {"POST", "PUT", "PATCH"}:
-            content_length = request.headers.get("content-length")
-            if content_length is not None:
-                try:
-                    parsed_length = int(content_length)
-                except ValueError:
-                    parsed_length = MAX_REQUEST_BYTES + 1
-
-                if parsed_length > MAX_REQUEST_BYTES:
-                    logger.warning(
-                        "Rejected oversized request by content-length: method=%s path=%s bytes=%s",
-                        request.method,
-                        request.url.path,
-                        content_length,
-                    )
-                    return JSONResponse(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        content={"detail": f"Request body exceeds the {MAX_REQUEST_BYTES}-byte limit."},
-                    )
-
-            body = await request.body()
-            if len(body) > MAX_REQUEST_BYTES:
-                logger.warning(
-                    "Rejected oversized request by body read: method=%s path=%s bytes=%s",
-                    request.method,
-                    request.url.path,
-                    len(body),
-                )
-                return JSONResponse(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    content={"detail": f"Request body exceeds the {MAX_REQUEST_BYTES}-byte limit."},
-                )
-
-        return await call_next(request)
-
-
-class SemanticIndexProtocol(Protocol):
-    def similar_to_face(
-        self,
-        face_key: tuple[str, int],
-        limit: int,
-        db: Session,
-        card_type: list[str] | None = None,
-        colors: str | None = None,
-        cmc_min: float | None = None,
-        cmc_max: float | None = None,
-        format: list[str] | None = None,
-        rarity: list[str] | None = None,
-        color_feature: str = "identity",
-        match_mode: str = "at_least",
-    ) -> list[tuple[tuple[str, int], float]]: ...
-
-    def search_oracle(
-        self,
-        query: str,
-        limit: int,
-        db: Session,
-        card_type: list[str] | None = None,
-        colors: str | None = None,
-        cmc_min: float | None = None,
-        cmc_max: float | None = None,
-        format: list[str] | None = None,
-        rarity: list[str] | None = None,
-        color_feature: str = "identity",
-        match_mode: str = "at_least",
-    ) -> list[tuple[tuple[str, int], float]]: ...
-
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+_SEMANTIC_ADMIN_PREFIX: Final[str] = "/admin/semantic-models"
+_SEMANTIC_ADMIN_JOBS_PREFIX: Final[str] = "/admin/semantic-jobs"
 
 
 def _get_api_version() -> str:
@@ -135,174 +54,51 @@ def _get_api_version() -> str:
 
 
 API_VERSION: Final[str] = _get_api_version()
-MAX_SEARCH_LIMIT: Final[int] = 25
-MAX_SIMILAR_CARDS_LIMIT: Final[int] = 100
-
-DOUBLE_SIDED_LAYOUTS: Final[frozenset[str]] = frozenset(
-    {
-        "transform",
-        "modal_dfc",
-        "meld",
-        "double_faced_token",
-        "art_series",
-    }
-)
-_RARITY_MAP: Final = {"c": "common", "u": "uncommon", "r": "rare", "m": "mythic"}
-_CARD_TYPE_MAP: Final = {
-    "c": "creature",
-    "i": "instant",
-    "s": "sorcery",
-    "e": "enchantment",
-    "a": "artifact",
-    "p": "planeswalker",
-    "l": "land",
-}
-_FORMAT_MAP: Final = {
-    "s": "standard",
-    "p": "pioneer",
-    "m": "modern",
-    "l": "legacy",
-    "v": "vintage",
-    "c": "commander",
-    "u": "pauper",
-}
-ORACLE_TEXT_POOL_LIMIT: Final[int] = 300
-HOME_TERM_POOL_LIMIT: Final[int] = 300
-MAX_TELEMETRY_DETAILS_BYTES: Final[int] = 8_000
-ABILITY_WORD_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*([A-Za-z][A-Za-z' -]{1,40}?)\s+[—-]\s+", re.MULTILINE)
-_schema_ready: bool = False
-_oracle_text_pool: list[str] = []
-_home_term_pool: list[str] = []
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _ensure_schema_ready() -> None:
-    global _schema_ready
-    if _schema_ready:
-        return
-    if wait_for_migration_ready(timeout_s=0.0, interval_s=SCHEMA_WAIT_INTERVAL_SECONDS):
-        _schema_ready = True
-        return
-    raise HTTPException(status_code=503, detail="Schema migration in progress. Please retry shortly.")
-
-
-def _get_semantic_index() -> SemanticIndexProtocol | None:
-    if get_semantic_index is None:
-        return None
-    return cast(Callable[[], SemanticIndexProtocol | None], get_semantic_index)()
-
-
-def _image_side_for_face(layout: str | None, face_ix: int) -> Literal["front", "back"]:
-    if layout in DOUBLE_SIDED_LAYOUTS and face_ix > 0:
-        return "back"
-    return "front"
-
-
-def _normalize_home_term(term: str) -> str:
-    return " ".join(term.split()).strip(" -\u2014")
-
-
-def _extract_ability_words(text: str | None) -> list[str]:
-    if not text or not text.strip():
-        return []
-    return [_normalize_home_term(match.group(1)) for match in ABILITY_WORD_PATTERN.finditer(text)]
-
-
-def _build_home_term_pool(keyword_rows: list[tuple[list[str] | None]], oracle_rows: list[tuple[str | None]]) -> list[str]:
-    deduped_terms: dict[str, str] = {}
-
-    for keywords, in keyword_rows:
-        for keyword in keywords or []:
-            normalized = _normalize_home_term(keyword)
-            if normalized:
-                deduped_terms.setdefault(normalized.casefold(), normalized)
-
-    for oracle_text, in oracle_rows:
-        for ability_word in _extract_ability_words(oracle_text):
-            if ability_word:
-                deduped_terms.setdefault(ability_word.casefold(), ability_word)
-
-    return list(deduped_terms.values())
-
-
-def _normalize_client_timestamp(timestamp: datetime | None) -> datetime:
-    if timestamp is None:
-        return datetime.now(UTC).replace(tzinfo=None)
-    if timestamp.tzinfo is not None:
-        return timestamp.astimezone(UTC).replace(tzinfo=None)
-    return timestamp
-
-
-def _ensure_telemetry_details_size(payload: dict[str, object] | None, field_name: str) -> None:
-    if payload is None:
-        return
-
-    encoded = json.dumps(payload, separators=(",", ":"))
-    if len(encoded.encode("utf-8")) <= MAX_TELEMETRY_DETAILS_BYTES:
-        return
-
-    raise HTTPException(
-        status_code=413,
-        detail=f"{field_name} exceeds the {MAX_TELEMETRY_DETAILS_BYTES}-byte telemetry limit",
-    )
-
-
-def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session) -> list[SimilarCard]:
-    if not results:
-        return []
-
-    from sqlalchemy import tuple_
-
-    target_face_keys = [face_key for face_key, _ in results]
-    key_to_score = {face_key: score for face_key, score in results}
-    faces = (
-        db.query(CardFace)
-        .options(joinedload(CardFace.card).joinedload(Card.raw_printing))
-        .filter(tuple_(CardFace.oracle_id, CardFace.face_ix).in_(target_face_keys))
-        .all()
-    )
-    faces_map = {(face.oracle_id, face.face_ix): face for face in faces}
-
-    similar_cards: list[SimilarCard] = []
-    for face_key in target_face_keys:
-        face = faces_map.get(face_key)
-        if face is None:
-            continue
-        card = face.card
-        similar_cards.append(
-            SimilarCard(
-                oracle_id=card.oracle_id,
-                scryfall_id=card.scryfall_id,
-                face_ix=face.face_ix,
-                image_side=_image_side_for_face(card.layout, face.face_ix),
-                name=face.name,
-                card_name=card.name,
-                similarity=float(key_to_score.get(face_key, 0.0)),
-                rank=card.edhrec_rank,
-                type_line=face.type_line,
-                mana_cost=face.mana_cost,
-                oracle_text=face.oracle_text,
-                power=face.power,
-                toughness=face.toughness,
-                colors=face.colors,
-                layout=card.layout,
-                rarity=card.rarity,
-                legalities=card.legalities,
-                uniqueness=card.uniqueness,
-                border_color=card.raw_printing.border_color,
-                set_code=card.raw_printing.set_code,
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH"}:
+            _path = request.scope.get("path", request.url.path)
+            limit_bytes = (
+                SEMANTIC_ADMIN_MAX_REQUEST_BYTES
+                if _path.startswith(_SEMANTIC_ADMIN_PREFIX)
+                or _path.startswith(_SEMANTIC_ADMIN_JOBS_PREFIX)
+                else MAX_REQUEST_BYTES
             )
-        )
-    return similar_cards
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    parsed_length = int(content_length)
+                except ValueError:
+                    parsed_length = limit_bytes + 1
 
+                if parsed_length > limit_bytes:
+                    logger.warning(
+                        "Rejected oversized request by content-length: method=%s path=%s bytes=%s",
+                        request.method,
+                        request.url.path,
+                        content_length,
+                    )
+                    return JSONResponse(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        content={"detail": f"Request body exceeds the {limit_bytes}-byte limit."},
+                    )
 
-# ---------------------------------------------------------------------------
-# Lifespan
-# ---------------------------------------------------------------------------
+            body = await request.body()
+            if len(body) > limit_bytes:
+                logger.warning(
+                    "Rejected oversized request by body read: method=%s path=%s bytes=%s",
+                    request.method,
+                    request.url.path,
+                    len(body),
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    content={"detail": f"Request body exceeds the {limit_bytes}-byte limit."},
+                )
+
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -322,26 +118,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             )
     except Exception as exc:
         logger.error("DB init failed: %s", exc, exc_info=True)
+        raise
 
-    from ..core.config import semantic_model_path, semantic_onnx_model_path
-
-    model_root = semantic_model_path()
-    onnx_path = semantic_onnx_model_path()
-    logger.info("Loading semantic model... (model_root=%s, onnx=%s)", model_root, onnx_path)
-    if not model_root.exists():
-        logger.warning("Semantic model root not found: %s", model_root)
-    elif not onnx_path.exists():
-        logger.warning("ONNX artifact not found: %s", onnx_path)
+    logger.info("Loading semantic model...")
     try:
-        index = _get_semantic_index()
+        from . import _semantic_index as _sem_idx_mod
+        index = _sem_idx_mod._get_semantic_index()
         if index is None:
             logger.warning("Semantic model unavailable — semantic endpoints will return 503")
         else:
-            logger.info("Semantic model loaded and ready")
+            logger.info("Semantic model ready. model_id=%s", index.model_id)
     except Exception as exc:
         logger.error("Semantic model failed to load: %s", exc, exc_info=True)
 
-    global _home_term_pool, _oracle_text_pool
+    oracle_text_pool: list[str] = []
+    home_term_pool: list[str] = []
     try:
         db = next(get_db())
         try:
@@ -355,9 +146,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 .limit(ORACLE_TEXT_POOL_LIMIT)
                 .all()
             )
-            _oracle_text_pool.extend(
-                row[0] for row in oracle_rows if row[0] and row[0].strip()
-            )
+            oracle_text_pool.extend(row[0] for row in oracle_rows if row[0] and row[0].strip())
             keyword_rows = (
                 db.query(CardRaw.keywords)
                 .filter(CardRaw.keywords.isnot(None))
@@ -365,12 +154,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 .limit(HOME_TERM_POOL_LIMIT)
                 .all()
             )
-            _home_term_pool.extend(_build_home_term_pool(keyword_rows, oracle_rows))
-            logger.info("Oracle home pools loaded: %d texts, %d terms", len(_oracle_text_pool), len(_home_term_pool))
+            home_term_pool.extend(_build_home_term_pool(keyword_rows, oracle_rows))
+            logger.info("Oracle home pools loaded: %d texts, %d terms", len(oracle_text_pool), len(home_term_pool))
         finally:
             db.close()
     except Exception as exc:
         logger.warning("Oracle home pools failed to load: %s", exc)
+
+    _app.state.oracle_text_pool = oracle_text_pool
+    _app.state.home_term_pool = home_term_pool
 
     yield
 
@@ -380,6 +172,20 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan, title="oracle-tutor api", version=API_VERSION)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
 app.add_middleware(RequestSizeLimitMiddleware)
+
+origins = cors_origins()
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+app.include_router(admin_router)
+app.include_router(telemetry_router)
+app.include_router(search_router)
 
 
 @app.exception_handler(SQLTimeoutError)
@@ -403,31 +209,22 @@ async def database_connection_exception_handler(request: Request, exc: Exception
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    for error in errors:
+        context = error.get("ctx")
+        if not isinstance(context, dict):
+            continue
+        if "error" in context:
+            context["error"] = str(context["error"])
+
     logger.warning(
         "Request validation failed on %s %s from %s: %s",
         request.method,
         request.url.path,
         request.client.host if request.client else "unknown",
-        exc.errors(),
+        errors,
     )
-    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.errors()})
-
-
-cors_origins_env = os.getenv("ORACLE_TUTOR_API_CORS_ORIGINS", "").strip()
-if cors_origins_env:
-    origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-
-# ---------------------------------------------------------------------------
-# Routes — meta
-# ---------------------------------------------------------------------------
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content={"detail": errors})
 
 
 @app.get("/", tags=["meta"])
@@ -448,216 +245,3 @@ def version() -> dict[str, str]:
 @app.get("/favicon.ico")
 def favicon() -> Response:
     return Response(status_code=204)
-
-
-@app.get("/oracle-samples", response_model=OracleSamplesResponse, tags=["meta"])
-def oracle_samples(
-    n: int = Query(60, ge=1, le=100),
-) -> OracleSamplesResponse:
-    texts = random.sample(_oracle_text_pool, min(n, len(_oracle_text_pool))) if _oracle_text_pool else []
-    terms = random.sample(_home_term_pool, min(n, len(_home_term_pool))) if _home_term_pool else []
-    return OracleSamplesResponse(texts=texts, terms=terms)
-
-
-# ---------------------------------------------------------------------------
-# Routes — telemetry
-# ---------------------------------------------------------------------------
-
-
-@app.post("/telemetry/client-error", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED, tags=["telemetry"])
-def ingest_client_error(
-    payload: ClientErrorEventIngest,
-    request: Request,
-    db: Session = Depends(get_db),
-) -> TelemetryIngestResponse:
-    _ensure_telemetry_details_size(payload.context, "context")
-
-    event = ClientErrorEvent(
-        occurred_at=_normalize_client_timestamp(payload.timestamp),
-        error_name=payload.name,
-        message=payload.message,
-        stack=payload.stack,
-        page_url=payload.url,
-        user_agent=payload.userAgent or request.headers.get("user-agent"),
-        source=str(payload.context.get("source")) if payload.context and "source" in payload.context else None,
-        context=payload.context,
-    )
-    db.add(event)
-    db.commit()
-
-    logger.info(
-        "Telemetry client error accepted: name=%s source=%s url=%s",
-        event.error_name,
-        event.source,
-        event.page_url,
-    )
-    return TelemetryIngestResponse()
-
-
-@app.post("/telemetry/analytics", response_model=TelemetryIngestResponse, status_code=status.HTTP_202_ACCEPTED, tags=["telemetry"])
-def ingest_analytics_event(
-    payload: AnalyticsEventIngest,
-    request: Request,
-    db: Session = Depends(get_db),
-) -> TelemetryIngestResponse:
-    _ensure_telemetry_details_size(payload.props, "props")
-
-    event = AnalyticsEvent(
-        occurred_at=_normalize_client_timestamp(payload.timestamp),
-        event_name=payload.event,
-        page_url=payload.url,
-        user_agent=payload.userAgent or request.headers.get("user-agent"),
-        props=payload.props,
-    )
-    db.add(event)
-    db.commit()
-
-    logger.info("Telemetry analytics accepted: event=%s url=%s", event.event_name, event.page_url)
-    return TelemetryIngestResponse()
-
-
-# ---------------------------------------------------------------------------
-# Routes — search
-# ---------------------------------------------------------------------------
-
-
-@app.get("/search", response_model=list[CardMatch])
-@log_performance(logger=logger)
-def search_cards(
-    q: str = Query(..., max_length=MAX_QUERY_LENGTH),
-    db: Session = Depends(get_db),
-    limit: int = Query(10, ge=1, le=MAX_SEARCH_LIMIT),
-    offset: int = Query(0, ge=0),
-) -> list[CardMatch]:
-    _ensure_schema_ready()
-    if not q.strip():
-        return []
-
-    q_like = f"%{q}%"
-    faces = (
-        db.query(CardFace)
-        .join(Card, Card.oracle_id == CardFace.oracle_id)
-        .filter((CardFace.name.ilike(q_like)) | (Card.name.ilike(q_like)))
-        .order_by(Card.edhrec_rank.asc().nulls_last(), Card.name.asc(), CardFace.face_ix.asc(), CardFace.name.asc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
-    return [
-        CardMatch(
-            name=face.name,
-            oracle_id=face.card.oracle_id,
-            scryfall_id=face.card.scryfall_id,
-            face_ix=face.face_ix,
-            image_side=_image_side_for_face(face.card.layout, face.face_ix),
-            rank=face.card.edhrec_rank,
-        )
-        for face in faces
-    ]
-
-
-@app.get("/card/{oracle_id}")
-@log_performance(logger=logger)
-def get_card_by_id(oracle_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
-    _ensure_schema_ready()
-    card = db.query(Card).options(joinedload(Card.faces)).filter(Card.oracle_id == oracle_id).first()
-    if not card:
-        raise HTTPException(status_code=404, detail="Card not found")
-    return card.to_dict()
-
-
-def _parse_rarity(rarity: str | None) -> list[str] | None:
-    if rarity is None:
-        return None
-    chars = list(rarity.lower())
-    invalid = [ch for ch in chars if ch not in _RARITY_MAP]
-    if invalid:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid rarity characters: {', '.join(invalid)!r}. Use c, u, r, m.",
-        )
-    if len(chars) != len(set(chars)):
-        raise HTTPException(status_code=422, detail="Duplicate rarity characters in rarity filter")
-    return [_RARITY_MAP[ch] for ch in chars]
-
-
-def _parse_code_filter(raw_value: str | None, value_map: dict[str, str], field_name: str) -> list[str] | None:
-    if raw_value is None:
-        return None
-
-    codes = [value for value in raw_value.strip().lower() if value]
-    if not codes:
-        return None
-
-    invalid = [code for code in codes if code not in value_map]
-    if invalid:
-        raise HTTPException(status_code=422, detail=f"Invalid {field_name} codes: {', '.join(invalid)}")
-    if len(codes) != len(set(codes)):
-        raise HTTPException(status_code=422, detail=f"Duplicate {field_name} codes in filter")
-
-    return [value_map[code] for code in codes]
-
-
-@app.get("/similar-cards", response_model=SimilarCardsPage)
-@log_performance(logger=logger)
-def get_similar_cards(
-    db: Session = Depends(get_db),
-    oracle_id: str | None = None,
-    face_ix: int = Query(0, ge=0),
-    q: str | None = Query(None, max_length=MAX_QUERY_LENGTH),
-    limit: int = Query(20, ge=1, le=MAX_SIMILAR_CARDS_LIMIT),
-    offset: int = Query(0, ge=0),
-    card_type: str | None = None,
-    colors: str | None = None,
-    cmc_min: float | None = None,
-    cmc_max: float | None = None,
-    format: str | None = None,
-    rarity: str | None = None,
-    color_feature: str = "identity",
-    match_mode: str = "at_least",
-) -> SimilarCardsPage:
-    _ensure_schema_ready()
-    if oracle_id is None and not (q and q.strip()):
-        raise HTTPException(status_code=422, detail="Provide either oracle_id or q")
-
-    rarity_list = _parse_rarity(rarity)
-    card_type_list = _parse_code_filter(card_type, _CARD_TYPE_MAP, "card type")
-    format_list = _parse_code_filter(format, _FORMAT_MAP, "format")
-
-    index = _get_semantic_index()
-    if index is None:
-        raise HTTPException(status_code=503, detail="Semantic index not available")
-
-    if oracle_id is not None:
-        results = index.similar_to_face(
-            (oracle_id, face_ix),
-            limit=limit + offset + 1,
-            db=db,
-            card_type=card_type_list,
-            colors=colors,
-            cmc_min=cmc_min,
-            cmc_max=cmc_max,
-            format=format_list,
-            rarity=rarity_list,
-            color_feature=color_feature,
-            match_mode=match_mode,
-        )
-    else:
-        assert q is not None  # guarded by the 422 check above
-        results = index.search_oracle(
-            q,
-            limit=limit + offset + 1,
-            db=db,
-            card_type=card_type_list,
-            colors=colors,
-            cmc_min=cmc_min,
-            cmc_max=cmc_max,
-            format=format_list,
-            rarity=rarity_list,
-            color_feature=color_feature,
-            match_mode=match_mode,
-        )
-
-    page_results = results[offset : offset + limit]
-    has_more = len(results) > offset + limit
-    return SimilarCardsPage(items=_to_similar_cards(page_results, db), has_more=has_more)

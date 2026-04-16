@@ -11,7 +11,9 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 - **Name autocomplete** — fast trigram-based name suggestions
 - **Full card data** — 3-layer schema: raw Scryfall printings, oracle-deduplicated canonical cards, and per-face data with image URIs
 - **Community tags** — Scryfall Tagger integration for semantic categories (shocklands, cantrips, etc.)
-- **Daily sync** — Railway Cron `scryfall-sync` pulls Scryfall bulk data and re-ingests changes automatically
+- **Daily sync** — Railway Cron `ingest-worker` pulls Scryfall bulk data and re-ingests changes automatically
+- **Model registry** — admin panel for managing semantic models, datasets, and training/promotion jobs
+- **Experiment tracking** — MLflow dual-write for model comparison and lineage
 
 ## Tech stack
 
@@ -20,9 +22,11 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 | Backend | Python 3.12+, FastAPI, Hypercorn, SQLAlchemy 2 |
 | Database | PostgreSQL with pgvector, Alembic migrations |
 | Inference | ONNX Runtime (CPU), sentence-transformers (training only) |
+| ML tracking | MLflow (experiment tracking, model registry) |
+| Job queue | RQ + Redis |
 | Ingestion | ijson streaming, Scryfall bulk API, Tagger GraphQL |
-| Frontend | React 19, TypeScript, Vite 7, TailwindCSS 4, TanStack Query |
-| Infra | Docker Compose (local), Railway (production) |
+| Frontend | React 19, TypeScript, Vite 7, TailwindCSS 4, Framer Motion |
+| Infra | Docker Compose (local), Railway (production), GitHub Actions (CI) |
 
 ## Local development
 
@@ -37,12 +41,12 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 docker compose up --build
 ```
 
-This starts Postgres, the API (`:8000`), the React frontend (`:5173`), and the one-shot `scryfall-sync` worker.
+This starts PostgreSQL, Redis, MLflow, MinIO, the API (`:8000`), and the React frontend (`:5173`).
 
 If you want the app stack without kicking off ingestion, start only the long-running services:
 
 ```bash
-docker compose up --build db api frontend
+docker compose up --build db redis mlflow minio minio-init api frontend
 ```
 
 ### Backend (without Docker)
@@ -67,16 +71,14 @@ npm run test
 npm run build
 ```
 
-The previous SPA is preserved in `frontend-legacy/` as a rollback snapshot. It is no longer wired into Docker, CI, or deployment.
-
-### Run scryfall-sync locally
+### Run ingest-worker locally
 
 ```bash
 # From backend/
 uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 ```
 
-`scryfall-sync` is a stale-aware one-shot worker. It compares remote Scryfall metadata, local bulk metadata, and DB metadata before deciding whether it needs to download and ingest anything.
+`ingest-worker` is a stale-aware one-shot worker. It compares remote Scryfall metadata, local bulk metadata, and DB metadata before deciding whether it needs to download and ingest anything.
 
 When work is needed, it:
 - downloads the latest Oracle Cards bulk file
@@ -99,36 +101,65 @@ uv run python -m ot_backend.ingest.main --skip-tags --strict --trigger-type manu
 
 ### Run the semantic pipeline locally
 
+The pipeline CLI manages the full model lifecycle via subcommands:
+
 ```bash
-# From backend/ — requires the `oracle-embed` dependencies and some patience
-uv run python -m ot_backend.embed.pipeline
+cd backend
+
+# Export training dataset
+uv run python -m ot_backend.embed.pipeline export /tmp/dataset.json
+
+# Full fine-tune + ONNX export + embeddings
+uv run python -m ot_backend.embed.pipeline run --epochs 5
+
+# Skip fine-tuning, embed from base model only
+uv run python -m ot_backend.embed.pipeline run --no-fine-tune
+
+# Register a trained model bundle in the registry
+uv run python -m ot_backend.embed.pipeline register ./model.zip --model-slug v2
+
+# Promote a registered model to serve live traffic
+uv run python -m ot_backend.embed.pipeline promote <model-id>
+
+# Evaluate a run against scripted queries
+uv run python -m ot_backend.embed.pipeline eval --eval-run-dir data/semantic/runs/<run-id>
+
+# Recompute embeddings from an explicit model source
+uv run python -m ot_backend.embed.pipeline reembed --base-model ./my-model
 ```
 
-The semantic pipeline can:
-- build a training dataset from normalized oracle text plus community tags
-- fine-tune a sentence-transformer model
-- export ONNX artifacts for API inference
-- compute and store face embeddings in Postgres
+Pipeline runs are tracked in MLflow (available at `http://localhost:5050` when running via Docker Compose).
 
-By default, runs are written under `backend/data/semantic/runs/<run-id>/`, and the latest successful run is linked at `backend/data/semantic/runs/latest/`. The API defaults `SEMANTIC_MODEL_PATH` to `data/semantic/runs/latest/models/onnx`.
+## Project structure
 
-Common workflows:
-
-```bash
-# Full fine-tune + ONNX export + DB embeddings
-uv run python -m ot_backend.embed.pipeline
-
-# Skip fine-tuning and embed from the base model only
-uv run python -m ot_backend.embed.pipeline --no-fine-tune
-
-# Recompute DB embeddings from the latest saved PyTorch model
-uv run python -m ot_backend.embed.pipeline --reembed-only
-
-# Export the training dataset without training
-uv run python -m ot_backend.embed.pipeline --export-dataset data/training-dataset.json
-
-# Evaluate the latest run against scripted queries
-uv run python -m ot_backend.embed.pipeline --eval
+```
+backend/
+  src/ot_backend/
+    api/
+      main.py                App setup, lifespan, middleware, meta routes
+      routers/               admin.py, search.py, telemetry.py
+      schemas.py             Pydantic response schemas
+    core/                    Config, database, ORM models, logging
+    embed/
+      index.py               Runtime ONNX inference + pgvector search
+      pipeline.py            CLI (subcommands: run, export, register, promote, eval, reembed)
+      mlflow_bridge.py       MLflow client wrapper (optional)
+      task_queue.py          RQ enqueue helpers
+      tasks.py               RQ task callables
+      model_registry.py      Model materialization, promotion
+      uniqueness.py          Card uniqueness scoring
+      artifacts.py           S3 artifact storage
+    ingest/                  Scryfall ingestion + Tagger sync
+  tests/                     Pytest suite (SQLite in-memory)
+  alembic/                   DB migrations
+frontend/
+  src/
+    public/                  SearchShell, HomeView, ResultsView
+    admin/                   Admin panel components
+    components/              Shared UI components
+    lib/                     API client, filters, helpers
+  nginx/                     Nginx config + proxy_params
+docs/                        Architecture roadmap
 ```
 
 ## API endpoints
@@ -137,11 +168,21 @@ uv run python -m ot_backend.embed.pipeline --eval
 |---|---|---|
 | GET | `/health` | Health check |
 | GET | `/version` | Schema + API version |
-| GET | `/oracle-samples` | Random sample oracle text and keyword pool used by the UI |
+| GET | `/oracle-samples` | Random sample oracle text and keyword pool for the UI |
 | GET | `/search?q=` | Name search with trigram similarity |
 | GET | `/card/{oracle_id}` | Full card by oracle ID |
 | GET | `/similar-cards?oracle_id=` | Similar cards to a known oracle ID |
 | GET | `/similar-cards?q=` | Semantic free-text search with optional filters |
+| POST | `/telemetry/client-error` | Client error reporting |
+| POST | `/telemetry/analytics` | Frontend analytics events |
+| POST | `/admin/auth/token` | Exchange admin password for bearer token |
+| GET | `/admin/semantic-models` | List registered semantic models |
+| POST | `/admin/semantic-models` | Register a new model (bundle zip body) |
+| POST | `/admin/semantic-jobs/dataset` | Create a dataset build job |
+| POST | `/admin/semantic-jobs/train` | Create a training job |
+| POST | `/admin/semantic-jobs/promote` | Create a promotion job |
+
+Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature`, `match_mode`
 
 ```bash
 curl "http://localhost:8000/similar-cards?q=deals+3+damage+to+any+target&limit=10"
@@ -150,45 +191,59 @@ curl "http://localhost:8000/similar-cards?q=deals+3+damage+to+any+target&limit=1
 ## Database schema
 
 ```
-cards_raw          — 1:1 Scryfall bulk mirror, all printings, ~300k rows
-  └── cards        — oracle-deduplicated, one row per card identity, ~30k rows
-        └── card_faces          — (oracle_id, face_ix) composite PK, full face data
-              └── card_face_semantic_embeddings   — pgvector(384) per face
-        └── card_taggings       — Scryfall Tagger community tags
-        └── card_relationships  — related-card graph (tokens, meld, combos)
-tags / tag_ancestor_map         — tag definitions + hierarchy
+cards_raw              — 1:1 Scryfall bulk mirror, all printings, ~300k rows
+  └── cards            — oracle-deduplicated, one row per card identity, ~30k rows
+        ├── card_faces                   — (oracle_id, face_ix) composite PK
+        ├── card_taggings                — Scryfall Tagger community tags
+        └── card_relationships           — related-card graph (tokens, meld, combos)
+tags / tag_ancestor_map                  — tag definitions + hierarchy
+semantic_models                          — registered model versions
+  ├── semantic_model_artifacts           — S3 artifact records per model
+  ├── semantic_model_embeddings          — pgvector(384) per (model, face)
+  └── semantic_jobs                      — job history (promote, train, dataset)
+semantic_datasets                        — training dataset records
+  └── semantic_dataset_artifacts         — S3 artifact records per dataset
+system_metadata / ingestion_logs         — operational tracking
 ```
 
 Migrations are managed with **Alembic** (`backend/alembic/`).
 
 ## Railway deployment
 
-The repo is designed to deploy as **three Railway services** + Railway Postgres.
+The repo is designed to deploy as **four Railway services** + Railway Postgres + Railway Redis.
 
 | Service | Dockerfile | Purpose |
 |---|---|---|
 | API | `backend/Dockerfile` | Web process |
-| scryfall-sync | `backend/Dockerfile.scryfall-sync` | Daily ingest cron |
+| ingest-worker | `backend/Dockerfile.ingest-worker` | Daily ingest cron |
+| train-worker | `backend/Dockerfile.train-worker` | Dataset export + Modal orchestration + model registration |
+| promotion-worker | `backend/Dockerfile.promotion-worker` | Embedding build + model activation |
 | Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
-
-`oracle-embed` (dataset export, training, ONNX export, re-embedding, and eval) is a plain Python CLI workflow — run locally or as a one-off Railway job, no dedicated Docker service.
 
 ### Required environment variables
 
-**API + scryfall-sync:**
+**API + workers:**
 - `DATABASE_URL` — Railway Postgres connection string (injected automatically)
 - `ORACLE_TUTOR_API_ENV=production`
+- `REDIS_URL` — Railway Redis connection string
+- `MLFLOW_TRACKING_URI` — MLflow server URL
 
-**API (runtime inference):**
-- `SEMANTIC_MODEL_PATH` — optional override for the ONNX model directory; defaults to `data/semantic/runs/latest/models/onnx`
-- `SEMANTIC_BASE_MODEL` — optional Hugging Face base model ID for training and fallback model loading
+**train-worker (Modal orchestration):**
+- `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` — credentials for remote Modal jobs
+
+**API (runtime):**
+- `ADMIN_PASSWORD` — password accepted by `POST /admin/auth/token`
+- `ADMIN_JWT_SECRET` — HS256 signing secret for admin bearer tokens
+- `SEMANTIC_ARTIFACT_ENDPOINT` — S3-compatible endpoint for model artifacts
+- `SEMANTIC_ARTIFACT_ACCESS_KEY_ID` / `SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY` — S3 credentials
+- `SEMANTIC_ARTIFACT_BUCKET` — S3 bucket name
 
 **Frontend:**
 - `API_PROXY_TARGET` — internal URL of the API service
 
-### scryfall-sync cron schedule
+### ingest-worker cron schedule
 
-Set a **Railway Cron** on the `scryfall-sync` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container command already runs the one-shot stale-aware worker once and exits.
+Set a **Railway Cron** on the `ingest-worker` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container runs the one-shot stale-aware worker once and exits.
 
 ## License
 

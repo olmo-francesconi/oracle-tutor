@@ -106,7 +106,7 @@ export function track(event: AnalyticsEventName, props?: AnalyticsProps) {
 }
 
 export function isErrorReportingConfigured() {
-  return Boolean(ERROR_REPORTING_URL)
+  return !!ERROR_REPORTING_URL
 }
 
 export function setupGlobalErrorHandlers() {

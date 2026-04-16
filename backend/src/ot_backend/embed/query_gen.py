@@ -28,6 +28,8 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
+from .text_prep import EMPTY_ORACLE_TOKEN
+
 MAX_QUERIES_PER_FACE = 5
 
 
@@ -540,6 +542,9 @@ def generate_template_queries(normalized_text: str) -> list[str]:
     strings collected across all matching rules are returned.  If no rule fires,
     an empty list is returned — the caller should fall back to oracle-oracle pairs.
     """
+    if normalized_text.strip().lower() == EMPTY_ORACLE_TOKEN:
+        return ["no rules text", "no oracle text", "vanilla card"]
+
     seen: set[str] = set()
     results: list[str] = []
     for rule in _RULES:

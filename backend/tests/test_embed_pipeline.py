@@ -11,12 +11,21 @@ import pytest
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
-from ot_backend.core.models import Card, CardFace, CardRaw, CardTagging, Tag
+from ot_backend.core.models import (
+    Card,
+    CardFace,
+    CardRaw,
+    CardTagging,
+    SemanticJob,
+    SemanticModel,
+    SemanticModelArtifact,
+    SystemMetadata,
+    Tag,
+)
 from ot_backend.embed import pipeline as pipeline_module
 from ot_backend.embed.pipeline import (
     LazyInputExampleDataset,
     PipelineConfig,
-    TrainingDatasetState,
     _make_run_id,
     build_training_dataset_state,
     export_onnx_model,
@@ -24,7 +33,9 @@ from ot_backend.embed.pipeline import (
     load_training_dataset,
     main,
 )
+from ot_backend.embed.semantic_state import bump_semantic_data_version, get_exported_dataset_version
 from ot_backend.embed.text_prep import face_to_text
+from ot_backend.embed.train_options import DEFAULT_TRAIN_AUGMENTATION_KEYS, TRAIN_AUGMENTATION_LLM_QUERIES
 
 
 @dataclass
@@ -40,11 +51,15 @@ class DummyInputExample:
 def _reset_tables() -> None:
     init_db()
     with SessionLocal() as db:
+        db.query(SemanticJob).delete()
+        db.query(SemanticModelArtifact).delete()
+        db.query(SemanticModel).delete()
         db.query(CardTagging).delete()
         db.query(Tag).delete()
         db.query(CardFace).delete()
         db.query(Card).delete()
         db.query(CardRaw).delete()
+        db.query(SystemMetadata).filter(SystemMetadata.key.in_(["semantic_data", "semantic_dataset_export", "semantic_active_model"])).delete()
         db.commit()
 
 
@@ -173,7 +188,7 @@ def test_pipeline_config_json_file_loaded_via_cli(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr("ot_backend.embed.pipeline.run_pipeline", lambda cfg, run_dir: runs.append(cfg) or 0)
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-id")
 
-    main(["--config", str(config_file), "--runs-dir", str(tmp_path)])
+    main(["run", "--config", str(config_file), "--runs-dir", str(tmp_path)])
 
     assert runs[0].epochs == 7
 
@@ -185,7 +200,7 @@ def test_pipeline_config_json_file_loaded_via_cli(tmp_path: Path, monkeypatch: p
 
 def test_build_dataset_uses_face_ids_and_lazy_text_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     _seed_records()
-    monkeypatch.setattr("ot_backend.embed.pipeline.random.shuffle", lambda seq: None)
+    monkeypatch.setattr("ot_backend.embed.dataset_service.random.shuffle", lambda seq: None)
 
     with SessionLocal() as db:
         state = build_training_dataset_state(db, max_tag_pair_group_size=2)
@@ -207,7 +222,7 @@ def test_build_dataset_uses_face_ids_and_lazy_text_resolution(monkeypatch: pytes
 
 def test_build_dataset_ignores_non_card_or_non_oracle_tags(monkeypatch: pytest.MonkeyPatch) -> None:
     _seed_records()
-    monkeypatch.setattr("ot_backend.embed.pipeline.random.shuffle", lambda seq: None)
+    monkeypatch.setattr("ot_backend.embed.dataset_service.random.shuffle", lambda seq: None)
 
     with SessionLocal() as db:
         db.add_all(
@@ -228,6 +243,29 @@ def test_build_dataset_ignores_non_card_or_non_oracle_tags(monkeypatch: pytest.M
     assert state.tag_pair_examples == 1
 
 
+def test_build_dataset_can_disable_optional_augmentations(monkeypatch: pytest.MonkeyPatch) -> None:
+    _seed_records()
+    monkeypatch.setattr("ot_backend.embed.dataset_service.random.shuffle", lambda seq: None)
+
+    with SessionLocal() as db:
+        state = build_training_dataset_state(
+            db,
+            augmentation_mode="none",
+            max_tag_pair_group_size=2,
+        )
+
+    assert state.simcse_examples == 3
+    assert state.tag_pair_examples == 0
+    assert state.tag_desc_pair_examples == 0
+    assert state.template_query_examples == 0
+    assert len(state.pair_ids) == 3
+    assert state.direct_text_pairs == []
+
+
+def test_default_augmentation_mode_keeps_llm_queries_opt_in() -> None:
+    assert TRAIN_AUGMENTATION_LLM_QUERIES not in DEFAULT_TRAIN_AUGMENTATION_KEYS
+
+
 def test_export_and_load_training_dataset_round_trips(tmp_path: Path) -> None:
     _seed_records()
 
@@ -241,6 +279,87 @@ def test_export_and_load_training_dataset_round_trips(tmp_path: Path) -> None:
     assert loaded == state
 
 
+def test_export_dataset_command_records_semantic_version(tmp_path: Path) -> None:
+    _seed_records()
+    export_path = tmp_path / "dataset.json"
+
+    with SessionLocal() as db:
+        bump_semantic_data_version(db)
+
+    main(["export", str(export_path)])
+
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    assert payload["metadata"]["semantic_data_version"] == 1
+
+    with SessionLocal() as db:
+        assert get_exported_dataset_version(db) == 1
+
+
+def test_register_model_command_uses_dataset_metadata(monkeypatch, tmp_path: Path) -> None:
+    _seed_records()
+    monkeypatch.setattr("ot_backend.embed.artifacts.upload_artifact_bytes", lambda **_kwargs: None)
+    bundle_root = tmp_path / "bundle"
+    (bundle_root / "models" / "onnx" / "onnx").mkdir(parents=True)
+    (bundle_root / "models" / "onnx" / "onnx" / "model.onnx").write_bytes(b"onnx")
+    (bundle_root / "models" / "onnx" / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (bundle_root / "models" / "onnx" / "1_Pooling").mkdir(parents=True)
+    (bundle_root / "models" / "onnx" / "1_Pooling" / "config.json").write_text(
+        '{"pooling_mode_mean_tokens": true}',
+        encoding="utf-8",
+    )
+    (bundle_root / "models" / "pytorch").mkdir(parents=True)
+    (bundle_root / "models" / "pytorch" / "config.json").write_text("{}", encoding="utf-8")
+    (bundle_root / "embeddings").mkdir(parents=True)
+    np.savez_compressed(
+        bundle_root / "embeddings" / "embeddings.npz",
+        oracle_ids=np.asarray(["o1"]),
+        face_ixs=np.asarray([0], dtype=np.int32),
+        embeddings=np.asarray([[1.0] + [0.0] * 383], dtype=np.float32),
+    )
+    (bundle_root / "training").mkdir(parents=True)
+    (bundle_root / "training" / "training-dataset.json").write_text(
+        '{"version": 5, "face_texts": [], "pair_ids": [], "direct_text_pairs": [], "simcse_examples": 0, "tag_pair_examples": 0, "tag_desc_pair_examples": 0, "template_query_examples": 0, "metadata": {"semantic_data_version": 7}}',
+        encoding="utf-8",
+    )
+    (bundle_root / "eval").mkdir(parents=True)
+    (bundle_root / "eval" / "eval.json").write_text(
+        '{"version": 1, "summary": {"query_count": 1, "top1_hits": 1, "top3_hits": 1, "top5_hits": 1, "top1_rate": 1.0, "top3_rate": 1.0, "top5_rate": 1.0, "mrr": 1.0}, "queries": []}',
+        encoding="utf-8",
+    )
+    (bundle_root / "config.json").write_text(json.dumps({"epochs": 2}), encoding="utf-8")
+    (bundle_root / "metrics.json").write_text(json.dumps({"loss": 0.1}), encoding="utf-8")
+    (bundle_root / "manifest.json").write_text(
+        '{"version": 1, "bundle": {"has_onnx_model": true, "has_pytorch_model": true, "has_precomputed_embeddings": true, "has_training_dataset": true, "has_eval_json": true}, "source_semantic_data_version": 7, "dataset_metadata": {"semantic_data_version": 7}}',
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "register",
+            str(bundle_root),
+            "--model-slug",
+            "candidate-model",
+            "--base-model",
+            "sentence-transformers/all-MiniLM-L6-v2",
+            "--augmentation-mode",
+            "none",
+        ]
+    )
+
+    assert exit_code == 0
+    with SessionLocal() as db:
+        model = db.query(SemanticModel).order_by(SemanticModel.id.desc()).first()
+
+    assert model is not None
+    assert model.slug == "candidate-model"
+    assert model.config_json is not None
+    assert model.config_json["semantic_data_version"] == 7
+    assert model.config_json["dataset_metadata"] == {"semantic_data_version": 7}
+    with SessionLocal() as db:
+        artifacts = db.query(SemanticModelArtifact).filter(SemanticModelArtifact.model_id == model.id).all()
+    assert {artifact.artifact_kind for artifact in artifacts} == {"bundle_zip", "training_dataset", "eval_json", "manifest_json"}
+
+
 # ---------------------------------------------------------------------------
 # Pipeline: --no-fine-tune
 # ---------------------------------------------------------------------------
@@ -250,23 +369,36 @@ def test_pipeline_no_fine_tune_exports_base_model(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     exported: list[tuple[str, Path]] = []
+    saved_paths: list[str] = []
+
+    class FakeModel:
+        def __init__(self, model_name: str) -> None:
+            self.base_model_name = model_name
+
+        def save(self, path: str) -> None:
+            saved_paths.append(path)
+
     monkeypatch.setattr(
         "ot_backend.embed.pipeline.export_onnx_model",
         lambda src, out: exported.append((src, out)),
     )
-    monkeypatch.setattr("ot_backend.embed.pipeline._compute_embeddings", lambda model, batch_size=256: 0)
+    monkeypatch.setattr(
+        "ot_backend.embed.pipeline._compute_embeddings",
+        lambda model, batch_size=256, output_path=None: 0,
+    )
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._load_sentence_transformer_class",
-        lambda: (lambda model_name: SimpleNamespace(base_model_name=model_name)),
+        lambda: (lambda model_name: FakeModel(model_name)),
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--no-fine-tune", "--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--no-fine-tune", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert len(exported) == 1
-    base_model = PipelineConfig().base_model
-    assert exported[0][0] == base_model
+    assert len(saved_paths) == 1
+    assert saved_paths[0].endswith("models/pytorch")
+    assert exported[0][0].endswith("models/pytorch")
 
 
 # ---------------------------------------------------------------------------
@@ -279,16 +411,16 @@ def test_pipeline_default_fine_tunes_then_computes_embeddings_then_exports(
 ) -> None:
     calls: list[str] = []
 
-    dataset_path = tmp_path / "dataset.json"
-    dataset_path.write_text("{}")
-
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._prepare_and_save_dataset",
-        lambda path, config: calls.append(f"prepare:{path}"),
-    )
-    monkeypatch.setattr(
-        "ot_backend.embed.pipeline.load_training_dataset",
-        lambda path: calls.append(f"load:{path}") or TrainingDatasetState({}, [], [], 0, 0, 0),
+        lambda path, config: (
+            calls.append(f"prepare:{path}"),
+            path.parent.mkdir(parents=True, exist_ok=True),
+            path.write_text(
+                '{"version":5,"face_texts":[],"pair_ids":[],"direct_text_pairs":[],"simcse_examples":0,"tag_pair_examples":0,"tag_desc_pair_examples":0,"template_query_examples":0,"metadata":{"semantic_data_version":1}}',
+                encoding="utf-8",
+            ),
+        )[-1],
     )
 
     class FakeModel:
@@ -307,7 +439,7 @@ def test_pipeline_default_fine_tunes_then_computes_embeddings_then_exports(
     )
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._compute_embeddings",
-        lambda model, batch_size=256: calls.append("embed") or 3,
+        lambda model, batch_size=256, output_path=None: calls.append(f"embed:{output_path}") or 3,
     )
     monkeypatch.setattr(
         "ot_backend.embed.pipeline.export_onnx_model",
@@ -315,25 +447,25 @@ def test_pipeline_default_fine_tunes_then_computes_embeddings_then_exports(
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert "train" in calls
-    assert "embed" in calls
+    assert any(call.startswith("embed:") for call in calls)
     assert any(c.startswith("onnx:") for c in calls)
 
     # ONNX export receives the saved PyTorch path, not the base model name
     onnx_call = next(c for c in calls if c.startswith("onnx:"))
     assert "pytorch" in onnx_call
+    embed_call = next(c for c in calls if c.startswith("embed:"))
+    assert "embeddings/embeddings.npz" in embed_call
 
     # Verify run dir artifacts
     run_dir = tmp_path / "test-run"
     assert (run_dir / "config.json").exists()
     assert (run_dir / "metrics.json").exists()
-
-    # Verify latest symlink
-    assert (tmp_path / "latest").is_symlink()
-    assert (tmp_path / "latest").resolve() == run_dir.resolve()
+    assert (run_dir / "training" / "training-dataset.json").exists()
+    assert not (tmp_path / "latest").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -406,19 +538,22 @@ def test_pipeline_closes_db_session_before_training(
             return SimpleNamespace(DataLoader=FakeDataLoader)
         raise AssertionError(f"Unexpected import: {name}")
 
-    monkeypatch.setattr("ot_backend.embed.pipeline.SessionLocal", fake_session_local)
-    monkeypatch.setattr("ot_backend.embed.pipeline._ensure_training_dependencies", lambda: None)
+    monkeypatch.setattr("ot_backend.embed.dataset_service.SessionLocal", fake_session_local)
+    monkeypatch.setattr("ot_backend.embed.training_service._ensure_training_dependencies", lambda: None)
     monkeypatch.setattr(
-        "ot_backend.embed.pipeline._load_sentence_transformers",
+        "ot_backend.embed.training_service._load_sentence_transformers",
         lambda: (FakeSentenceTransformer, DummyInputExample, FakeLosses),
     )
-    monkeypatch.setattr("ot_backend.embed.pipeline.huggingface_cache_dir", lambda: tmp_path / "hf")
-    monkeypatch.setattr("ot_backend.embed.pipeline.import_module", fake_import_module)
+    monkeypatch.setattr("ot_backend.embed.training_service.huggingface_cache_dir", lambda: tmp_path / "hf")
+    monkeypatch.setattr("ot_backend.embed.training_service.import_module", fake_import_module)
     monkeypatch.setattr("ot_backend.embed.pipeline.export_onnx_model", lambda src, out: None)
-    monkeypatch.setattr("ot_backend.embed.pipeline._compute_embeddings", lambda model, batch_size=256: 0)
+    monkeypatch.setattr(
+        "ot_backend.embed.pipeline._compute_embeddings",
+        lambda model, batch_size=256, output_path=None: 0,
+    )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert recording.closed is True
@@ -470,27 +605,30 @@ def test_pipeline_can_train_from_pre_exported_dataset(
     FakeSentenceTransformer.instances = []
 
     monkeypatch.setattr(
-        "ot_backend.embed.pipeline.SessionLocal",
+        "ot_backend.embed.dataset_service.SessionLocal",
         lambda: (_ for _ in ()).throw(AssertionError("DB must not be used")),
     )
-    monkeypatch.setattr("ot_backend.embed.pipeline._ensure_training_dependencies", lambda: None)
+    monkeypatch.setattr("ot_backend.embed.training_service._ensure_training_dependencies", lambda: None)
     monkeypatch.setattr(
-        "ot_backend.embed.pipeline._load_sentence_transformers",
+        "ot_backend.embed.training_service._load_sentence_transformers",
         lambda: (FakeSentenceTransformer, DummyInputExample, FakeLosses),
     )
-    monkeypatch.setattr("ot_backend.embed.pipeline.huggingface_cache_dir", lambda: tmp_path / "hf")
+    monkeypatch.setattr("ot_backend.embed.training_service.huggingface_cache_dir", lambda: tmp_path / "hf")
 
     def fake_import_module(name: str) -> Any:
         if name == "torch.utils.data":
             return SimpleNamespace(DataLoader=FakeDataLoader)
         raise AssertionError(f"Unexpected: {name}")
 
-    monkeypatch.setattr("ot_backend.embed.pipeline.import_module", fake_import_module)
+    monkeypatch.setattr("ot_backend.embed.training_service.import_module", fake_import_module)
     monkeypatch.setattr("ot_backend.embed.pipeline.export_onnx_model", lambda src, out: None)
-    monkeypatch.setattr("ot_backend.embed.pipeline._compute_embeddings", lambda model, batch_size=256: 0)
+    monkeypatch.setattr(
+        "ot_backend.embed.pipeline._compute_embeddings",
+        lambda model, batch_size=256, output_path=None: 0,
+    )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--dataset-path", str(dataset_path), "--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--dataset-path", str(dataset_path), "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert len(FakeSentenceTransformer.instances) == 1
@@ -537,15 +675,18 @@ def test_pipeline_uses_old_fit_on_mps(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     FakeSentenceTransformer.instances = []
 
-    monkeypatch.setattr("ot_backend.embed.pipeline._ensure_training_dependencies", lambda: None)
+    monkeypatch.setattr("ot_backend.embed.training_service._ensure_training_dependencies", lambda: None)
     monkeypatch.setattr(
-        "ot_backend.embed.pipeline._load_sentence_transformers",
+        "ot_backend.embed.training_service._load_sentence_transformers",
         lambda: (FakeSentenceTransformer, DummyInputExample, FakeLosses),
     )
-    monkeypatch.setattr("ot_backend.embed.pipeline.huggingface_cache_dir", lambda: tmp_path / "hf")
-    monkeypatch.setattr("ot_backend.embed.pipeline._is_mps_available", lambda: True)
+    monkeypatch.setattr("ot_backend.embed.training_service.huggingface_cache_dir", lambda: tmp_path / "hf")
+    monkeypatch.setattr("ot_backend.embed.training_service._is_mps_available", lambda: True)
     monkeypatch.setattr("ot_backend.embed.pipeline.export_onnx_model", lambda src, out: None)
-    monkeypatch.setattr("ot_backend.embed.pipeline._compute_embeddings", lambda model, batch_size=256: 0)
+    monkeypatch.setattr(
+        "ot_backend.embed.pipeline._compute_embeddings",
+        lambda model, batch_size=256, output_path=None: 0,
+    )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
     def fake_import_module(name: str) -> Any:
@@ -553,9 +694,9 @@ def test_pipeline_uses_old_fit_on_mps(monkeypatch: pytest.MonkeyPatch, tmp_path:
             return SimpleNamespace(DataLoader=FakeDataLoader)
         raise AssertionError(f"Unexpected: {name}")
 
-    monkeypatch.setattr("ot_backend.embed.pipeline.import_module", fake_import_module)
+    monkeypatch.setattr("ot_backend.embed.training_service.import_module", fake_import_module)
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     model = FakeSentenceTransformer.instances[0]
@@ -583,9 +724,9 @@ def test_export_onnx_model_writes_conventional_artifact(
             assert path == str(tmp_path / "out")
 
     monkeypatch.setattr(
-        "ot_backend.embed.pipeline._load_sentence_transformer_class", lambda: FakeSentenceTransformer
+        "ot_backend.embed.training_service._load_sentence_transformer_class", lambda: FakeSentenceTransformer
     )
-    monkeypatch.setattr("ot_backend.embed.pipeline.huggingface_cache_dir", lambda: tmp_path / "hf")
+    monkeypatch.setattr("ot_backend.embed.training_service.huggingface_cache_dir", lambda: tmp_path / "hf")
 
     export_onnx_model("sentence-transformers/test-model", tmp_path / "out")
 
@@ -622,18 +763,24 @@ def test_make_run_id_appends_run_name() -> None:
     assert run_id.endswith("-larger-batch")
 
 
-def test_pipeline_creates_versioned_run_dir_and_latest_symlink(
+def test_pipeline_creates_bundle_shaped_versioned_run_dir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "20260324-120000")
     monkeypatch.setattr("ot_backend.embed.pipeline.export_onnx_model", lambda src, out: None)
-    monkeypatch.setattr("ot_backend.embed.pipeline._compute_embeddings", lambda model, batch_size=256: 0)
+    monkeypatch.setattr(
+        "ot_backend.embed.pipeline._compute_embeddings",
+        lambda model, batch_size=256, output_path=None: 0,
+    )
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._prepare_and_save_dataset",
-        lambda path, config: path.write_text(
-            '{"version":2,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
-            encoding="utf-8",
-        ),
+        lambda path, config: (
+            path.parent.mkdir(parents=True, exist_ok=True),
+            path.write_text(
+                '{"version":5,"face_texts":[],"pair_ids":[],"direct_text_pairs":[],"simcse_examples":0,"tag_pair_examples":0,"tag_desc_pair_examples":0,"template_query_examples":0}',
+                encoding="utf-8",
+            ),
+        )[-1],
     )
 
     class FakeModel:
@@ -645,16 +792,16 @@ def test_pipeline_creates_versioned_run_dir_and_latest_symlink(
         lambda config, state, run_dir: FakeModel(),
     )
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     run_dir = tmp_path / "20260324-120000"
     assert run_dir.is_dir()
     assert (run_dir / "config.json").exists()
     assert (run_dir / "metrics.json").exists()
-    latest = tmp_path / "latest"
-    assert latest.is_symlink()
-    assert latest.resolve() == run_dir.resolve()
+    assert (run_dir / "training" / "training-dataset.json").exists()
+    assert (run_dir / "manifest.json").exists()
+    assert not (tmp_path / "latest").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -668,15 +815,18 @@ def test_pipeline_no_embeddings_skips_compute(
     compute_calls: list[Any] = []
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._compute_embeddings",
-        lambda model, batch_size=256: compute_calls.append(model) or 0,
+        lambda model, batch_size=256, output_path=None: compute_calls.append(model) or 0,
     )
     monkeypatch.setattr("ot_backend.embed.pipeline.export_onnx_model", lambda src, out: None)
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._prepare_and_save_dataset",
-        lambda path, config: path.write_text(
-            '{"version":2,"face_texts":[],"pair_ids":[],"simcse_examples":0,"tag_pair_examples":0}',
-            encoding="utf-8",
-        ),
+        lambda path, config: (
+            path.parent.mkdir(parents=True, exist_ok=True),
+            path.write_text(
+                '{"version":5,"face_texts":[],"pair_ids":[],"direct_text_pairs":[],"simcse_examples":0,"tag_pair_examples":0,"tag_desc_pair_examples":0,"template_query_examples":0}',
+                encoding="utf-8",
+            ),
+        )[-1],
     )
 
     class FakeModel:
@@ -689,7 +839,7 @@ def test_pipeline_no_embeddings_skips_compute(
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--no-embeddings", "--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--no-embeddings", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert compute_calls == []
@@ -715,10 +865,10 @@ def test_reembed_only_loads_model_and_reembeds_without_touching_run_dirs(
     )
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._compute_embeddings",
-        lambda model, batch_size=256: embedded.append(model) or 5,
+        lambda model, batch_size=256, output_path=None: embedded.append(model) or 5,
     )
 
-    exit_code = main(["--reembed-only", "--base-model", str(model_dir), "--runs-dir", str(tmp_path)])
+    exit_code = main(["reembed", "--base-model", str(model_dir), "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert loaded == [str(model_dir)]
@@ -728,23 +878,28 @@ def test_reembed_only_loads_model_and_reembeds_without_touching_run_dirs(
     assert not any((tmp_path / d).is_dir() for d in ["pytorch", "onnx"])
 
 
-def test_reembed_only_defaults_to_latest_pytorch(
+def test_reembed_only_uses_base_model_from_config_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    latest_pytorch = tmp_path / "latest" / "models" / "pytorch"
-    latest_pytorch.mkdir(parents=True)
+    model_dir = tmp_path / "explicit-model"
+    model_dir.mkdir(parents=True)
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"base_model": str(model_dir)}), encoding="utf-8")
 
     loaded: list[str] = []
     monkeypatch.setattr(
         "ot_backend.embed.pipeline._load_sentence_transformer_class",
         lambda: (lambda path: loaded.append(path) or object()),
     )
-    monkeypatch.setattr("ot_backend.embed.pipeline._compute_embeddings", lambda model, batch_size=256: 0)
+    monkeypatch.setattr(
+        "ot_backend.embed.pipeline._compute_embeddings",
+        lambda model, batch_size=256, output_path=None: 0,
+    )
 
-    exit_code = main(["--reembed-only", "--runs-dir", str(tmp_path)])
+    exit_code = main(["reembed", "--config", str(config_file), "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
-    assert loaded == [str(tmp_path / "latest" / "models" / "pytorch")]
+    assert loaded == [str(model_dir)]
 
 
 # ---------------------------------------------------------------------------
@@ -752,9 +907,8 @@ def test_reembed_only_defaults_to_latest_pytorch(
 # ---------------------------------------------------------------------------
 
 
-def _write_eval_fixture_files(runs_dir: Path, eval_path: Path) -> None:
-    latest = runs_dir / "latest"
-    embeddings_dir = latest / "embeddings"
+def _write_eval_fixture_files(run_dir: Path, eval_path: Path) -> None:
+    embeddings_dir = run_dir / "embeddings"
     embeddings_dir.mkdir(parents=True)
     np.savez_compressed(
         embeddings_dir / "embeddings.npz",
@@ -786,11 +940,11 @@ def _write_training_dataset_fixture(path: Path) -> None:
     )
 
 
-def test_run_eval_uses_dataset_from_latest_run_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    runs_dir = tmp_path / "semantic" / "runs"
+def test_run_eval_uses_dataset_from_explicit_run_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run_dir = tmp_path / "semantic" / "runs" / "20260414-120000"
     eval_path = tmp_path / "eval.json"
-    _write_eval_fixture_files(runs_dir, eval_path)
-    _write_training_dataset_fixture(runs_dir / "latest" / "training-dataset.json")
+    _write_eval_fixture_files(run_dir, eval_path)
+    _write_training_dataset_fixture(run_dir / "training" / "training-dataset.json")
 
     class FakeSentenceTransformer:
         def __init__(self, model_source: str) -> None:
@@ -804,16 +958,15 @@ def test_run_eval_uses_dataset_from_latest_run_dir(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr("ot_backend.embed.pipeline._load_sentence_transformer_class", lambda: FakeSentenceTransformer)
 
-    assert pipeline_module._run_eval(runs_dir=runs_dir, model_source=None, eval_path=eval_path) == 0
+    assert pipeline_module._run_eval(run_dir=run_dir, model_source=None, eval_path=eval_path) == 0
 
 
-def test_run_eval_falls_back_to_export_dataset_outside_run_dir(
+def test_run_eval_uses_packaged_queries_when_eval_path_is_omitted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    runs_dir = tmp_path / "semantic" / "runs"
-    eval_path = tmp_path / "eval.json"
-    _write_eval_fixture_files(runs_dir, eval_path)
-    _write_training_dataset_fixture(tmp_path / "training-dataset.json")
+    run_dir = tmp_path / "semantic" / "runs" / "20260414-120000"
+    _write_eval_fixture_files(run_dir, tmp_path / "ignored.json")
+    _write_training_dataset_fixture(run_dir / "training" / "training-dataset.json")
 
     class FakeSentenceTransformer:
         def __init__(self, model_source: str) -> None:
@@ -823,19 +976,21 @@ def test_run_eval_falls_back_to_export_dataset_outside_run_dir(
             return np.array([[1.0, 0.0]], dtype=np.float32)
 
     monkeypatch.setattr("ot_backend.embed.pipeline._load_sentence_transformer_class", lambda: FakeSentenceTransformer)
+    monkeypatch.setattr(
+        "ot_backend.embed.pipeline.load_eval_queries_payload",
+        lambda _payload=None: {"queries": [{"query": "burn spell"}]},
+    )
 
-    assert pipeline_module._run_eval(runs_dir=runs_dir, model_source=None, eval_path=eval_path) == 0
+    assert pipeline_module._run_eval(run_dir=run_dir, model_source=None, eval_path=None) == 0
 
 
 def test_run_eval_raises_actionable_error_when_dataset_missing(tmp_path: Path) -> None:
-    runs_dir = tmp_path / "semantic" / "runs"
+    run_dir = tmp_path / "semantic" / "runs" / "20260414-120000"
     eval_path = tmp_path / "eval.json"
-    _write_eval_fixture_files(runs_dir, eval_path)
+    _write_eval_fixture_files(run_dir, eval_path)
 
     with pytest.raises(FileNotFoundError) as excinfo:
-        pipeline_module._run_eval(runs_dir=runs_dir, model_source=None, eval_path=eval_path)
+        pipeline_module._run_eval(run_dir=run_dir, model_source=None, eval_path=eval_path)
 
     message = str(excinfo.value)
-    assert str(runs_dir / "latest" / "training-dataset.json") in message
-    assert str(tmp_path / "training-dataset.json") in message
-    assert "--export-dataset data/training-dataset.json" in message
+    assert str(run_dir / "training" / "training-dataset.json") in message

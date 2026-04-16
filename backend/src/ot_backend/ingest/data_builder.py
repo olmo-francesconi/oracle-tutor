@@ -4,15 +4,14 @@ import json
 import logging
 import shutil
 import sys
-import time
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from urllib.parse import urlparse
 
 import ijson
 import requests
-from sqlalchemy import Table, bindparam, delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from ..core.config import (
@@ -20,21 +19,21 @@ from ..core.config import (
     DATA_DIR,
     DB_SCHEMA_VERSION,
     ensure_data_dir,
-    parse_version,
 )
 from ..core.database import SessionLocal, engine
-from ..core.db_init import MIGRATION_STATE_READY, get_migration_state
+from ..core.db_init import MIGRATION_STATE_READY, get_migration_state, parse_version
 from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
     CardFace,
-    CardFaceSemanticEmbedding,
     CardRaw,
     CardRelationship,
     CardTagging,
     IngestionLog,
     SystemMetadata,
 )
+from ..embed.semantic_state import bump_semantic_data_version
+from ..embed.uniqueness import compute_and_store_uniqueness_scores
 from .fetch_tags import run_fetch_tags
 
 logger = logging.getLogger("ot_backend.ingest")
@@ -98,7 +97,6 @@ def _delete_card_related_rows(session, oracle_ids: list[str]) -> None:
 
     for i in range(0, len(oracle_ids), CHUNK_SIZE):
         chunk = oracle_ids[i : i + CHUNK_SIZE]
-        session.execute(delete(CardFaceSemanticEmbedding).where(CardFaceSemanticEmbedding.oracle_id.in_(chunk)))
         session.execute(delete(CardRelationship).where(CardRelationship.card_id.in_(chunk)))
         session.execute(delete(CardTagging).where(CardTagging.card_id.in_(chunk)))
         session.execute(delete(CardFace).where(CardFace.oracle_id.in_(chunk)))
@@ -368,59 +366,6 @@ def prepare_card_face(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -
     }
 
 
-def normalize_card_data(card: dict[str, Any]) -> dict[str, Any]:
-    normalized: dict[str, Any] = {
-        "id": card.get("id"),
-        "oracle_id": card.get("oracle_id"),
-        "name": card.get("name"),
-        "scryfall_set": card.get("set"),
-        "collector_number": card.get("collector_number"),
-        "layout": card.get("layout"),
-        "cmc": card.get("cmc"),
-        "edhrec_rank": card.get("edhrec_rank"),
-        "rarity": card.get("rarity"),
-        "legalities": card.get("legalities"),
-        "color_identity": card.get("color_identity"),
-    }
-
-    faces = card.get("card_faces") or [card]
-    normalized_faces: list[dict[str, Any]] = []
-    for face in faces:
-        normalized_faces.append(
-            {
-                "name": face.get("name"),
-                "mana_cost": face.get("mana_cost"),
-                "type_line": face.get("type_line"),
-                "oracle_text": face.get("oracle_text"),
-                "power": face.get("power"),
-                "toughness": face.get("toughness"),
-                "colors": face.get("colors"),
-            }
-        )
-
-    normalized["faces"] = normalized_faces
-    return normalized
-
-
-def load_existing_cards_map(file_path: Path) -> dict[str, dict[str, Any]]:
-    if not file_path.exists():
-        return {}
-
-    logger.info("Loading existing data for diff-ingest...")
-    try:
-        with file_path.open("r") as f:
-            data = json.load(f)
-        out: dict[str, dict[str, Any]] = {}
-        for card in data:
-            if not should_skip_card(card):
-                out[card.get("id")] = normalize_card_data(card)
-        logger.info("Loaded %d existing cards.", len(out))
-        return out
-    except Exception as e:
-        logger.warning("Failed to load existing file (%s). Treating as empty.", e)
-        return {}
-
-
 def ingest_batch(session, batch_cards: list[dict[str, Any]]) -> None:
     if not batch_cards:
         return
@@ -675,21 +620,27 @@ def ingest_data_diff(
                     items_in_batch=len(chunk),
                 )
 
-        raw_ids = session.scalars(select(CardRaw.id)).all()
-        obsolete_raw_ids = [raw_id for raw_id in raw_ids if raw_id not in seen_scryfall_ids]
-        if obsolete_raw_ids:
-            logger.info("Stage: delete obsolete raw printings total=%d", len(obsolete_raw_ids))
-            total_raw_delete_batches = (len(obsolete_raw_ids) + CHUNK_SIZE - 1) // CHUNK_SIZE
-            for batch_ix, i in enumerate(range(0, len(obsolete_raw_ids), CHUNK_SIZE), start=1):
-                chunk = obsolete_raw_ids[i : i + CHUNK_SIZE]
-                session.execute(delete(CardRaw).where(CardRaw.id.in_(chunk)))
-                session.commit()
-                _log_batch_progress(
-                    stage="Delete raw",
-                    current=batch_ix,
-                    total=total_raw_delete_batches,
-                    items_in_batch=len(chunk),
-                )
+        obsolete_raw_batch: list[str] = []
+        raw_delete_batches = 0
+        raw_delete_count = 0
+        for raw_id in session.scalars(select(CardRaw.id)):
+            if raw_id in seen_scryfall_ids:
+                continue
+            obsolete_raw_batch.append(raw_id)
+            if len(obsolete_raw_batch) < CHUNK_SIZE:
+                continue
+            raw_delete_batches += 1
+            raw_delete_count += len(obsolete_raw_batch)
+            session.execute(delete(CardRaw).where(CardRaw.id.in_(obsolete_raw_batch)))
+            session.commit()
+            obsolete_raw_batch = []
+        if obsolete_raw_batch:
+            raw_delete_batches += 1
+            raw_delete_count += len(obsolete_raw_batch)
+            session.execute(delete(CardRaw).where(CardRaw.id.in_(obsolete_raw_batch)))
+            session.commit()
+        if raw_delete_count:
+            logger.info("Stage: delete obsolete raw printings complete total=%d", raw_delete_count)
 
         sys_meta = SystemMetadata(
             key="scryfall_data",
@@ -725,114 +676,6 @@ def ingest_data_diff(
         raise
     finally:
         session.close()
-
-
-# ---------------------------------------------------------------------------
-# Uniqueness scoring
-# ---------------------------------------------------------------------------
-
-
-UNIQUENESS_THRESHOLD = 0.40
-UNIQUENESS_POWER = 2.0
-UNIQUENESS_BATCH_SIZE = 500
-
-
-def compute_and_store_uniqueness_scores(session) -> None:
-    """
-    Compute a uniqueness score (0-100) for every card and write it to the DB.
-
-    Algorithm:
-      1. Load semantic embeddings for all card faces from the DB.
-      2. For each face, sum sim^power for all above-threshold similarities
-         (excluding same-card faces). This "redundancy" captures both depth
-         and breadth of similar cards.
-      3. Aggregate to card level (max across faces).
-      4. Convert to uniqueness via log-scaled normalization:
-           uniqueness = 100 * (1 - log(1+raw) / log(1+max_raw))
-    """
-    import numpy as np
-
-    logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
-    t0 = time.perf_counter()
-
-    embedding_rows = session.execute(
-        select(
-            CardFaceSemanticEmbedding.oracle_id,
-            CardFaceSemanticEmbedding.face_ix,
-            CardFaceSemanticEmbedding.embedding,
-        )
-        .join(
-            CardFace,
-            (CardFaceSemanticEmbedding.oracle_id == CardFace.oracle_id)
-            & (CardFaceSemanticEmbedding.face_ix == CardFace.face_ix),
-        )
-        .order_by(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix)
-    ).all()
-    n = len(embedding_rows)
-    if n == 0:
-        logger.warning("No semantic embeddings found; skipping uniqueness computation because semantic-worker has not run.")
-        return
-
-    face_card_ids = [row[0] for row in embedding_rows]
-    matrix = np.asarray([row[2] for row in embedding_rows], dtype=np.float32)
-
-    card_face_map: dict[str, list[int]] = {}
-    for i, cid in enumerate(face_card_ids):
-        card_face_map.setdefault(cid, []).append(i)
-
-    face_redundancy = np.zeros(n, dtype=np.float64)
-
-    for batch_start in range(0, n, UNIQUENESS_BATCH_SIZE):
-        batch_end = min(batch_start + UNIQUENESS_BATCH_SIZE, n)
-        batch = matrix[batch_start:batch_end]
-
-        sims = np.asarray(batch @ matrix.T)
-
-        for i in range(batch_end - batch_start):
-            gi = batch_start + i
-            for j in card_face_map[face_card_ids[gi]]:
-                sims[i, j] = 0.0
-            row = sims[i]
-            above = row[row > UNIQUENESS_THRESHOLD]
-            face_redundancy[gi] = float(np.power(above, UNIQUENESS_POWER).sum())
-
-    # Aggregate face -> card (max redundancy across faces)
-    card_redundancy: dict[str, float] = {}
-    for i, cid in enumerate(face_card_ids):
-        val = float(face_redundancy[i])
-        if cid not in card_redundancy or val > card_redundancy[cid]:
-            card_redundancy[cid] = val
-
-    # Log-scaled normalization -> uniqueness 0-100
-    raw_vals = np.array(list(card_redundancy.values()))
-    max_raw = float(raw_vals.max())
-    if max_raw <= 0:
-        card_uniqueness = {cid: 100.0 for cid in card_redundancy}
-    else:
-        log_max = float(np.log1p(max_raw))
-        card_uniqueness = {
-            cid: round(100.0 * (1.0 - float(np.log1p(raw)) / log_max), 2)
-            for cid, raw in card_redundancy.items()
-        }
-
-    from ..core.models import Card as CardTable
-    cards_table = cast(Table, CardTable.__table__)
-    stmt = (
-        update(cards_table)
-        .where(cards_table.c.oracle_id == bindparam("_oracle_id"))
-        .values(uniqueness=bindparam("_score"))
-    )
-    conn = session.connection()
-    mappings = [{"_oracle_id": cid, "_score": score} for cid, score in card_uniqueness.items()]
-    for i in range(0, len(mappings), CHUNK_SIZE):
-        conn.execute(stmt, mappings[i : i + CHUNK_SIZE])
-    session.commit()
-
-    elapsed = time.perf_counter() - t0
-    logger.info(
-        "Uniqueness scores computed and stored in %.1fs. cards=%d, max_redundancy=%.2f",
-        elapsed, len(card_uniqueness), max_raw,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -904,6 +747,8 @@ def update_scryfall_data(
     # Stateless optimization:
     # If the DB already reflects the latest remote version, we can skip downloading the JSON
     # even if the container has no persisted /app/data directory.
+    semantic_changed = False
+
     if (
         (not force)
         and (not schema_needs_ingest)
@@ -918,9 +763,14 @@ def update_scryfall_data(
         if not skip_tags:
             try:
                 with SessionLocal() as tags_session:
-                    run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                    tag_stats = run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                    semantic_changed = tag_stats.success_count > 0
             except Exception as e:
                 logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+        if semantic_changed:
+            with SessionLocal() as semantic_session:
+                semantic_version = bump_semantic_data_version(semantic_session)
+            logger.info("Semantic data version advanced to %d.", semantic_version)
         return False
 
     # Download decision
@@ -997,6 +847,7 @@ def update_scryfall_data(
                     compute_and_store_uniqueness_scores(uniqueness_session)
             except Exception as e:
                 logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
+            semantic_changed = True
 
         except Exception as e:
             logger.error("Update process failed: %s", e, exc_info=True)
@@ -1013,8 +864,14 @@ def update_scryfall_data(
         try:
             logger.info("Stage: ingest community tags")
             with SessionLocal() as tags_session:
-                run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                tag_stats = run_fetch_tags(tags_session, refresh_tags=refresh_tags)
+                semantic_changed = semantic_changed or tag_stats.success_count > 0
         except Exception as e:
             logger.error("Tag ingestion failed (non-fatal): %s", e, exc_info=True)
+
+    if semantic_changed:
+        with SessionLocal() as semantic_session:
+            semantic_version = bump_semantic_data_version(semantic_session)
+        logger.info("Semantic data version advanced to %d.", semantic_version)
 
     return ingestion_needed

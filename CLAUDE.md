@@ -5,7 +5,7 @@ Fast, semantic search engine for Magic: The Gathering cards — pgvector embeddi
 ## Tech stack
 
 - **Backend:** Python 3.12+, FastAPI 0.115+, Hypercorn 0.17+, SQLAlchemy 2, psycopg 3.2+, pgvector 0.3+, ONNX Runtime 1.20+, Alembic 1.14+, sentence-transformers 3.0+ (training only), uv
-- **Frontend:** React 19.2, TypeScript 5.9, Vite 7.2, TailwindCSS 4.1, TanStack Query 5.90, TanStack Virtual 3.13, React Router 7.9, Framer Motion 12.23, Axios 1.13, Phosphor Icons 2.1
+- **Frontend:** React 19.2, TypeScript 5.9, Vite 7.2, TailwindCSS 4.1, Framer Motion 12.23
 - **Infra:** Docker Compose (local), Railway (production), GitHub Actions (CI)
 
 ## Repo structure
@@ -13,25 +13,36 @@ Fast, semantic search engine for Magic: The Gathering cards — pgvector embeddi
 ```
 backend/                FastAPI service + Pytest suite
   src/ot_backend/
-    api/                Route handlers (main.py) + Pydantic response schemas (schemas.py)
+    api/
+      main.py           App setup, lifespan, middleware, meta routes
+      routers/           admin.py, search.py, telemetry.py
+      schemas.py         Pydantic response schemas
     core/               Config, DB engine/session, schema init, ORM models, logging
-    embed/              ONNX inference (index.py), model training + export (pipeline.py)
+    embed/
+      index.py          Runtime ONNX inference + pgvector search
+      pipeline.py       CLI: run, export, register, promote, eval, reembed subcommands
+      model_registry.py Model materialization, embedding population, promotion
+      uniqueness.py     Card uniqueness scoring (cosine similarity)
+      artifacts.py      S3 artifact upload/download
+      registration.py   Bundle parsing and model registration
+      semantic_jobs.py  DB job records: create, list, succeed/fail
     ingest/             One-shot Scryfall ingestion (data_builder.py) and Tagger sync
   tests/                Pytest suite (SQLite in-memory)
-  alembic/              DB migrations (versions/0001_initial_schema.py)
-  scripts/              Local utility/profiling scripts
+  alembic/              DB migrations (versions/0001–0011)
   Dockerfile            API image
-  Dockerfile.scryfall-sync    Scryfall ingest image
+  Dockerfile.ingest-worker    Scryfall ingest image
+  Dockerfile.train-worker     Training worker image
+  Dockerfile.promotion-worker Promotion worker image
 frontend/               React + Vite SPA
   src/
-    app/                Search shell and route-level orchestration
+    public/             SearchShell, HomeView, ResultsView, useUrlSync
+    admin/              AdminPage, StatusBadge, ModelTable, DatasetTable, JobList
     components/         UI components, overlays, and shared presentation
     lib/                API client, filters, URL state, and helpers
-    test/               Vitest setup helpers
-  nginx/                Nginx config/template for production
+  nginx/                Nginx config + shared proxy_params snippet
   Dockerfile            Multi-stage build (Vite dev + nginx runtime)
-.github/workflows/      ci.yml (frontend), api-ci.yml (backend)
-docker-compose.yml      Local dev: db + api + scryfall-sync + frontend
+.github/workflows/      ci.yml (frontend + workers), api-ci.yml (backend)
+docker-compose.yml      Local dev: db + minio + api + frontend
 ```
 
 ## Architecture
@@ -40,15 +51,21 @@ docker-compose.yml      Local dev: db + api + scryfall-sync + frontend
 - `cards_raw` — all Scryfall printings (~300k rows), PK = Scryfall UUID
 - `cards` — oracle-deduplicated, PK = `oracle_id` (~30k rows)
 - `card_faces` — composite PK `(oracle_id, face_ix)`
-- `card_face_semantic_embeddings` — composite PK `(oracle_id, face_ix)`, 384-dim pgvector
 
 Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationships`, `system_metadata`, `ingestion_logs`
 
+Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `semantic_model_embeddings`, `semantic_datasets`, `semantic_dataset_artifacts`, `semantic_jobs`
+
 ### Semantic search
-- Embeddings stored at face granularity in `card_face_semantic_embeddings`
+- Embeddings stored per-model in `semantic_model_embeddings` (face granularity, filtered by `model_id`)
 - Query → ONNX tokenizer/model → pgvector cosine distance → hydrate via `CardFace → Card`
-- Runtime inference uses local ONNX artifacts only; loaded at startup from `SEMANTIC_MODEL_PATH`
-- Semantic endpoints return 503 if model artifact is missing
+- Active model is determined by `semantic_models.is_active`; index polls DB every `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` seconds
+- Model artifacts (ONNX bundle zip) stored in S3-compatible storage; materialized to `SEMANTIC_TEMP_DIR` on demand
+- Semantic endpoints return 503 if no active model exists in the registry
+
+### Job queue
+- Admin routes create a DB job record, then dispatch to one-shot worker containers triggered on demand
+- Workers (`promote.py`, `dataset_worker.py`, `train_worker.py`) are one-shot containers on Railway
 
 ### API routes
 | Route | Method | Purpose |
@@ -62,17 +79,41 @@ Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationsh
 | `/similar-cards` | GET | Semantic search (params: `oracle_id` or `q`, `face_ix`, `limit`, `offset`, filters) |
 | `/telemetry/client-error` | POST | Client error ingest |
 | `/telemetry/analytics` | POST | Frontend analytics ingest |
+| `/admin/semantic-models` | GET | List all registered semantic models |
+| `/admin/semantic-models` | POST | Register a new semantic model (bundle zip body) |
+| `/admin/semantic-models/{model_id}` | GET | Get semantic model detail |
+| `/admin/semantic-models/{model_id}/artifacts` | GET | List model artifacts |
+| `/admin/semantic-models/{model_id}/promote` | POST | Queue promotion job for a model |
+| `/admin/semantic-jobs` | GET | List all semantic jobs |
+| `/admin/semantic-jobs/{job_id}` | GET | Get job detail |
+| `/admin/semantic-datasets` | GET | List all datasets |
+| `/admin/semantic-datasets/{dataset_id}` | GET | Get dataset detail |
+| `/admin/semantic-datasets/{dataset_id}/artifacts` | GET | List dataset artifacts |
+| `/admin/semantic-base-models` | GET | List available base models |
+| `/admin/semantic-train-options` | GET | Get training option schemas |
+| `/admin/semantic-jobs/dataset` | POST | Create a dataset build job |
+| `/admin/semantic-jobs/train` | POST | Create a training job |
+| `/admin/semantic-jobs/promote` | POST | Create a promotion job |
 
 Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`)
 
 ### Key files
-- `api/main.py` — FastAPI app, lifespan, all routes, CORS middleware, exception handlers
-- `core/models.py` — ORM: 9 tables with composite PKs for card_faces and embeddings
-- `core/db_init.py` — runs `alembic upgrade head` on every startup; advisory locking for concurrency; migration state FSM (READY → MIGRATING → FAILED)
-- `ingest/data_builder.py` — stale-aware Scryfall bulk ingest, card derivation, tag sync, uniqueness scoring
-- `embed/pipeline.py` — offline dataset export, fine-tune, ONNX export, re-embedding, and eval
+- `api/main.py` — FastAPI app setup, lifespan, middleware, meta routes; includes routers
+- `api/routers/admin.py` — all `/admin/*` routes + semantic model/job serializers
+- `api/routers/search.py` — `/search`, `/card/{oracle_id}`, `/similar-cards`, `/oracle-samples`
+- `api/routers/telemetry.py` — `/telemetry/client-error`, `/telemetry/analytics`
+- `core/models.py` — ORM models with composite PKs for card_faces and embeddings
+- `core/db_init.py` — runs `alembic upgrade head` on every startup; advisory locking; migration state FSM
+- `ingest/data_builder.py` — stale-aware Scryfall bulk ingest, card derivation, tag sync
+- `embed/pipeline.py` — CLI with subcommands: `run`, `export`, `register`, `promote`, `eval`, `reembed`
 - `embed/index.py` — runtime: lazy-loads ONNX model, encodes queries, pgvector cosine search with server-side filters
-- `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`, and helpers
+- `embed/model_registry.py` — model materialization, embedding population, activation, and promotion logic
+- `embed/uniqueness.py` — card uniqueness scoring via cosine similarity
+- `embed/artifacts.py` — S3 artifact upload/download and recording
+- `embed/registration.py` — bundle parsing and model registration
+- `embed/semantic_jobs.py` — DB job records: create, list, succeed/fail
+- `embed/semantic_state.py` — semantic data version tracking
+- `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`
 
 ### Frontend conventions
 - Server state: TanStack Query; routing state: React Router params/query string; transient UI: component state
@@ -82,9 +123,9 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 ## Operational notes
 
 - `/search` is still name-based; semantic free-text search runs through `/similar-cards?q=...`
-- API startup attempts to load the semantic ONNX model and returns `503` from semantic endpoints when artifacts are missing
-- `scryfall-sync` is a one-shot worker; it can skip download/ingestion entirely when DB metadata already matches the latest Scryfall bulk timestamp
-- The default semantic artifact path is `backend/data/semantic/runs/latest/models/onnx`
+- API startup queries the registry for the active semantic model; returns `503` from semantic endpoints until one is promoted
+- `scryfall-sync` (ingest-worker) is a one-shot container; it can skip download/ingestion entirely when DB metadata already matches the latest Scryfall bulk timestamp
+- Model bundles are stored in S3 (`SEMANTIC_ARTIFACT_BUCKET`) and cached locally in `SEMANTIC_TEMP_DIR`
 
 ## Branch conventions
 
@@ -98,6 +139,7 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - Use `type: message` commit subjects
 - Allowed types: `feat`, `fix`, `docs`, `refactor`, `chore`, `test`
 - Keep subjects imperative, concise, and without a trailing period
+- Never add `Co-Authored-By` or any other trailer
 - Example: `fix: handle empty oracle query`
 
 ## Environment variables
@@ -117,11 +159,21 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 | `DB_POOL_TIMEOUT` | `30` | |
 | `ORACLE_TUTOR_API_ENV` | `development` | `development` \| `production` |
 | `ORACLE_TUTOR_API_CORS_ORIGINS` | — | Comma-separated allowed origins |
-| `SEMANTIC_MODEL_PATH` | `data/semantic/runs/latest/models/onnx` | Directory containing `onnx/model.onnx` + tokenizer assets |
 | `SEMANTIC_BASE_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Base model for training |
 | `SEMANTIC_RUNS_DIR` | `data/semantic/runs` | Output root for semantic pipeline runs |
+| `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` | `5` | How often the API checks for a new active model |
+| `SEMANTIC_TEMP_DIR` | `$TMPDIR/mtg-search-semantic-models` | Local cache for materialized model bundles |
+| `SEMANTIC_ONNX_INTRA_OP_THREADS` | `1` | ONNX Runtime intra-op thread count |
+| `SEMANTIC_ONNX_INTER_OP_THREADS` | `1` | ONNX Runtime inter-op thread count |
+| `SEMANTIC_JOB_HEARTBEAT_SECONDS` | `600` | Promote worker heartbeat interval |
+| `SEMANTIC_JOB_STALE_SECONDS` | `1200` | Seconds before a running job is considered stale |
 | `HF_HOME` | `data/huggingface` | Hugging Face cache directory |
 | `ORACLE_TUTOR_LOG_TO_FILES` | — | Enable file logging |
+| `SEMANTIC_ARTIFACT_ENDPOINT` | — | S3-compatible endpoint URL for artifact storage |
+| `SEMANTIC_ARTIFACT_ACCESS_KEY_ID` | — | S3 access key ID for artifact storage |
+| `SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY` | — | S3 secret access key for artifact storage |
+| `SEMANTIC_ARTIFACT_REGION` | `auto` | S3 region for artifact storage |
+| `SEMANTIC_ARTIFACT_BUCKET` | — | S3 bucket name for semantic model artifacts |
 
 **Frontend:**
 | Variable | Notes |
@@ -133,7 +185,7 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 
 ### Local dev
 ```bash
-docker compose up --build   # db + api + frontend + one-shot scryfall-sync
+docker compose up --build   # db + minio + api + frontend
 ```
 
 ### Backend (run in `backend/`)
@@ -147,8 +199,10 @@ uv run pytest -x -q                 # tests
 # Run scryfall-sync manually:
 uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 
-# Run semantic pipeline:
-uv run python -m ot_backend.embed.pipeline
+# Run semantic pipeline (subcommands: run, export, register, promote, eval, reembed):
+uv run python -m ot_backend.embed.pipeline run
+uv run python -m ot_backend.embed.pipeline export /tmp/dataset.json
+uv run python -m ot_backend.embed.pipeline register ./model.zip --model-slug my-model
 
 # Apply migrations standalone:
 uv run alembic upgrade head

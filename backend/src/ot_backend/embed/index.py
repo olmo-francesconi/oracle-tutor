@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 import warnings
 from collections.abc import Sequence
 from importlib import import_module
@@ -15,13 +17,24 @@ from sqlalchemy import and_, cast, or_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
-from ..core.config import huggingface_cache_dir, semantic_model_path, semantic_onnx_model_path
-from ..core.models import Card, CardFace, CardFaceSemanticEmbedding
+from ..core.config import (
+    configure_huggingface_env,
+    semantic_active_model_poll_seconds,
+    semantic_onnx_inter_op_threads,
+    semantic_onnx_intra_op_threads,
+)
+from ..core.database import SessionLocal
+from ..core.models import Card, CardFace, SemanticModel, SemanticModelEmbedding
+from .model_registry import get_active_semantic_model_id, materialize_semantic_model
 from .text_prep import normalize_oracle_text
 
 logger = logging.getLogger("ot_backend.embed.index")
 
 _index: SemanticIndex | None = None
+_UNSET = object()  # Sentinel: index has never been loaded (distinct from None = no active model)
+_loaded_model_id: str | None | object = _UNSET
+_last_refresh_check: float = 0.0
+_index_lock = threading.Lock()
 _ORT_LOG_SEVERITY_ERRORS_ONLY = 3
 FloatArray = npt.NDArray[np.float32]
 
@@ -56,10 +69,6 @@ def _pooling_config_path(model_root: Path) -> Path:
 
 
 def _resolve_onnx_model_path(model_root: Path) -> Path:
-    configured_root = semantic_model_path()
-    if model_root == configured_root:
-        return semantic_onnx_model_path()
-
     default_path = model_root / "onnx" / "model.onnx"
     legacy_path = model_root / "model.onnx"
     if default_path.exists():
@@ -114,8 +123,7 @@ class OnnxTextEncoder:
     _session: Any
     _session_input_names: set[str]
 
-    def __init__(self, model_root: Path | None = None):
-        model_root = semantic_model_path() if model_root is None else model_root
+    def __init__(self, model_root: Path):
         onnx_model_path = _resolve_onnx_model_path(model_root)
         if not onnx_model_path.exists():
             raise RuntimeError(f"Semantic ONNX artifact not found at {onnx_model_path}")
@@ -124,7 +132,9 @@ class OnnxTextEncoder:
         InferenceSession, SessionOptions, AutoTokenizer = _load_onnx_dependencies()
         sess_options = SessionOptions()
         sess_options.log_severity_level = _ORT_LOG_SEVERITY_ERRORS_ONLY
-        _ = huggingface_cache_dir()
+        sess_options.intra_op_num_threads = semantic_onnx_intra_op_threads()
+        sess_options.inter_op_num_threads = semantic_onnx_inter_op_threads()
+        configure_huggingface_env()
         logger.info("Loading ONNX model from %s", onnx_model_path)
         self._tokenizer = AutoTokenizer.from_pretrained(str(model_root), local_files_only=True)
         self._session = InferenceSession(
@@ -136,24 +146,43 @@ class OnnxTextEncoder:
         logger.info("Semantic model ready")
 
     def encode(self, text: str) -> list[float]:
-        normalized = normalize_oracle_text(text)
-        encoded = self._tokenizer(
-            [normalized],
-            padding=True,
-            truncation=True,
-            return_tensors="np",
-        )
-        session_inputs = {
-            key: value
-            for key, value in encoded.items()
-            if key in self._session_input_names
-        }
-        outputs = self._session.run(None, session_inputs)
-        token_embeddings = np.asarray(outputs[0], dtype=np.float32)
-        attention_mask = np.asarray(encoded["attention_mask"], dtype=np.float32)
-        pooled = _mean_pool(token_embeddings, attention_mask)
-        normalized_embeddings = _normalize_embeddings(pooled)
-        return [float(value) for value in normalized_embeddings[0]]
+        return self.encode_many([text], batch_size=1, normalize_inputs=True)[0]
+
+    def encode_many(
+        self,
+        texts: Sequence[str],
+        batch_size: int = 32,
+        *,
+        normalize_inputs: bool = True,
+    ) -> list[list[float]]:
+        if not texts:
+            return []
+
+        total = len(texts)
+        effective_batch = max(1, batch_size)
+        vectors: list[list[float]] = []
+        for start in range(0, total, effective_batch):
+            logger.debug("Encoding batch %d-%d / %d", start + 1, min(start + effective_batch, total), total)
+            raw_batch = texts[start : start + effective_batch]
+            batch = [normalize_oracle_text(text) for text in raw_batch] if normalize_inputs else list(raw_batch)
+            encoded = self._tokenizer(
+                batch,
+                padding=True,
+                truncation=True,
+                return_tensors="np",
+            )
+            session_inputs = {
+                key: value
+                for key, value in encoded.items()
+                if key in self._session_input_names
+            }
+            outputs = self._session.run(None, session_inputs)
+            token_embeddings = np.asarray(outputs[0], dtype=np.float32)
+            attention_mask = np.asarray(encoded["attention_mask"], dtype=np.float32)
+            pooled = _mean_pool(token_embeddings, attention_mask)
+            normalized_embeddings = _normalize_embeddings(pooled)
+            vectors.extend([[float(value) for value in row] for row in normalized_embeddings])
+        return vectors
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +193,9 @@ class OnnxTextEncoder:
 class SemanticIndex:
     model: OnnxTextEncoder
 
-    def __init__(self, model_root: Path | None = None):
+    def __init__(self, model_root: Path, *, model_id: str | None = None):
         self.model = OnnxTextEncoder(model_root=model_root)
+        self.model_id = model_id
 
     def encode_query(self, text: str) -> list[float]:
         return self.model.encode(text)
@@ -184,7 +214,7 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        seed = db.get(CardFaceSemanticEmbedding, face_key)
+        seed = db.get(SemanticModelEmbedding, (self.model_id, *face_key))
         if seed is None:
             return []
         return self._pgvector_query(
@@ -245,16 +275,19 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        distance = CardFaceSemanticEmbedding.embedding.cosine_distance(query_vec).label("distance")
-        query = db.query(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix, distance)
+        distance = SemanticModelEmbedding.embedding.cosine_distance(query_vec).label("distance")
+        query = (
+            db.query(SemanticModelEmbedding.oracle_id, SemanticModelEmbedding.face_ix, distance)
+            .filter(SemanticModelEmbedding.model_id == self.model_id)
+        )
 
         has_filters = any(value is not None for value in (card_type, colors, cmc_min, cmc_max, format)) or bool(rarity)
         if has_filters:
             query = query.join(
                 CardFace,
                 and_(
-                    CardFace.oracle_id == CardFaceSemanticEmbedding.oracle_id,
-                    CardFace.face_ix == CardFaceSemanticEmbedding.face_ix,
+                    CardFace.oracle_id == SemanticModelEmbedding.oracle_id,
+                    CardFace.face_ix == SemanticModelEmbedding.face_ix,
                 ),
             ).join(Card, Card.oracle_id == CardFace.oracle_id)
 
@@ -262,8 +295,8 @@ class SemanticIndex:
             oracle_id_ex, face_ix_ex = exclude
             query = query.filter(
                 ~and_(
-                    CardFaceSemanticEmbedding.oracle_id == oracle_id_ex,
-                    CardFaceSemanticEmbedding.face_ix == face_ix_ex,
+                    SemanticModelEmbedding.oracle_id == oracle_id_ex,
+                    SemanticModelEmbedding.face_ix == face_ix_ex,
                 )
             )
 
@@ -310,13 +343,56 @@ class SemanticIndex:
 
 
 def get_semantic_index() -> SemanticIndex | None:
-    global _index
-    if _index is not None:
+    global _index, _last_refresh_check, _loaded_model_id
+
+    # Fast path: if index is loaded and poll interval hasn't elapsed, skip refresh check
+    now = time.monotonic()
+    poll_seconds = max(0.0, semantic_active_model_poll_seconds())
+    if _index is not None and now - _last_refresh_check < poll_seconds:
         return _index
 
+    # Check DB for active model ID — no lock held during network I/O
     try:
-        _index = SemanticIndex()
+        with SessionLocal() as db:
+            active_model_id = get_active_semantic_model_id(db)
+    except Exception as exc:
+        logger.warning("Semantic index DB check failed: %s", exc)
+        return _index
+
+    # Under lock: record that we checked, and skip reload if model ID is unchanged
+    with _index_lock:
+        _last_refresh_check = time.monotonic()
+        if active_model_id is None:
+            if _index is not None:
+                logger.info("Clearing semantic index cache because no active model is configured.")
+            _index = None
+            _loaded_model_id = None
+            return None
+        if _index is not None and _loaded_model_id is not _UNSET and _loaded_model_id == active_model_id:
+            return _index
+
+    # S3 download + ONNX load happen OUTSIDE the lock
+    try:
+        with SessionLocal() as db:
+            active_model = db.get(SemanticModel, active_model_id)
+        if active_model is None:
+            return _index
+        model_root, _bundle_root = materialize_semantic_model(active_model)
+        new_index = SemanticIndex(model_root=model_root, model_id=active_model.id)
     except Exception as exc:
         logger.warning("Semantic index unavailable: %s", exc)
+        with _index_lock:
+            _index = None
+            _loaded_model_id = active_model_id
         return None
+
+    # Swap the index under lock — fast operation
+    with _index_lock:
+        _index = new_index
+        _loaded_model_id = active_model_id
     return _index
+
+
+def mark_semantic_index_stale() -> None:
+    global _last_refresh_check
+    _last_refresh_check = 0.0

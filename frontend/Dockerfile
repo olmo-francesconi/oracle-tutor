@@ -23,10 +23,12 @@ RUN npm run build
 FROM nginx:1.27-alpine AS runtime
 
 ENV PORT=8080 \
-    API_PROXY_TARGET=http://api:8000
+    API_PROXY_TARGET=http://api:8000 \
+    NGINX_RESOLVER=127.0.0.11
 
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY nginx/proxy_params /etc/nginx/proxy_params
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 8080

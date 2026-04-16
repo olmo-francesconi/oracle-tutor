@@ -218,6 +218,10 @@ __marimo__/
 
 # data
 backend/data/*
+data/
+
+# Claude Code memory (private, project-local)
+.claude/
 
 # Node.js
 node_modules/
@@ -236,3 +240,5 @@ package-lock.json
 
 # VSCode
 .vscode/
+# Added by code-review-graph
+.code-review-graph/

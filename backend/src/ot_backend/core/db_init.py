@@ -16,6 +16,18 @@ from .models import _utcnow_naive
 
 logger = logging.getLogger("ot_backend.db")
 
+
+def parse_version(version_str: str | None) -> tuple[int, int, int]:
+    if not version_str:
+        return (0, 0, 0)
+    try:
+        parts = version_str.split(".")
+        while len(parts) < 3:
+            parts.append("0")
+        return (int(parts[0]), int(parts[1]), int(parts[2]))
+    except ValueError:
+        return (0, 0, 0)
+
 INIT_MODE_API = "api"
 INIT_MODE_WORKER = "worker"
 

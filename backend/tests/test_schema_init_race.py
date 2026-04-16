@@ -125,3 +125,6 @@ def test_wait_for_migration_ready_times_out_when_stuck_migrating() -> None:
 
     ready = wait_for_migration_ready(timeout_s=0.05, interval_s=0.01)
     assert ready is False
+
+    # Clean up stale "migrating" state so it doesn't leak to subsequent tests
+    _clean_db()
