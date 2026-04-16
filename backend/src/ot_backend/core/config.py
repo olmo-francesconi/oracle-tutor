@@ -74,6 +74,11 @@ def parse_version(version_str: str | None) -> tuple[int, int, int]:
         return (0, 0, 0)
 
 
+def cors_origins() -> list[str]:
+    raw = os.environ.get("ORACLE_TUTOR_API_CORS_ORIGINS", "")
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 def allowed_hosts() -> list[str]:
     explicit = os.getenv("ORACLE_TUTOR_API_ALLOWED_HOSTS", "").strip()
     def normalize(host: str) -> str:

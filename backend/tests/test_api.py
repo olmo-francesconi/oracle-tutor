@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from ot_backend.api.admin_auth import create_admin_token
-from ot_backend.api.main import _CARD_TYPE_MAP, _FORMAT_MAP, _parse_code_filter
+from ot_backend.api.routers.search import _CARD_TYPE_MAP, _FORMAT_MAP, _parse_code_filter
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.models import (
     AnalyticsEvent,
@@ -175,7 +175,7 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
         def similar_to_face(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95)]
 
-    monkeypatch.setattr("ot_backend.api.main._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"oracle_id": "o1", "face_ix": 0, "limit": 10})
     assert res.status_code == 200
@@ -213,7 +213,7 @@ def test_similar_cards_uses_shared_front_image_side_for_split_faces(client, monk
         def search_oracle(self, *_args, **_kwargs):
             return [(("o6", 1), 0.91)]
 
-    monkeypatch.setattr("ot_backend.api.main._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "tap draw", "limit": 10})
     assert res.status_code == 200
@@ -227,7 +227,7 @@ def test_similar_cards_uses_back_image_side_for_double_faced_back_face(client, m
         def search_oracle(self, *_args, **_kwargs):
             return [(("o7", 1), 0.89)]
 
-    monkeypatch.setattr("ot_backend.api.main._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "werewolf", "limit": 10})
     assert res.status_code == 200
@@ -241,7 +241,7 @@ def test_similar_cards_sets_has_more_when_more_results_exist(client, monkeypatch
         def search_oracle(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
 
-    monkeypatch.setattr("ot_backend.api.main._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "shock", "limit": 1, "offset": 0})
     assert res.status_code == 200
@@ -254,7 +254,7 @@ def test_similar_cards_sets_has_more_false_on_last_page(client, monkeypatch):
         def search_oracle(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
 
-    monkeypatch.setattr("ot_backend.api.main._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "shock", "limit": 1, "offset": 1})
     assert res.status_code == 200
@@ -274,8 +274,8 @@ def test_similar_cards_rejects_duplicate_compact_format_codes(client):
 
 
 def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):
-    monkeypatch.setattr("ot_backend.api.main._schema_ready", False)
-    monkeypatch.setattr("ot_backend.api.main.wait_for_migration_ready", lambda **_: False)
+    monkeypatch.setattr("ot_backend.api._ensure_schema_ready._schema_ready", False)
+    monkeypatch.setattr("ot_backend.api._ensure_schema_ready.wait_for_migration_ready", lambda **_: False)
 
     res = client.get("/search", params={"q": "shock"})
     assert res.status_code == 503
@@ -383,7 +383,7 @@ def test_similar_cards_rejects_overlong_query(client, monkeypatch):
         def search_oracle(self, *_args, **_kwargs):
             return []
 
-    monkeypatch.setattr("ot_backend.api.main._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "x" * 201})
 
