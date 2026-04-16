@@ -322,13 +322,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Recompute DB embeddings from an explicit model source without training or writing run artifacts.",
     )
     parser.add_argument(
-        "--load-embeddings",
-        type=Path,
-        default=None,
-        metavar="PATH",
-        help="Load pre-computed embeddings from a .npz file into DB.",
-    )
-    parser.add_argument(
         "--eval",
         action="store_true",
         help="Run eval queries against an explicit local run artifact directory.",
@@ -376,41 +369,6 @@ def _reembed(model_source: str, embed_batch_size: int) -> int:
     count = _compute_embeddings(model, batch_size=embed_batch_size)
     logger.info("Reembed complete. embedded=%d", count)
     return 0
-
-
-def _load_embeddings_from_file(path: Path) -> int:
-    try:
-        from ..core.models import CardFaceSemanticEmbedding
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("CardFaceSemanticEmbedding model is unavailable.") from exc
-
-    logger.info("Loading pre-computed embeddings from %s", path)
-    data = np.load(path, allow_pickle=False)
-    oracle_ids: list[str] = data["oracle_ids"].tolist()
-    face_ixs: list[int] = data["face_ixs"].tolist()
-    embeddings = data["embeddings"]
-
-    db = SessionLocal()
-    try:
-        db.query(CardFaceSemanticEmbedding).delete()
-        for start in range(0, len(oracle_ids), EMBED_WRITE_BATCH_SIZE):
-            end = min(start + EMBED_WRITE_BATCH_SIZE, len(oracle_ids))
-            db.bulk_insert_mappings(
-                CardFaceSemanticEmbedding,
-                [
-                    {
-                        "oracle_id": oracle_ids[i],
-                        "face_ix": face_ixs[i],
-                        "embedding": embeddings[i].tolist(),
-                    }
-                    for i in range(start, end)
-                ],
-            )
-        db.commit()
-        logger.info("Stored %d embeddings from file.", len(oracle_ids))
-        return len(oracle_ids)
-    finally:
-        db.close()
 
 
 def _load_optional_json_file(path: Path | None) -> dict[str, object] | None:
@@ -603,11 +561,6 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Semantic model promotion failed. id=%s", args.promote_model)
             return 1
         logger.info("Semantic model promotion finished. id=%s", args.promote_model)
-        return 0
-
-    if args.load_embeddings is not None:
-        count = _load_embeddings_from_file(args.load_embeddings)
-        logger.info("load-embeddings complete. stored=%d", count)
         return 0
 
     config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()

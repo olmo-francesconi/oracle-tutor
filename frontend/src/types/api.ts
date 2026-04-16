@@ -163,18 +163,6 @@ export interface SemanticDatasetSummary {
   error_message?: string | null
 }
 
-export interface SemanticDatasetMetrics {
-  face_count: number
-  pair_count: number
-  template_query_examples_count: number
-  llm_query_examples_count: number
-}
-
-export interface SemanticDatasetDetail extends SemanticDatasetSummary {
-  config_json: Record<string, unknown>
-  metrics_json: SemanticDatasetMetrics | null
-}
-
 export interface SemanticDatasetJobCreate {
   requested_by: string
   dataset_slug: string

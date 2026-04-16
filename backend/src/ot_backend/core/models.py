@@ -225,12 +225,6 @@ class CardFace(Base):
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     card: Mapped["Card"] = relationship(back_populates="faces")
-    semantic_embedding: Mapped["CardFaceSemanticEmbedding"] = relationship(
-        back_populates="face",
-        uselist=False,
-        cascade="all, delete-orphan",
-        single_parent=True,
-    )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -325,23 +319,6 @@ class CardRelationship(Base):
 # ---------------------------------------------------------------------------
 # Embeddings
 # ---------------------------------------------------------------------------
-
-
-class CardFaceSemanticEmbedding(Base):
-    __tablename__ = "card_face_semantic_embeddings"
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["oracle_id", "face_ix"],
-            ["card_faces.oracle_id", "card_faces.face_ix"],
-            ondelete="CASCADE",
-        ),
-    )
-
-    oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
-    face_ix: Mapped[int] = mapped_column(Integer, primary_key=True)
-    embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
-
-    face: Mapped["CardFace"] = relationship(back_populates="semantic_embedding")
 
 
 class SemanticModel(Base):

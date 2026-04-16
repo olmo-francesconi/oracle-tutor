@@ -211,18 +211,11 @@ def _write_embeddings_snapshot(
 
 
 def compute_embeddings(model: Any, batch_size: int = 256, output_path: Path | None = None) -> int:
-    try:
-        from ..core.models import CardFaceSemanticEmbedding
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("CardFaceSemanticEmbedding model is unavailable.") from exc
-
     db = SessionLocal()
     try:
-        db.query(CardFaceSemanticEmbedding).delete()
         total = db.query(CardFace).count()
         logger.info("Computing embeddings for %d card faces (batch_size=%d).", total, batch_size)
         if total == 0:
-            db.commit()
             logger.warning("No faces found; skipped embedding computation.")
             return 0
 
@@ -246,17 +239,6 @@ def compute_embeddings(model: Any, batch_size: int = 256, output_path: Path | No
                 ),
                 dtype=np.float32,
             )
-            db.bulk_insert_mappings(
-                CardFaceSemanticEmbedding,
-                [
-                    {
-                        "oracle_id": face.oracle_id,
-                        "face_ix": face.face_ix,
-                        "embedding": emb.tolist(),
-                    }
-                    for face, emb in zip(buffered_faces, encoded, strict=False)
-                ],
-            )
             if output_path is not None:
                 snapshot_oracle_ids.extend(face.oracle_id for face in buffered_faces)
                 snapshot_face_ixs.extend(face.face_ix for face in buffered_faces)
@@ -279,8 +261,7 @@ def compute_embeddings(model: Any, batch_size: int = 256, output_path: Path | No
                 snapshot_embeddings,
                 output_path=output_path,
             )
-        db.commit()
-        logger.info("Stored %d embeddings.", stored)
+        logger.info("Computed %d embeddings.", stored)
         return stored
     finally:
         db.close()

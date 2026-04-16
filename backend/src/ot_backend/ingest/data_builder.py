@@ -4,15 +4,14 @@ import json
 import logging
 import shutil
 import sys
-import time
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from urllib.parse import urlparse
 
 import ijson
 import requests
-from sqlalchemy import Table, bindparam, delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from ..core.config import (
@@ -28,7 +27,6 @@ from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
     CardFace,
-    CardFaceSemanticEmbedding,
     CardRaw,
     CardRelationship,
     CardTagging,
@@ -99,7 +97,6 @@ def _delete_card_related_rows(session, oracle_ids: list[str]) -> None:
 
     for i in range(0, len(oracle_ids), CHUNK_SIZE):
         chunk = oracle_ids[i : i + CHUNK_SIZE]
-        session.execute(delete(CardFaceSemanticEmbedding).where(CardFaceSemanticEmbedding.oracle_id.in_(chunk)))
         session.execute(delete(CardRelationship).where(CardRelationship.card_id.in_(chunk)))
         session.execute(delete(CardTagging).where(CardTagging.card_id.in_(chunk)))
         session.execute(delete(CardFace).where(CardFace.oracle_id.in_(chunk)))
@@ -367,59 +364,6 @@ def prepare_card_face(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -
         "flavor_text": face_data.get("flavor_text"),
         "cmc": face_data.get("cmc"),
     }
-
-
-def normalize_card_data(card: dict[str, Any]) -> dict[str, Any]:
-    normalized: dict[str, Any] = {
-        "id": card.get("id"),
-        "oracle_id": card.get("oracle_id"),
-        "name": card.get("name"),
-        "scryfall_set": card.get("set"),
-        "collector_number": card.get("collector_number"),
-        "layout": card.get("layout"),
-        "cmc": card.get("cmc"),
-        "edhrec_rank": card.get("edhrec_rank"),
-        "rarity": card.get("rarity"),
-        "legalities": card.get("legalities"),
-        "color_identity": card.get("color_identity"),
-    }
-
-    faces = card.get("card_faces") or [card]
-    normalized_faces: list[dict[str, Any]] = []
-    for face in faces:
-        normalized_faces.append(
-            {
-                "name": face.get("name"),
-                "mana_cost": face.get("mana_cost"),
-                "type_line": face.get("type_line"),
-                "oracle_text": face.get("oracle_text"),
-                "power": face.get("power"),
-                "toughness": face.get("toughness"),
-                "colors": face.get("colors"),
-            }
-        )
-
-    normalized["faces"] = normalized_faces
-    return normalized
-
-
-def load_existing_cards_map(file_path: Path) -> dict[str, dict[str, Any]]:
-    if not file_path.exists():
-        return {}
-
-    logger.info("Loading existing data for diff-ingest...")
-    try:
-        with file_path.open("r") as f:
-            data = json.load(f)
-        out: dict[str, dict[str, Any]] = {}
-        for card in data:
-            if not should_skip_card(card):
-                out[card.get("id")] = normalize_card_data(card)
-        logger.info("Loaded %d existing cards.", len(out))
-        return out
-    except Exception as e:
-        logger.warning("Failed to load existing file (%s). Treating as empty.", e)
-        return {}
 
 
 def ingest_batch(session, batch_cards: list[dict[str, Any]]) -> None:
@@ -745,101 +689,7 @@ UNIQUENESS_BATCH_SIZE = 500
 
 
 def compute_and_store_uniqueness_scores(session) -> None:
-    """
-    Compute a uniqueness score (0-100) for every card and write it to the DB.
-
-    Algorithm:
-      1. Load semantic embeddings for all card faces from the DB.
-      2. For each face, sum sim^power for all above-threshold similarities
-         (excluding same-card faces). This "redundancy" captures both depth
-         and breadth of similar cards.
-      3. Aggregate to card level (max across faces).
-      4. Convert to uniqueness via log-scaled normalization:
-           uniqueness = 100 * (1 - log(1+raw) / log(1+max_raw))
-    """
-    import numpy as np
-
-    logger.info("Computing uniqueness scores (threshold=%.2f, power=%.1f)...", UNIQUENESS_THRESHOLD, UNIQUENESS_POWER)
-    t0 = time.perf_counter()
-
-    embedding_query = (
-        select(
-            CardFaceSemanticEmbedding.oracle_id,
-            CardFaceSemanticEmbedding.face_ix,
-            CardFaceSemanticEmbedding.embedding,
-        )
-        .join(
-            CardFace,
-            (CardFaceSemanticEmbedding.oracle_id == CardFace.oracle_id)
-            & (CardFaceSemanticEmbedding.face_ix == CardFace.face_ix),
-        )
-        .order_by(CardFaceSemanticEmbedding.oracle_id, CardFaceSemanticEmbedding.face_ix)
-    )
-    n = session.query(CardFaceSemanticEmbedding).count()
-    if n == 0:
-        logger.warning("No semantic embeddings found; skipping uniqueness computation because semantic-worker has not run.")
-        return
-
-    card_redundancy: dict[str, float] = {}
-    embedding_rows = session.execute(embedding_query).all()
-    face_card_ids = [row[0] for row in embedding_rows]
-    matrix = np.asarray([row[2] for row in embedding_rows], dtype=np.float32)
-
-    card_face_map: dict[str, list[int]] = {}
-    for i, cid in enumerate(face_card_ids):
-        card_face_map.setdefault(cid, []).append(i)
-
-    face_redundancy = np.zeros(n, dtype=np.float64)
-
-    for batch_start in range(0, n, UNIQUENESS_BATCH_SIZE):
-        batch_end = min(batch_start + UNIQUENESS_BATCH_SIZE, n)
-        batch = matrix[batch_start:batch_end]
-
-        sims = np.asarray(batch @ matrix.T)
-
-        for i in range(batch_end - batch_start):
-            gi = batch_start + i
-            for j in card_face_map[face_card_ids[gi]]:
-                sims[i, j] = 0.0
-            row = sims[i]
-            above = row[row > UNIQUENESS_THRESHOLD]
-            face_redundancy[gi] = float(np.power(above, UNIQUENESS_POWER).sum())
-
-    for i, cid in enumerate(face_card_ids):
-        val = float(face_redundancy[i])
-        if cid not in card_redundancy or val > card_redundancy[cid]:
-            card_redundancy[cid] = val
-
-    # Log-scaled normalization -> uniqueness 0-100
-    raw_vals = np.array(list(card_redundancy.values()))
-    max_raw = float(raw_vals.max())
-    if max_raw <= 0:
-        card_uniqueness = {cid: 100.0 for cid in card_redundancy}
-    else:
-        log_max = float(np.log1p(max_raw))
-        card_uniqueness = {
-            cid: round(100.0 * (1.0 - float(np.log1p(raw)) / log_max), 2)
-            for cid, raw in card_redundancy.items()
-        }
-
-    from ..core.models import Card as CardTable
-    cards_table = cast(Table, CardTable.__table__)
-    stmt = (
-        update(cards_table)
-        .where(cards_table.c.oracle_id == bindparam("_oracle_id"))
-        .values(uniqueness=bindparam("_score"))
-    )
-    conn = session.connection()
-    mappings = [{"_oracle_id": cid, "_score": score} for cid, score in card_uniqueness.items()]
-    for i in range(0, len(mappings), CHUNK_SIZE):
-        conn.execute(stmt, mappings[i : i + CHUNK_SIZE])
-    session.commit()
-
-    elapsed = time.perf_counter() - t0
-    logger.info(
-        "Uniqueness scores computed and stored in %.1fs. cards=%d, max_redundancy=%.2f",
-        elapsed, len(card_uniqueness), max_raw,
-    )
+    logger.warning("Uniqueness scoring is disabled: card_face_semantic_embeddings table has been dropped.")
 
 
 # ---------------------------------------------------------------------------
