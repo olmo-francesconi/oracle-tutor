@@ -61,19 +61,6 @@ def is_production_env() -> bool:
     )
 
 
-def parse_version(version_str: str | None) -> tuple[int, int, int]:
-    if not version_str:
-        return (0, 0, 0)
-    try:
-        parts = version_str.split(".")
-        # Handle cases like "0.1" by padding with zeros
-        while len(parts) < 3:
-            parts.append("0")
-        return (int(parts[0]), int(parts[1]), int(parts[2]))
-    except ValueError:
-        return (0, 0, 0)
-
-
 def cors_origins() -> list[str]:
     raw = os.environ.get("ORACLE_TUTOR_API_CORS_ORIGINS", "")
     return [o.strip() for o in raw.split(",") if o.strip()]
@@ -192,8 +179,13 @@ def artifact_bucket_name() -> str:
 
 
 def huggingface_cache_dir() -> Path:
-    cache_dir = Path(os.getenv("HF_HOME", str(DEFAULT_HF_CACHE_DIR)))
+    """Return the HuggingFace cache directory path."""
+    return Path(os.environ.get("HF_HOME", str(DEFAULT_HF_CACHE_DIR)))
+
+
+def configure_huggingface_env() -> None:
+    """Create the HF cache dir and set env vars. Call once at startup."""
+    cache_dir = huggingface_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
-    _ = os.environ.setdefault("HF_HOME", str(cache_dir))
-    _ = os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(cache_dir / "sentence-transformers"))
-    return cache_dir
+    os.environ.setdefault("HF_HOME", str(cache_dir))
+    os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(cache_dir / "sentence-transformers"))

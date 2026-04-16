@@ -19,10 +19,9 @@ from ..core.config import (
     DATA_DIR,
     DB_SCHEMA_VERSION,
     ensure_data_dir,
-    parse_version,
 )
 from ..core.database import SessionLocal, engine
-from ..core.db_init import MIGRATION_STATE_READY, get_migration_state
+from ..core.db_init import MIGRATION_STATE_READY, get_migration_state, parse_version
 from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
@@ -34,6 +33,7 @@ from ..core.models import (
     SystemMetadata,
 )
 from ..embed.semantic_state import bump_semantic_data_version
+from ..embed.uniqueness import compute_and_store_uniqueness_scores
 from .fetch_tags import run_fetch_tags
 
 logger = logging.getLogger("ot_backend.ingest")
@@ -676,20 +676,6 @@ def ingest_data_diff(
         raise
     finally:
         session.close()
-
-
-# ---------------------------------------------------------------------------
-# Uniqueness scoring
-# ---------------------------------------------------------------------------
-
-
-UNIQUENESS_THRESHOLD = 0.40
-UNIQUENESS_POWER = 2.0
-UNIQUENESS_BATCH_SIZE = 500
-
-
-def compute_and_store_uniqueness_scores(session) -> None:
-    logger.warning("Uniqueness scoring is disabled: card_face_semantic_embeddings table has been dropped.")
 
 
 # ---------------------------------------------------------------------------

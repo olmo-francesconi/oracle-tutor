@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from ..core.config import (
-    huggingface_cache_dir,
+    configure_huggingface_env,
     semantic_active_model_poll_seconds,
     semantic_onnx_inter_op_threads,
     semantic_onnx_intra_op_threads,
@@ -134,7 +134,7 @@ class OnnxTextEncoder:
         sess_options.log_severity_level = _ORT_LOG_SEVERITY_ERRORS_ONLY
         sess_options.intra_op_num_threads = semantic_onnx_intra_op_threads()
         sess_options.inter_op_num_threads = semantic_onnx_inter_op_threads()
-        _ = huggingface_cache_dir()
+        configure_huggingface_env()
         logger.info("Loading ONNX model from %s", onnx_model_path)
         self._tokenizer = AutoTokenizer.from_pretrained(str(model_root), local_files_only=True)
         self._session = InferenceSession(

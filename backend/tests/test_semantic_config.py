@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from ot_backend.core.config import (
+    configure_huggingface_env,
     huggingface_cache_dir,
     semantic_active_model_poll_seconds,
     semantic_base_model_name,
@@ -17,6 +18,7 @@ def test_huggingface_cache_dir_defaults_to_writable_data_path(monkeypatch, tmp_p
     monkeypatch.setattr("ot_backend.core.config.DEFAULT_HF_CACHE_DIR", tmp_path / "huggingface")
 
     cache_dir = huggingface_cache_dir()
+    configure_huggingface_env()
 
     assert cache_dir == tmp_path / "huggingface"
     assert cache_dir.exists()

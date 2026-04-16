@@ -9,7 +9,7 @@ import numpy as np
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from ..core.config import huggingface_cache_dir
+from ..core.config import configure_huggingface_env, huggingface_cache_dir
 from ..core.database import SessionLocal
 from ..core.models import CardFace
 from .dataset_service import FaceIdentity, TrainingDatasetState
@@ -102,6 +102,7 @@ def train_sentence_transformer(
 ) -> Any:
     SentenceTransformer, InputExample, losses = _load_sentence_transformers()
     _ensure_training_dependencies()
+    configure_huggingface_env()
     cache_dir = huggingface_cache_dir()
 
     if not dataset_state.pair_ids:
@@ -150,6 +151,7 @@ def train_sentence_transformer(
 
 def export_onnx_model(model_source: str, output_path: Path) -> None:
     SentenceTransformer = _load_sentence_transformer_class()
+    configure_huggingface_env()
     cache_dir = huggingface_cache_dir()
     logger.info(
         "Exporting ONNX model. model_source=%s output_path=%s cache_dir=%s",

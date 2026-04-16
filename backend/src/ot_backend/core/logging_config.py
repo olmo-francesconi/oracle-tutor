@@ -103,8 +103,8 @@ def log_performance(
             result = f(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - start) * 1000
 
-            query = kwargs.get("q") or kwargs.get("card_id") or (args[0] if args else "")
-            limit = kwargs.get("limit") or (args[1] if len(args) > 1 else None)
+            query = kwargs.get("q") or kwargs.get("oracle_id") or kwargs.get("card_id") or ""
+            limit = kwargs.get("limit")
             result_count = 1
             if isinstance(result, (list, tuple)):
                 result_count = len(result)

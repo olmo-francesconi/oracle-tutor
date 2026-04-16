@@ -120,7 +120,7 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
         lambda model, **kw: (model_root, model_root),
     )
     monkeypatch.setattr("ot_backend.embed.index.import_module", fake_import_module)
-    monkeypatch.setattr("ot_backend.embed.index.huggingface_cache_dir", lambda: None)
+    monkeypatch.setattr("ot_backend.embed.index.configure_huggingface_env", lambda: None)
     monkeypatch.setenv("SEMANTIC_ONNX_INTRA_OP_THREADS", "2")
     monkeypatch.setenv("SEMANTIC_ONNX_INTER_OP_THREADS", "3")
 
