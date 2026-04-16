@@ -178,6 +178,7 @@ def artifact_bucket_name() -> str:
     return os.environ["SEMANTIC_ARTIFACT_BUCKET"]
 
 
+
 def huggingface_cache_dir() -> Path:
     """Return the HuggingFace cache directory path."""
     return Path(os.environ.get("HF_HOME", str(DEFAULT_HF_CACHE_DIR)))

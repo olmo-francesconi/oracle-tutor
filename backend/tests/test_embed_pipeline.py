@@ -188,7 +188,7 @@ def test_pipeline_config_json_file_loaded_via_cli(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr("ot_backend.embed.pipeline.run_pipeline", lambda cfg, run_dir: runs.append(cfg) or 0)
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-id")
 
-    main(["--config", str(config_file), "--runs-dir", str(tmp_path)])
+    main(["run", "--config", str(config_file), "--runs-dir", str(tmp_path)])
 
     assert runs[0].epochs == 7
 
@@ -286,7 +286,7 @@ def test_export_dataset_command_records_semantic_version(tmp_path: Path) -> None
     with SessionLocal() as db:
         bump_semantic_data_version(db)
 
-    main(["--export-dataset", str(export_path)])
+    main(["export", str(export_path)])
 
     payload = json.loads(export_path.read_text(encoding="utf-8"))
     assert payload["metadata"]["semantic_data_version"] == 1
@@ -335,7 +335,7 @@ def test_register_model_command_uses_dataset_metadata(monkeypatch, tmp_path: Pat
 
     exit_code = main(
         [
-            "--register-model",
+            "register",
             str(bundle_root),
             "--model-slug",
             "candidate-model",
@@ -392,7 +392,7 @@ def test_pipeline_no_fine_tune_exports_base_model(
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--no-fine-tune", "--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--no-fine-tune", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert len(exported) == 1
@@ -447,7 +447,7 @@ def test_pipeline_default_fine_tunes_then_computes_embeddings_then_exports(
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert "train" in calls
@@ -553,7 +553,7 @@ def test_pipeline_closes_db_session_before_training(
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert recording.closed is True
@@ -628,7 +628,7 @@ def test_pipeline_can_train_from_pre_exported_dataset(
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--dataset-path", str(dataset_path), "--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--dataset-path", str(dataset_path), "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert len(FakeSentenceTransformer.instances) == 1
@@ -696,7 +696,7 @@ def test_pipeline_uses_old_fit_on_mps(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     monkeypatch.setattr("ot_backend.embed.training_service.import_module", fake_import_module)
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     model = FakeSentenceTransformer.instances[0]
@@ -792,7 +792,7 @@ def test_pipeline_creates_bundle_shaped_versioned_run_dir(
         lambda config, state, run_dir: FakeModel(),
     )
 
-    exit_code = main(["--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     run_dir = tmp_path / "20260324-120000"
@@ -839,7 +839,7 @@ def test_pipeline_no_embeddings_skips_compute(
     )
     monkeypatch.setattr("ot_backend.embed.pipeline._make_run_id", lambda name=None: "test-run")
 
-    exit_code = main(["--no-embeddings", "--runs-dir", str(tmp_path)])
+    exit_code = main(["run", "--no-embeddings", "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert compute_calls == []
@@ -868,7 +868,7 @@ def test_reembed_only_loads_model_and_reembeds_without_touching_run_dirs(
         lambda model, batch_size=256, output_path=None: embedded.append(model) or 5,
     )
 
-    exit_code = main(["--reembed-only", "--base-model", str(model_dir), "--runs-dir", str(tmp_path)])
+    exit_code = main(["reembed", "--base-model", str(model_dir), "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert loaded == [str(model_dir)]
@@ -896,7 +896,7 @@ def test_reembed_only_uses_base_model_from_config_file(
         lambda model, batch_size=256, output_path=None: 0,
     )
 
-    exit_code = main(["--reembed-only", "--config", str(config_file), "--runs-dir", str(tmp_path)])
+    exit_code = main(["reembed", "--config", str(config_file), "--runs-dir", str(tmp_path)])
 
     assert exit_code == 0
     assert loaded == [str(model_dir)]

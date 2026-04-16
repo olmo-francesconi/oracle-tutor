@@ -167,7 +167,7 @@ def test_register_model_bundle_bytes_records_dataset_and_manifest_artifacts(tmp_
             config_json=None,
             metrics_json=None,
         )
-        model_id = int(model.id)
+        model_id = model.id
 
     with SessionLocal() as db:
         model = db.get(SemanticModel, model_id)
@@ -381,7 +381,7 @@ def test_begin_semantic_model_promotion_releases_lock_when_model_is_missing(tmp_
         candidate_id = candidate.id
 
     try:
-        begin_semantic_model_promotion(candidate_id + 999)
+        begin_semantic_model_promotion("00000000-0000-0000-0000-000000000000")
     except KeyError:
         pass
     else:
@@ -560,7 +560,7 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
     monkeypatch.setenv("SEMANTIC_ONNX_INTER_OP_THREADS", "3")
     monkeypatch.setenv("SEMANTIC_TEMP_DIR", str(tmp_path / "semantic-cache"))
     monkeypatch.setattr("ot_backend.embed.index.import_module", fake_import_module)
-    monkeypatch.setattr("ot_backend.embed.index.huggingface_cache_dir", lambda: None)
+    monkeypatch.setattr("ot_backend.embed.index.configure_huggingface_env", lambda: None)
 
     semantic_index = index.get_semantic_index()
 

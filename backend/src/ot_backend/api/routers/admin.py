@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ...core.config import admin_jwt_secret, admin_password
 from ...core.database import get_db
 from ...core.models import SemanticDataset, SemanticModel
 from ...embed.artifacts import (
@@ -60,7 +62,6 @@ from ..schemas import (
     SemanticTrainJobCreate,
     SemanticTrainOptions,
 )
-from ...core.config import admin_jwt_secret, admin_password
 
 logger = logging.getLogger("ot_backend.api")
 

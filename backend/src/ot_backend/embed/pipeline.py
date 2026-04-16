@@ -38,7 +38,6 @@ from .registration import register_model_bundle_bytes
 from .semantic_state import record_exported_dataset_version
 from .training_service import (
     CHECKPOINT_DIR_NAME,
-    EMBED_WRITE_BATCH_SIZE,
     LazyInputExampleDataset,  # noqa: F401
     _load_sentence_transformer_class,
     compute_embeddings,
@@ -284,81 +283,74 @@ def run_pipeline(config: PipelineConfig, run_dir: Path) -> int:
     metrics["total_duration_seconds"] = round(time.monotonic() - t0, 1)
     (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     logger.info("Pipeline complete. run_id=%s duration=%.1fs", run_dir.name, metrics["total_duration_seconds"])
+
     return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ot_backend.embed.pipeline")
-    parser.add_argument("--run-name", help="Label appended to the run ID (e.g. 'larger-batch').")
-    parser.add_argument("--epochs", type=int, help="Training epochs (default: 5).")
-    parser.add_argument("--batch-size", type=int, help="Training batch size (default: 8).")
-    parser.add_argument("--base-model", help="HuggingFace model ID or local path.")
-    parser.add_argument(
-        "--max-tag-desc-pairs-per-tag",
-        type=int,
-        help="Max tag-description anchor pairs per tag (default: 20).",
-    )
-    parser.add_argument("--no-fine-tune", action="store_true", help="Skip training; use base model for embeddings and ONNX export.")
-    parser.add_argument("--no-embeddings", action="store_true", help="Skip embedding computation.")
-    parser.add_argument("--embed-batch-size", type=int, help="Batch size for embedding computation (default: 256).")
-    parser.add_argument("--dataset-path", type=Path, help="Use a pre-exported training dataset JSON for the local pipeline run.")
-    parser.add_argument("--export-dataset", type=Path, help="Export training dataset to JSON and exit.")
-    parser.add_argument("--register-model", type=Path, help="Register a zipped model bundle or model directory in the DB registry.")
-    parser.add_argument("--model-slug", help="Slug or label for --register-model.")
-    parser.add_argument("--model-config-json", type=Path, help="Optional JSON object merged into the registered model config.")
-    parser.add_argument("--model-metrics-json", type=Path, help="Optional JSON object merged into the registered model metrics.")
-    parser.add_argument("--source-semantic-data-version", type=int, help="Explicit source semantic data version for model registration.")
-    parser.add_argument(
-        "--augmentation-mode",
-        default="none",
-        help="Training dataset augmentation mode metadata stored with registered models (default: none).",
-    )
-    parser.add_argument("--config", type=Path, help="Load PipelineConfig defaults from a JSON file.")
-    parser.add_argument("--runs-dir", type=Path, help="Override the runs root directory.")
-    parser.add_argument("--promote-model", type=str, help="Promote a registered semantic model by ID.")
-    parser.add_argument(
-        "--reembed-only",
-        action="store_true",
-        help="Recompute DB embeddings from an explicit model source without training or writing run artifacts.",
-    )
-    parser.add_argument(
-        "--eval",
-        action="store_true",
-        help="Run eval queries against an explicit local run artifact directory.",
-    )
-    parser.add_argument(
-        "--eval-run-dir",
-        type=Path,
-        help="Run artifact directory containing models/, embeddings/, training/, and eval/ outputs.",
-    )
-    parser.add_argument(
-        "--eval-queries",
-        type=Path,
-        help="Optional eval queries JSON. Defaults to the packaged eval query set.",
-    )
+    subparsers = parser.add_subparsers(dest="command", help="Pipeline commands")
+
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument("--config", type=Path, help="Load PipelineConfig defaults from a JSON file.")
+    shared.add_argument("--base-model", help="HuggingFace model ID or local path.")
+    shared.add_argument("--runs-dir", type=Path, help="Override the runs root directory.")
+
+    run_parser = subparsers.add_parser("run", parents=[shared], help="Run the full train/embed/export pipeline.")
+    run_parser.add_argument("--run-name", help="Label appended to the run ID.")
+    run_parser.add_argument("--epochs", type=int, help="Training epochs (default: 5).")
+    run_parser.add_argument("--batch-size", type=int, help="Training batch size (default: 8).")
+    run_parser.add_argument("--max-tag-desc-pairs-per-tag", type=int)
+    run_parser.add_argument("--no-fine-tune", action="store_true")
+    run_parser.add_argument("--no-embeddings", action="store_true")
+    run_parser.add_argument("--embed-batch-size", type=int)
+    run_parser.add_argument("--dataset-path", type=Path, help="Use a pre-exported dataset.")
+
+    export_parser = subparsers.add_parser("export", parents=[shared], help="Export training dataset to JSON.")
+    export_parser.add_argument("output", type=Path, help="Output path for the dataset JSON.")
+
+    reg_parser = subparsers.add_parser("register", parents=[shared], help="Register a zipped model bundle.")
+    reg_parser.add_argument("bundle_path", type=Path, help="Path to zip bundle or model directory.")
+    reg_parser.add_argument("--model-slug", required=True, help="Slug for the model.")
+    reg_parser.add_argument("--model-config-json", type=Path)
+    reg_parser.add_argument("--model-metrics-json", type=Path)
+    reg_parser.add_argument("--source-semantic-data-version", type=int)
+    reg_parser.add_argument("--augmentation-mode", default="none")
+
+    promote_parser = subparsers.add_parser("promote", parents=[shared], help="Promote a registered semantic model.")
+    promote_parser.add_argument("model_id", type=str, help="Model ID to promote.")
+    promote_parser.add_argument("--embed-batch-size", type=int)
+
+    eval_parser = subparsers.add_parser("eval", parents=[shared], help="Run eval queries against a run directory.")
+    eval_parser.add_argument("--eval-run-dir", type=Path, required=True)
+    eval_parser.add_argument("--eval-queries", type=Path)
+
+    reembed_parser = subparsers.add_parser("reembed", parents=[shared], help="Recompute DB embeddings.")
+    reembed_parser.add_argument("--embed-batch-size", type=int)
+
     return parser
 
 
 def _apply_cli_overrides(config: PipelineConfig, args: argparse.Namespace) -> None:
-    if args.run_name is not None:
+    if getattr(args, "run_name", None) is not None:
         config.run_name = args.run_name
-    if args.epochs is not None:
+    if getattr(args, "epochs", None) is not None:
         config.epochs = args.epochs
-    if args.batch_size is not None:
+    if getattr(args, "batch_size", None) is not None:
         config.batch_size = args.batch_size
-    if args.base_model is not None:
+    if getattr(args, "base_model", None) is not None:
         config.base_model = args.base_model
-    if args.max_tag_desc_pairs_per_tag is not None:
+    if getattr(args, "max_tag_desc_pairs_per_tag", None) is not None:
         config.max_tag_desc_pairs_per_tag = args.max_tag_desc_pairs_per_tag
-    if args.no_fine_tune:
+    if getattr(args, "no_fine_tune", False):
         config.skip_fine_tune = True
-    if args.no_embeddings:
+    if getattr(args, "no_embeddings", False):
         config.skip_embeddings = True
-    if args.embed_batch_size is not None:
+    if getattr(args, "embed_batch_size", None) is not None:
         config.embed_batch_size = args.embed_batch_size
-    if args.dataset_path is not None:
+    if getattr(args, "dataset_path", None) is not None:
         config.dataset_path = args.dataset_path
-    if args.runs_dir is not None:
+    if getattr(args, "runs_dir", None) is not None:
         config.runs_dir = args.runs_dir
 
 
@@ -524,66 +516,85 @@ def _export_dataset_and_exit(output_path: Path) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    setup_loggers()
-    args = _build_parser().parse_args(argv if argv is not None else [])
+def _cmd_export(args: argparse.Namespace) -> int:
+    return _export_dataset_and_exit(args.output)
 
-    if args.export_dataset is not None:
-        return _export_dataset_and_exit(args.export_dataset)
 
-    if args.register_model is not None:
-        if not args.model_slug:
-            raise ValueError("--model-slug is required with --register-model.")
-        if args.dataset_path is not None:
-            raise ValueError("--dataset-path is only valid for local pipeline runs, not --register-model.")
-
-        config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
-        _apply_cli_overrides(config, args)
-
-        base_model = args.base_model or config.base_model
-        return _register_model(
-            args.register_model,
-            slug=args.model_slug,
-            base_model=base_model,
-            source_semantic_data_version=args.source_semantic_data_version,
-            augmentation_mode=args.augmentation_mode,
-            config_json_path=args.model_config_json,
-            metrics_json_path=args.model_metrics_json,
-        )
-
-    if args.promote_model is not None:
-        config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
-        _apply_cli_overrides(config, args)
-        model = begin_semantic_model_promotion(args.promote_model)
-        logger.info("Starting semantic model promotion. id=%s slug=%s", model.id, model.slug)
-        succeeded = run_semantic_model_promotion(args.promote_model, embed_batch_size=config.embed_batch_size)
-        if not succeeded:
-            logger.error("Semantic model promotion failed. id=%s", args.promote_model)
-            return 1
-        logger.info("Semantic model promotion finished. id=%s", args.promote_model)
-        return 0
-
+def _cmd_register(args: argparse.Namespace) -> int:
     config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
     _apply_cli_overrides(config, args)
+    base_model = args.base_model or config.base_model
+    return _register_model(
+        args.bundle_path,
+        slug=args.model_slug,
+        base_model=base_model,
+        source_semantic_data_version=args.source_semantic_data_version,
+        augmentation_mode=args.augmentation_mode,
+        config_json_path=args.model_config_json,
+        metrics_json_path=args.model_metrics_json,
+    )
 
-    if args.eval:
-        if args.eval_run_dir is None:
-            raise ValueError("--eval-run-dir is required with --eval.")
-        return _run_eval(
-            run_dir=args.eval_run_dir,
-            model_source=config.base_model if args.base_model else None,
-            eval_path=args.eval_queries,
-        )
 
-    if args.reembed_only:
-        return _reembed(config.base_model, embed_batch_size=config.embed_batch_size)
+def _cmd_promote(args: argparse.Namespace) -> int:
+    config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
+    _apply_cli_overrides(config, args)
+    model = begin_semantic_model_promotion(args.model_id)
+    logger.info("Starting promotion. id=%s slug=%s", model.id, model.slug)
+    succeeded = run_semantic_model_promotion(args.model_id, embed_batch_size=config.embed_batch_size)
+    if not succeeded:
+        logger.error("Promotion failed. id=%s", args.model_id)
+        return 1
+    logger.info("Promotion finished. id=%s", args.model_id)
+    return 0
 
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
+    _apply_cli_overrides(config, args)
+    return _run_eval(
+        run_dir=args.eval_run_dir,
+        model_source=config.base_model if args.base_model else None,
+        eval_path=args.eval_queries,
+    )
+
+
+def _cmd_reembed(args: argparse.Namespace) -> int:
+    config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
+    _apply_cli_overrides(config, args)
+    return _reembed(config.base_model, embed_batch_size=config.embed_batch_size)
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    config = PipelineConfig.from_json_file(args.config) if args.config else PipelineConfig()
+    _apply_cli_overrides(config, args)
     run_id = _make_run_id(config.run_name)
     run_dir = config.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-
     logger.info("Starting pipeline. run_id=%s run_dir=%s", run_id, run_dir)
     return run_pipeline(config, run_dir)
+
+
+def main(argv: list[str] | None = None) -> int:
+    setup_loggers()
+    parser = _build_parser()
+    args = parser.parse_args(argv if argv is not None else [])
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    if args.command == "export":
+        return _cmd_export(args)
+    elif args.command == "register":
+        return _cmd_register(args)
+    elif args.command == "promote":
+        return _cmd_promote(args)
+    elif args.command == "eval":
+        return _cmd_eval(args)
+    elif args.command == "reembed":
+        return _cmd_reembed(args)
+    else:  # "run"
+        return _cmd_run(args)
 
 
 if __name__ == "__main__":

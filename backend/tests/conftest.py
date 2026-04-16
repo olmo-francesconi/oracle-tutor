@@ -17,6 +17,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
 os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password")
 os.environ.setdefault("ADMIN_JWT_SECRET", "test-admin-jwt-secret-which-is-at-least-32-bytes")
+# Prevent lifespan's wait_for_migration_ready from blocking for 30s if state is stale
+os.environ.setdefault("ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS", "0.5")
 
 # Ensure the `src/` layout package is importable when running pytest without an editable install.
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -36,6 +38,7 @@ from ot_backend.core.models import (  # noqa: E402
     SemanticModel,
     SemanticModelArtifact,
     SemanticModelEmbedding,
+    SystemMetadata,
 )
 
 
@@ -81,6 +84,7 @@ def _seed_db() -> None:
         db.query(CardFace).delete()
         db.query(Card).delete()
         db.query(CardRaw).delete()
+        db.query(SystemMetadata).delete()
         db.commit()
 
         db.add_all(
@@ -235,3 +239,18 @@ def reset_admin_login_attempt_state() -> Generator[None, None, None]:
     clear_admin_login_attempts_for_tests()
     yield
     clear_admin_login_attempts_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _reset_module_globals() -> Generator[None, None, None]:
+    """Reset leaked module-level state between tests."""
+    yield
+    # Semantic index cache — prevents stale model references across tests
+    from ot_backend.embed import index as _idx
+    _idx._index = None
+    _idx._last_refresh_check = 0.0
+    _idx._loaded_model_id = _idx._UNSET
+
+    # Schema-ready flag — must re-check after each test's DB mutations
+    from ot_backend.api import _ensure_schema_ready as _esr
+    _esr._schema_ready = False

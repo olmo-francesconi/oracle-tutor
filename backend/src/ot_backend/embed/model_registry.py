@@ -234,6 +234,14 @@ def begin_semantic_model_promotion(model_id: str) -> SemanticModel:
             raise ValueError(f"Semantic model {model_id} is already active.")
         if model.status == SEMANTIC_MODEL_STATUS_EMBEDDING:
             raise RuntimeError(f"Semantic model {model_id} promotion is already in progress.")
+        other_embedding = db.scalar(
+            select(SemanticModel.id).where(
+                SemanticModel.status == SEMANTIC_MODEL_STATUS_EMBEDDING,
+                SemanticModel.id != model_id,
+            ).limit(1)
+        )
+        if other_embedding is not None:
+            raise RuntimeError(f"Another semantic model ({other_embedding}) promotion is already running.")
         model.status = SEMANTIC_MODEL_STATUS_EMBEDDING
         model.error_message = None
         merged_metrics = dict(model.metrics_json or {})
