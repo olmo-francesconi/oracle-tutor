@@ -39,9 +39,9 @@ def _file_handler(filename: str) -> logging.Handler:
 def _log_to_files() -> bool:
     """
     Default to stdout-only in production (Railway-friendly).
-    Set ORACLE_TUTOR_LOG_TO_FILES=true to also write /app/data/*.log.
+    Set OT_LOG_TO_FILES=true to also write /app/data/*.log.
     """
-    explicit = os.getenv("ORACLE_TUTOR_LOG_TO_FILES")
+    explicit = os.getenv("OT_LOG_TO_FILES")
     if explicit is not None:
         return explicit.lower() in ("1", "true", "yes")
     return not is_production_env()
@@ -53,7 +53,7 @@ def _log_to_files() -> bool:
 
 
 def setup_loggers() -> None:
-    """Configure a small set of named loggers used across API, ingest, and embed flows."""
+    """Configure a small set of named loggers used across API, ingest, and semantic flows."""
     global _loggers_configured
     if _loggers_configured:
         return
@@ -62,7 +62,7 @@ def setup_loggers() -> None:
     write_files = _log_to_files()
     api_file = _file_handler("api.log") if write_files else None
     update_file = _file_handler("update.log") if write_files else None
-    embed_file = _file_handler("embed.log") if write_files else None
+    semantic_file = _file_handler("semantic.log") if write_files else None
 
     def configure(name: str, level: int, file_handler: logging.Handler | None) -> None:
         logger = logging.getLogger(name)
@@ -76,10 +76,10 @@ def setup_loggers() -> None:
     configure("ot_backend.db", logging.INFO, api_file)
     configure("ot_backend.data", logging.INFO, update_file)
     configure("ot_backend.ingest", logging.INFO, update_file)
-    configure("ot_backend.embed", logging.INFO, embed_file)
-    configure("ot_backend.embed.train", logging.INFO, embed_file)
-    configure("ot_backend.embed.compute", logging.INFO, embed_file)
-    configure("ot_backend.embed.index", logging.INFO, embed_file)
+    configure("ot_backend.semantic", logging.INFO, semantic_file)
+    configure("ot_backend.semantic.train", logging.INFO, semantic_file)
+    configure("ot_backend.semantic.compute", logging.INFO, semantic_file)
+    configure("ot_backend.semantic.index", logging.INFO, semantic_file)
     _loggers_configured = True
 
 

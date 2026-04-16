@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from ot_backend.embed import index
+from ot_backend.semantic import index
 
 
 def _make_fake_session(model_id: int):
@@ -113,14 +113,14 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
             return SimpleNamespace(AutoTokenizer=FakeTokenizer)
         raise AssertionError(f"Unexpected import: {module_name}")
 
-    monkeypatch.setattr("ot_backend.embed.index.get_active_semantic_model_id", lambda db: 1)
-    monkeypatch.setattr("ot_backend.embed.index.SessionLocal", _make_fake_session(1))
+    monkeypatch.setattr("ot_backend.semantic.index.get_active_semantic_model_id", lambda db: 1)
+    monkeypatch.setattr("ot_backend.semantic.index.SessionLocal", _make_fake_session(1))
     monkeypatch.setattr(
-        "ot_backend.embed.index.materialize_semantic_model",
+        "ot_backend.semantic.index.materialize_semantic_model",
         lambda model, **kw: (model_root, model_root),
     )
-    monkeypatch.setattr("ot_backend.embed.index.import_module", fake_import_module)
-    monkeypatch.setattr("ot_backend.embed.index.configure_huggingface_env", lambda: None)
+    monkeypatch.setattr("ot_backend.semantic.index.import_module", fake_import_module)
+    monkeypatch.setattr("ot_backend.semantic.index.configure_huggingface_env", lambda: None)
     monkeypatch.setenv("SEMANTIC_ONNX_INTRA_OP_THREADS", "2")
     monkeypatch.setenv("SEMANTIC_ONNX_INTER_OP_THREADS", "3")
 
@@ -141,10 +141,10 @@ def test_get_semantic_index_returns_none_when_onnx_artifact_is_missing(monkeypat
     model_root = tmp_path / "semantic-model"
     model_root.mkdir(parents=True)
 
-    monkeypatch.setattr("ot_backend.embed.index.get_active_semantic_model_id", lambda db: 1)
-    monkeypatch.setattr("ot_backend.embed.index.SessionLocal", _make_fake_session(1))
+    monkeypatch.setattr("ot_backend.semantic.index.get_active_semantic_model_id", lambda db: 1)
+    monkeypatch.setattr("ot_backend.semantic.index.SessionLocal", _make_fake_session(1))
     monkeypatch.setattr(
-        "ot_backend.embed.index.materialize_semantic_model",
+        "ot_backend.semantic.index.materialize_semantic_model",
         lambda model, **kw: (model_root, model_root),
     )
 
@@ -164,10 +164,10 @@ def test_get_semantic_index_rejects_unsupported_pooling(monkeypatch, tmp_path) -
     (model_root / "onnx" / "model.onnx").write_bytes(b"onnx")
     (pooling_dir / "config.json").write_text('{"pooling_mode_cls_token": true}', encoding="utf-8")
 
-    monkeypatch.setattr("ot_backend.embed.index.get_active_semantic_model_id", lambda db: 1)
-    monkeypatch.setattr("ot_backend.embed.index.SessionLocal", _make_fake_session(1))
+    monkeypatch.setattr("ot_backend.semantic.index.get_active_semantic_model_id", lambda db: 1)
+    monkeypatch.setattr("ot_backend.semantic.index.SessionLocal", _make_fake_session(1))
     monkeypatch.setattr(
-        "ot_backend.embed.index.materialize_semantic_model",
+        "ot_backend.semantic.index.materialize_semantic_model",
         lambda model, **kw: (model_root, model_root),
     )
 
@@ -188,11 +188,11 @@ def test_get_semantic_index_clears_stale_cache_when_active_model_changes_and_rel
     (pooling_dir / "config.json").write_text('{"pooling_mode_mean_tokens": true}', encoding="utf-8")
 
     model_ids = iter([1, 2])
-    monkeypatch.setattr("ot_backend.embed.index.get_active_semantic_model_id", lambda db: next(model_ids))
-    monkeypatch.setattr("ot_backend.embed.index.SessionLocal", _make_lookup_session())
-    monkeypatch.setattr("ot_backend.embed.index.semantic_active_model_poll_seconds", lambda: 0.0)
+    monkeypatch.setattr("ot_backend.semantic.index.get_active_semantic_model_id", lambda db: next(model_ids))
+    monkeypatch.setattr("ot_backend.semantic.index.SessionLocal", _make_lookup_session())
+    monkeypatch.setattr("ot_backend.semantic.index.semantic_active_model_poll_seconds", lambda: 0.0)
     monkeypatch.setattr(
-        "ot_backend.embed.index.materialize_semantic_model",
+        "ot_backend.semantic.index.materialize_semantic_model",
         lambda model, **kw: (model_root, model_root) if model.id == 1 else (_ for _ in ()).throw(RuntimeError("broken bundle")),
     )
 
@@ -201,7 +201,7 @@ def test_get_semantic_index_clears_stale_cache_when_active_model_changes_and_rel
             self.model_root = model_root
             self.model_id = model_id
 
-    monkeypatch.setattr("ot_backend.embed.index.SemanticIndex", FakeSemanticIndex)
+    monkeypatch.setattr("ot_backend.semantic.index.SemanticIndex", FakeSemanticIndex)
 
     first_index = index.get_semantic_index()
     second_index = index.get_semantic_index()
@@ -224,11 +224,11 @@ def test_get_semantic_index_clears_cache_when_no_active_model_exists(monkeypatch
     (pooling_dir / "config.json").write_text('{"pooling_mode_mean_tokens": true}', encoding="utf-8")
 
     model_ids = iter([1, None])
-    monkeypatch.setattr("ot_backend.embed.index.get_active_semantic_model_id", lambda db: next(model_ids))
-    monkeypatch.setattr("ot_backend.embed.index.SessionLocal", _make_fake_session(1))
-    monkeypatch.setattr("ot_backend.embed.index.semantic_active_model_poll_seconds", lambda: 0.0)
+    monkeypatch.setattr("ot_backend.semantic.index.get_active_semantic_model_id", lambda db: next(model_ids))
+    monkeypatch.setattr("ot_backend.semantic.index.SessionLocal", _make_fake_session(1))
+    monkeypatch.setattr("ot_backend.semantic.index.semantic_active_model_poll_seconds", lambda: 0.0)
     monkeypatch.setattr(
-        "ot_backend.embed.index.materialize_semantic_model",
+        "ot_backend.semantic.index.materialize_semantic_model",
         lambda model, **kw: (model_root, model_root),
     )
 
@@ -237,7 +237,7 @@ def test_get_semantic_index_clears_cache_when_no_active_model_exists(monkeypatch
             self.model_root = model_root
             self.model_id = model_id
 
-    monkeypatch.setattr("ot_backend.embed.index.SemanticIndex", FakeSemanticIndex)
+    monkeypatch.setattr("ot_backend.semantic.index.SemanticIndex", FakeSemanticIndex)
 
     first_index = index.get_semantic_index()
     second_index = index.get_semantic_index()

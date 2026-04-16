@@ -37,7 +37,7 @@ from pathlib import Path
 # Allow importing ot_backend when running from backend/
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ot_backend.embed.query_gen import generate_template_queries
+from ot_backend.semantic.query_gen import generate_template_queries
 
 # ---------------------------------------------------------------------------
 # Prompt

@@ -389,8 +389,8 @@ def _create_semantic_job(
     model_id: str | None,
     payload_json: dict[str, object],
 ) -> SemanticJob:
-    normalized_requestor = requested_by.strip()
-    if not normalized_requestor:
+    normalized_requested_by = requested_by.strip()
+    if not normalized_requested_by:
         raise ValueError("requested_by must not be empty.")
     if job_type not in _VALID_JOB_TYPES:
         raise ValueError(f"Unsupported semantic job type '{job_type}'.")
@@ -398,7 +398,7 @@ def _create_semantic_job(
     job = SemanticJob(
         job_type=job_type,
         status=SEMANTIC_JOB_STATUS_PENDING,
-        requested_by=normalized_requestor,
+        requested_by=normalized_requested_by,
         dataset_id=dataset_id,
         model_id=model_id,
         payload_json=payload_json,

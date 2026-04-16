@@ -14,9 +14,9 @@ from ot_backend.core.models import (
     SemanticModel,
     SemanticModelArtifact,
 )
-from ot_backend.embed.artifacts import semantic_model_artifact_object_key
-from ot_backend.embed.base_models import get_semantic_base_model
-from ot_backend.embed.model_registry import bundle_model_directory
+from ot_backend.semantic.artifacts import semantic_model_artifact_object_key
+from ot_backend.semantic.base_model_catalog import get_semantic_base_model
+from ot_backend.semantic.model_registry import bundle_model_directory
 
 
 def _admin_headers() -> dict[str, str]:
@@ -540,7 +540,7 @@ def test_admin_route_rejects_invalid_bearer_token(client):
 def test_admin_register_and_list_semantic_models(client, monkeypatch, tmp_path):
     uploaded: dict[str, bytes] = {}
     monkeypatch.setattr(
-        "ot_backend.embed.artifacts.upload_artifact_bytes",
+        "ot_backend.semantic.artifacts.upload_artifact_bytes",
         lambda *, object_key, content_bytes, content_type: uploaded.__setitem__(object_key, content_bytes),
     )
     model_root = tmp_path / "semantic-model"
@@ -593,7 +593,7 @@ def test_admin_register_and_list_semantic_models(client, monkeypatch, tmp_path):
 
 
 def test_admin_register_semantic_model_rejects_duplicate_slug(client, monkeypatch, tmp_path):
-    monkeypatch.setattr("ot_backend.embed.artifacts.upload_artifact_bytes", lambda **_kwargs: None)
+    monkeypatch.setattr("ot_backend.semantic.artifacts.upload_artifact_bytes", lambda **_kwargs: None)
 
     model_root = tmp_path / "semantic-model"
     _write_complete_bundle_root(model_root)
@@ -618,7 +618,7 @@ def test_admin_register_semantic_model_rejects_duplicate_slug(client, monkeypatc
 
 
 def test_admin_register_semantic_model_rejects_unknown_base_model_key(client, monkeypatch, tmp_path):
-    monkeypatch.setattr("ot_backend.embed.artifacts.upload_artifact_bytes", lambda **_kwargs: None)
+    monkeypatch.setattr("ot_backend.semantic.artifacts.upload_artifact_bytes", lambda **_kwargs: None)
     model_root = tmp_path / "semantic-model"
     _write_complete_bundle_root(model_root)
     bundle = bundle_model_directory(model_root)
@@ -635,7 +635,7 @@ def test_admin_register_semantic_model_rejects_unknown_base_model_key(client, mo
 
 
 def test_admin_register_semantic_model_rejects_embedding_dimension_mismatch(client, monkeypatch, tmp_path):
-    monkeypatch.setattr("ot_backend.embed.artifacts.upload_artifact_bytes", lambda **_kwargs: None)
+    monkeypatch.setattr("ot_backend.semantic.artifacts.upload_artifact_bytes", lambda **_kwargs: None)
     model_root = tmp_path / "semantic-model"
     _write_complete_bundle_root(model_root)
     np.savez_compressed(

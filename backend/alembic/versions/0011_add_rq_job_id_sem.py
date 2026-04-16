@@ -4,8 +4,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0011_add_rq_job_id_to_semantic_jobs"
-down_revision = "0010_drop_card_face_semantic_embeddings"
+revision = "0011_add_rq_job_id_sem"
+down_revision = "0010_drop_face_sem_embeds"
 branch_labels = None
 depends_on = None
 

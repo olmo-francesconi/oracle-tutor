@@ -66,9 +66,9 @@ def _seed_card_and_old_schema() -> None:
         db.add(
             SystemMetadata(
                 key="scryfall_data",
-                data_updated_at="2026-01-01T00:00:00Z",
+                updated_at="2026-01-01T00:00:00Z",
                 last_ingestion=_utcnow_naive(),
-                schema_version="1.0.0",
+                version="1.0.0",
             )
         )
         db.commit()
@@ -96,10 +96,10 @@ def test_worker_mode_sets_schema_metadata_and_ready_state() -> None:
     with SessionLocal() as db:
         meta = db.get(SystemMetadata, "scryfall_data")
         assert meta is not None
-        assert meta.schema_version == DB_SCHEMA_VERSION
+        assert meta.version == DB_SCHEMA_VERSION
         migration_meta = db.get(SystemMetadata, MIGRATION_STATE_KEY)
         assert migration_meta is not None
-        assert migration_meta.data_updated_at == MIGRATION_STATE_READY
+        assert migration_meta.updated_at == MIGRATION_STATE_READY
 
 
 def test_wait_for_migration_ready_times_out_when_stuck_migrating() -> None:
@@ -110,15 +110,15 @@ def test_wait_for_migration_ready_times_out_when_stuck_migrating() -> None:
         db.execute(
             text(
                 """
-                INSERT INTO system_metadata (key, data_updated_at, last_ingestion, schema_version)
-                VALUES (:key, :data_updated_at, :last_ingestion, :schema_version)
+                INSERT INTO system_metadata (key, updated_at, last_ingestion, version)
+                VALUES (:key, :updated_at, :last_ingestion, :version)
                 """
             ),
             {
                 "key": MIGRATION_STATE_KEY,
-                "data_updated_at": "migrating",
+                "updated_at": "migrating",
                 "last_ingestion": _utcnow_naive(),
-                "schema_version": DB_SCHEMA_VERSION,
+                "version": DB_SCHEMA_VERSION,
             },
         )
         db.commit()

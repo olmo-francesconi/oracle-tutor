@@ -9,26 +9,28 @@ import numpy as np
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
 from ot_backend.core.models import SemanticJob, SemanticModel, SemanticModelArtifact, SemanticModelEmbedding, SystemMetadata
-from ot_backend.embed.artifacts import (
+from ot_backend.semantic.artifacts import (
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
     SEMANTIC_MODEL_ARTIFACT_KIND_EVAL_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_MANIFEST_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_TRAINING_DATASET,
 )
-from ot_backend.embed import index
-from ot_backend.embed.model_registry import (
-    SEMANTIC_MODEL_STATUS_ACTIVE,
-    SEMANTIC_MODEL_STATUS_EMBEDDING,
-    SEMANTIC_MODEL_STATUS_READY,
+from ot_backend.semantic import index
+from ot_backend.semantic.model_promotion import (
     _populate_model_embeddings,
     _store_model_embeddings,
     begin_semantic_model_promotion,
-    bundle_model_directory,
-    materialize_semantic_model,
     run_semantic_model_promotion,
 )
-from ot_backend.embed.registration import register_model_bundle_bytes
-from ot_backend.embed.semantic_state import bump_semantic_data_version, get_active_model_data_version
+from ot_backend.semantic.model_registry import (
+    SEMANTIC_MODEL_STATUS_ACTIVE,
+    SEMANTIC_MODEL_STATUS_EMBEDDING,
+    SEMANTIC_MODEL_STATUS_READY,
+    bundle_model_directory,
+    materialize_semantic_model,
+)
+from ot_backend.semantic.bundle_registration import register_model_bundle_bytes
+from ot_backend.semantic.semantic_state import bump_semantic_data_version, get_active_model_data_version
 
 
 def _make_model_bundle(tmp_path, *, include_pytorch: bool = True, include_embeddings: bool = True):
@@ -82,7 +84,7 @@ def _reset_registry_tables() -> None:
 
 
 def _mock_artifact_download(monkeypatch, bundle: bytes) -> None:
-    monkeypatch.setattr("ot_backend.embed.model_registry.download_artifact_bytes", lambda *, object_key: bundle)
+    monkeypatch.setattr("ot_backend.semantic.model_registry.download_artifact_bytes", lambda *, object_key: bundle)
 
 
 def _create_model_with_bundle_artifact(
@@ -149,7 +151,7 @@ def test_register_model_bundle_bytes_records_dataset_and_manifest_artifacts(tmp_
     bundle = _make_model_bundle(tmp_path, include_pytorch=True, include_embeddings=True)
     dataset_bytes = b'{"version": 5, "metadata": {"semantic_data_version": 7}}'
     monkeypatch.setattr(
-        "ot_backend.embed.artifacts.upload_artifact_bytes",
+        "ot_backend.semantic.artifacts.upload_artifact_bytes",
         lambda *, object_key, content_bytes, content_type: uploaded.__setitem__(object_key, content_bytes),
     )
     init_db()
@@ -191,7 +193,7 @@ def test_register_model_bundle_bytes_rejects_embedding_dimension_mismatch(tmp_pa
     uploaded: dict[str, bytes] = {}
     _make_model_bundle(tmp_path)
     monkeypatch.setattr(
-        "ot_backend.embed.artifacts.upload_artifact_bytes",
+        "ot_backend.semantic.artifacts.upload_artifact_bytes",
         lambda *, object_key, content_bytes, content_type: uploaded.__setitem__(object_key, content_bytes),
     )
     bundle_root.mkdir(parents=True, exist_ok=True)
@@ -273,7 +275,7 @@ def test_run_semantic_model_promotion_activates_candidate_and_stores_embeddings(
         active_id = active.id
 
     monkeypatch.setattr(
-        "ot_backend.embed.model_registry._populate_model_embeddings",
+        "ot_backend.semantic.model_promotion._populate_model_embeddings",
         lambda model_id, *_args, **_kwargs: (
             _store_model_embeddings(
                 model_id,
@@ -442,15 +444,15 @@ def test_populate_model_embeddings_prefers_precomputed_archive(monkeypatch, tmp_
 
     calls: list[tuple[str, Path]] = []
     monkeypatch.setattr(
-        "ot_backend.embed.model_registry._store_precomputed_embeddings_from_archive",
+        "ot_backend.semantic.model_promotion._store_precomputed_embeddings_from_archive",
         lambda _model_id, path, batch_size: calls.append(("precomputed", path)) or 2,
     )
     monkeypatch.setattr(
-        "ot_backend.embed.model_registry._compute_and_store_embeddings_from_pytorch_model",
+        "ot_backend.semantic.model_promotion._compute_and_store_embeddings_from_pytorch_model",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("pytorch path should not run")),
     )
     monkeypatch.setattr(
-        "ot_backend.embed.model_registry._compute_and_store_embeddings_from_onnx_model",
+        "ot_backend.semantic.model_promotion._compute_and_store_embeddings_from_onnx_model",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("onnx path should not run")),
     )
 
@@ -470,11 +472,11 @@ def test_populate_model_embeddings_prefers_pytorch_before_onnx(monkeypatch, tmp_
 
     calls: list[tuple[str, Path]] = []
     monkeypatch.setattr(
-        "ot_backend.embed.model_registry._compute_and_store_embeddings_from_pytorch_model",
+        "ot_backend.semantic.model_promotion._compute_and_store_embeddings_from_pytorch_model",
         lambda _model_id, path, batch_size: calls.append(("pytorch", path)) or 3,
     )
     monkeypatch.setattr(
-        "ot_backend.embed.model_registry._compute_and_store_embeddings_from_onnx_model",
+        "ot_backend.semantic.model_promotion._compute_and_store_embeddings_from_onnx_model",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("onnx path should not run")),
     )
 
@@ -559,8 +561,8 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
     monkeypatch.setenv("SEMANTIC_ONNX_INTRA_OP_THREADS", "2")
     monkeypatch.setenv("SEMANTIC_ONNX_INTER_OP_THREADS", "3")
     monkeypatch.setenv("SEMANTIC_TEMP_DIR", str(tmp_path / "semantic-cache"))
-    monkeypatch.setattr("ot_backend.embed.index.import_module", fake_import_module)
-    monkeypatch.setattr("ot_backend.embed.index.configure_huggingface_env", lambda: None)
+    monkeypatch.setattr("ot_backend.semantic.index.import_module", fake_import_module)
+    monkeypatch.setattr("ot_backend.semantic.index.configure_huggingface_env", lambda: None)
 
     semantic_index = index.get_semantic_index()
 

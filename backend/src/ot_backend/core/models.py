@@ -52,9 +52,9 @@ class SystemMetadata(Base):
     __tablename__ = "system_metadata"
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
-    data_updated_at: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str] = mapped_column(String)
     last_ingestion: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive)
-    schema_version: Mapped[str | None] = mapped_column(String, default="0.0")
+    version: Mapped[str | None] = mapped_column(String, default="0.0")
 
 
 class IngestionLog(Base):

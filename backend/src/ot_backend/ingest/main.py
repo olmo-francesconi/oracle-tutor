@@ -7,7 +7,7 @@ import sys
 from typing import cast
 
 from ..core.logging_config import setup_loggers
-from .data_builder import update_scryfall_data
+from .scryfall_ingestion import update_scryfall_data
 
 logger = logging.getLogger("ot_backend.ingest")
 
@@ -29,7 +29,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _ = parser.add_argument(
         "--trigger-type",
-        default=os.getenv("ORACLE_TUTOR_API_TRIGGER_TYPE", "cron"),
+        default=os.getenv("OT_TRIGGER_TYPE", "cron"),
         help="Ingestion trigger type stored in ingestion logs (default: cron).",
     )
     _ = parser.add_argument(

@@ -1,4 +1,4 @@
-# DEPRECATED: This polling worker is superseded by RQ tasks in embed/tasks.py.
+# DEPRECATED: This polling worker is superseded by RQ tasks in semantic/tasks.py.
 # It remains as a fallback for environments without Redis.
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from ..core.config import (
 from ..core.database import SessionLocal
 from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.logging_config import setup_loggers
-from .model_registry import begin_semantic_model_promotion, run_semantic_model_promotion
+from .model_promotion import begin_semantic_model_promotion, run_semantic_model_promotion
 from .semantic_jobs import (
     SEMANTIC_JOB_TYPE_PROMOTE,
     claim_next_semantic_job,
@@ -29,11 +29,11 @@ from .semantic_jobs import (
     touch_semantic_job_heartbeat,
 )
 
-logger = logging.getLogger("ot_backend.embed.promote")
+logger = logging.getLogger("ot_backend.semantic.promote_worker")
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m ot_backend.embed.promote")
+    parser = argparse.ArgumentParser(prog="python -m ot_backend.semantic.promote_worker")
     parser.add_argument("--job-id", type=str, help="Specific semantic promote job ID to execute.")
     return parser
 

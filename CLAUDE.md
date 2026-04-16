@@ -18,21 +18,20 @@ backend/                FastAPI service + Pytest suite
       routers/           admin.py, search.py, telemetry.py
       schemas.py         Pydantic response schemas
     core/               Config, DB engine/session, schema init, ORM models, logging
-    embed/
+    semantic/
       index.py          Runtime ONNX inference + pgvector search
-      pipeline.py       CLI: run, export, register, promote, eval, reembed subcommands
-      model_registry.py Model materialization, embedding population, promotion
+      model_registry.py Model CRUD, materialization, bundle utilities
+      model_promotion.py Model promotion, embedding population, activation
       uniqueness.py     Card uniqueness scoring (cosine similarity)
       artifacts.py      S3 artifact upload/download
-      registration.py   Bundle parsing and model registration
+      bundle_registration.py Bundle parsing and model registration
+      base_model_catalog.py  Base model listing and retrieval
       semantic_jobs.py  DB job records: create, list, succeed/fail
-    ingest/             One-shot Scryfall ingestion (data_builder.py) and Tagger sync
+    ingest/             One-shot Scryfall ingestion (scryfall_ingestion.py) and Tagger sync
   tests/                Pytest suite (SQLite in-memory)
-  alembic/              DB migrations (versions/0001–0011)
+  alembic/              DB migrations (versions/0001–0013)
   Dockerfile            API image
-  Dockerfile.ingest-worker    Scryfall ingest image
-  Dockerfile.train-worker     Training worker image
-  Dockerfile.promotion-worker Promotion worker image
+  Dockerfile.worker     Multi-target worker image (ingest, dataset, train, promote)
 frontend/               React + Vite SPA
   src/
     public/             SearchShell, HomeView, ResultsView, useUrlSync
@@ -65,7 +64,7 @@ Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `
 
 ### Job queue
 - Admin routes create a DB job record, then dispatch to one-shot worker containers triggered on demand
-- Workers (`promote.py`, `dataset_worker.py`, `train_worker.py`) are one-shot containers on Railway
+- Workers (`promote_worker.py`, `dataset_worker.py`, `train_worker.py`) are one-shot containers on Railway
 
 ### API routes
 | Route | Method | Purpose |
@@ -104,21 +103,22 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - `api/routers/telemetry.py` — `/telemetry/client-error`, `/telemetry/analytics`
 - `core/models.py` — ORM models with composite PKs for card_faces and embeddings
 - `core/db_init.py` — runs `alembic upgrade head` on every startup; advisory locking; migration state FSM
-- `ingest/data_builder.py` — stale-aware Scryfall bulk ingest, card derivation, tag sync
-- `embed/pipeline.py` — CLI with subcommands: `run`, `export`, `register`, `promote`, `eval`, `reembed`
-- `embed/index.py` — runtime: lazy-loads ONNX model, encodes queries, pgvector cosine search with server-side filters
-- `embed/model_registry.py` — model materialization, embedding population, activation, and promotion logic
-- `embed/uniqueness.py` — card uniqueness scoring via cosine similarity
-- `embed/artifacts.py` — S3 artifact upload/download and recording
-- `embed/registration.py` — bundle parsing and model registration
-- `embed/semantic_jobs.py` — DB job records: create, list, succeed/fail
-- `embed/semantic_state.py` — semantic data version tracking
+- `ingest/scryfall_ingestion.py` — stale-aware Scryfall bulk ingest, card derivation, tag sync
+- `semantic/index.py` — runtime: lazy-loads ONNX model, encodes queries, pgvector cosine search with server-side filters
+- `semantic/model_registry.py` — model CRUD, materialization, bundle utilities
+- `semantic/model_promotion.py` — promotion orchestration, embedding population, model activation
+- `semantic/uniqueness.py` — card uniqueness scoring via cosine similarity
+- `semantic/artifacts.py` — S3 artifact upload/download and recording
+- `semantic/bundle_registration.py` — bundle parsing and model registration
+- `semantic/base_model_catalog.py` — base model listing and retrieval
+- `semantic/semantic_jobs.py` — DB job records: create, list, succeed/fail
+- `semantic/semantic_state.py` — semantic data version tracking
 - `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`
 
 ### Frontend conventions
 - Server state: TanStack Query; routing state: React Router params/query string; transient UI: component state
 - UI components do not fetch directly — use `src/lib/api.ts`
-- Filters (color, CMC, type, rarity, format) are applied server-side in `embed/index.py`
+- Filters (color, CMC, type, rarity, format) are applied server-side in `semantic/index.py`
 
 ## Operational notes
 
@@ -157,8 +157,8 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 | `DB_POOL_MAX_OVERFLOW` | `2` | |
 | `DB_POOL_RECYCLE` | `3600` | |
 | `DB_POOL_TIMEOUT` | `30` | |
-| `ORACLE_TUTOR_API_ENV` | `development` | `development` \| `production` |
-| `ORACLE_TUTOR_API_CORS_ORIGINS` | — | Comma-separated allowed origins |
+| `OT_ENV` | `development` | `development` \| `production` |
+| `OT_CORS_ORIGINS` | — | Comma-separated allowed origins |
 | `SEMANTIC_BASE_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Base model for training |
 | `SEMANTIC_RUNS_DIR` | `data/semantic/runs` | Output root for semantic pipeline runs |
 | `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` | `5` | How often the API checks for a new active model |
@@ -168,7 +168,7 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 | `SEMANTIC_JOB_HEARTBEAT_SECONDS` | `600` | Promote worker heartbeat interval |
 | `SEMANTIC_JOB_STALE_SECONDS` | `1200` | Seconds before a running job is considered stale |
 | `HF_HOME` | `data/huggingface` | Hugging Face cache directory |
-| `ORACLE_TUTOR_LOG_TO_FILES` | — | Enable file logging |
+| `OT_LOG_TO_FILES` | — | Enable file logging |
 | `SEMANTIC_ARTIFACT_ENDPOINT` | — | S3-compatible endpoint URL for artifact storage |
 | `SEMANTIC_ARTIFACT_ACCESS_KEY_ID` | — | S3 access key ID for artifact storage |
 | `SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY` | — | S3 secret access key for artifact storage |
@@ -199,11 +199,6 @@ uv run pytest -x -q                 # tests
 # Run scryfall-sync manually:
 uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 
-# Run semantic pipeline (subcommands: run, export, register, promote, eval, reembed):
-uv run python -m ot_backend.embed.pipeline run
-uv run python -m ot_backend.embed.pipeline export /tmp/dataset.json
-uv run python -m ot_backend.embed.pipeline register ./model.zip --model-slug my-model
-
 # Apply migrations standalone:
 uv run alembic upgrade head
 ```
@@ -224,3 +219,4 @@ npm run build
 - Never run destructive Alembic migrations in production without reviewing the migration file first
 - Backend tests run against SQLite in-memory — pgvector ops, trigram, JSONB, and extension DDL are not covered by automated tests
 - `DATABASE_URL` is required in production; `DB_PASSWORD` is mandatory when `DATABASE_URL` is absent
+- Alembic migration filenames (without `.py`) and revision tags must be ≤32 characters; abbreviate if needed (`sem`, `artf`, etc.)

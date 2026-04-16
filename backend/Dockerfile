@@ -29,7 +29,7 @@ RUN if [ -f uv.lock ]; then \
 COPY src/ot_backend/__init__.py ./src/ot_backend/
 COPY src/ot_backend/core ./src/ot_backend/core
 COPY src/ot_backend/api ./src/ot_backend/api
-COPY src/ot_backend/embed ./src/ot_backend/embed
+COPY src/ot_backend/semantic ./src/ot_backend/semantic
 COPY alembic ./alembic
 
 
@@ -56,7 +56,7 @@ COPY --from=builder --chown=app:app /opt/venv /opt/venv
 COPY --chown=app:app src/ot_backend/__init__.py ./src/ot_backend/
 COPY --chown=app:app src/ot_backend/core ./src/ot_backend/core
 COPY --chown=app:app src/ot_backend/api ./src/ot_backend/api
-COPY --chown=app:app src/ot_backend/embed ./src/ot_backend/embed
+COPY --chown=app:app src/ot_backend/semantic ./src/ot_backend/semantic
 COPY --from=builder --chown=app:app /app/alembic ./alembic
 
 EXPOSE 8000

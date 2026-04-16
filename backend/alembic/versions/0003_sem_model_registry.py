@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover
     Vector = None
 
 
-revision = "0003_add_semantic_model_registry"
+revision = "0003_sem_model_registry"
 down_revision = "0002_add_telemetry_tables"
 branch_labels = None
 depends_on = None

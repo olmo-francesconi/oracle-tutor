@@ -1,4 +1,4 @@
-# DEPRECATED: This polling worker is superseded by RQ tasks in embed/tasks.py.
+# DEPRECATED: This polling worker is superseded by RQ tasks in semantic/tasks.py.
 # It remains as a fallback for environments without Redis.
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from ..core.config import (
     semantic_llm_min_template_coverage,
     semantic_llm_model_name,
     semantic_llm_temperature,
+    semantic_max_jobs_per_run,
     semantic_train_max_jobs_per_run,
 )
 from ..core.database import SessionLocal
@@ -41,18 +42,18 @@ from .semantic_jobs import (
 )
 from .train_options import TRAIN_AUGMENTATION_LLM_QUERIES, parse_train_augmentation_mode
 
-logger = logging.getLogger("ot_backend.embed.dataset_worker")
+logger = logging.getLogger("ot_backend.semantic.dataset_worker")
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m ot_backend.embed.dataset_worker")
+    parser = argparse.ArgumentParser(prog="python -m ot_backend.semantic.dataset_worker")
     parser.add_argument("--job-id", type=str, help="Specific semantic dataset job ID to execute.")
     return parser
 
 
 def _load_modal_train_module() -> object:
     try:
-        return import_module("ot_backend.embed.modal_train")
+        return import_module("ot_backend.semantic.modal_train")
     except Exception as exc:
         raise RuntimeError("Packaged Modal training module could not be imported.") from exc
 
@@ -152,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     init_db(mode=INIT_MODE_WORKER)
     args = _build_parser().parse_args(argv if argv is not None else sys.argv[1:])
 
-    max_jobs = 1 if args.job_id is not None else max(semantic_train_max_jobs_per_run(), 1)
+    max_jobs = 1 if args.job_id is not None else max(semantic_max_jobs_per_run(), 1)
     heartbeat_seconds = semantic_job_heartbeat_seconds()
     stale_seconds = semantic_job_stale_seconds()
     processed = 0

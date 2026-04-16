@@ -18,6 +18,7 @@ from ..core.config import (
     CARDS_JSON,
     DATA_DIR,
     DB_SCHEMA_VERSION,
+    SCRYFALL_DATA_KEY,
     ensure_data_dir,
 )
 from ..core.database import SessionLocal, engine
@@ -32,8 +33,8 @@ from ..core.models import (
     IngestionLog,
     SystemMetadata,
 )
-from ..embed.semantic_state import bump_semantic_data_version
-from ..embed.uniqueness import compute_and_store_uniqueness_scores
+from ..semantic.semantic_state import bump_semantic_data_version
+from ..semantic.uniqueness import compute_and_store_uniqueness_scores
 from .fetch_tags import run_fetch_tags
 
 logger = logging.getLogger("ot_backend.ingest")
@@ -643,10 +644,10 @@ def ingest_data_diff(
             logger.info("Stage: delete obsolete raw printings complete total=%d", raw_delete_count)
 
         sys_meta = SystemMetadata(
-            key="scryfall_data",
-            data_updated_at=scryfall_metadata.get("updated_at") or "",
+            key=SCRYFALL_DATA_KEY,
+            updated_at=scryfall_metadata.get("updated_at") or "",
             last_ingestion=_utcnow_naive(),
-            schema_version=DB_SCHEMA_VERSION,
+            version=DB_SCHEMA_VERSION,
         )
         session.merge(sys_meta)
 
@@ -728,10 +729,10 @@ def update_scryfall_data(
     db_schema_version = "0.0"
     db_is_empty = True
     try:
-        db_meta = session.get(SystemMetadata, "scryfall_data")
+        db_meta = session.get(SystemMetadata, SCRYFALL_DATA_KEY)
         if db_meta:
-            db_updated_at = db_meta.data_updated_at
-            db_schema_version = db_meta.schema_version or "0.0"
+            db_updated_at = db_meta.updated_at
+            db_schema_version = db_meta.version or "0.0"
 
         card_count = session.query(func.count(Card.oracle_id)).scalar()
         db_is_empty = (card_count == 0)

@@ -15,7 +15,7 @@ from ..core.models import CardFace
 from .dataset_service import FaceIdentity, TrainingDatasetState
 from .text_prep import face_to_text
 
-logger = logging.getLogger("ot_backend.embed.training_service")
+logger = logging.getLogger("ot_backend.semantic.training_service")
 
 CHECKPOINT_DIR_NAME = "checkpoints"
 EMBED_WRITE_BATCH_SIZE = 512

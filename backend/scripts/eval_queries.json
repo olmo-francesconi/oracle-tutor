@@ -1,5 +1,5 @@
 {
-  "description": "Hand-curated queries for evaluating semantic search quality before/after training runs. Run with: uv run python -m ot_backend.embed.pipeline --eval",
+  "description": "Hand-curated queries for evaluating semantic search quality before/after training runs. Run with: uv run python -m ot_backend.semantic.pipeline --eval",
   "queries": [
     {
       "query": "draw a card",

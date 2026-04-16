@@ -13,7 +13,7 @@ from .artifacts import (
     get_semantic_dataset_artifact,
     upload_and_record_semantic_dataset_artifact,
 )
-from .registration import load_training_dataset_metadata_from_bytes
+from .bundle_registration import load_training_dataset_metadata_from_bytes
 from .semantic_state import get_semantic_data_version
 
 SEMANTIC_DATASET_STATUS_READY = "ready"

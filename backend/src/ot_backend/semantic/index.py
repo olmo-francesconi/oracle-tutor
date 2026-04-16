@@ -28,7 +28,7 @@ from ..core.models import Card, CardFace, SemanticModel, SemanticModelEmbedding
 from .model_registry import get_active_semantic_model_id, materialize_semantic_model
 from .text_prep import normalize_oracle_text
 
-logger = logging.getLogger("ot_backend.embed.index")
+logger = logging.getLogger("ot_backend.semantic.index")
 
 _index: SemanticIndex | None = None
 _UNSET = object()  # Sentinel: index has never been loaded (distinct from None = no active model)

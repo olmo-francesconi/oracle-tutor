@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..embed.train_options import (
+from ..semantic.train_options import (
     DEFAULT_TRAIN_AUGMENTATION_MODE,
     EPOCH_MAX,
     EPOCH_MIN,

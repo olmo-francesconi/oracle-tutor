@@ -14,11 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("ORACLE_TUTOR_API_UPDATE_ENABLED", "false")
+os.environ.setdefault("OT_UPDATE_ENABLED", "false")
 os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password")
 os.environ.setdefault("ADMIN_JWT_SECRET", "test-admin-jwt-secret-which-is-at-least-32-bytes")
 # Prevent lifespan's wait_for_migration_ready from blocking for 30s if state is stale
-os.environ.setdefault("ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS", "0.5")
+os.environ.setdefault("OT_SCHEMA_WAIT_TIMEOUT_SECONDS", "0.5")
 
 # Ensure the `src/` layout package is importable when running pytest without an editable install.
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -246,7 +246,7 @@ def _reset_module_globals() -> Generator[None, None, None]:
     """Reset leaked module-level state between tests."""
     yield
     # Semantic index cache — prevents stale model references across tests
-    from ot_backend.embed import index as _idx
+    from ot_backend.semantic import index as _idx
     _idx._index = None
     _idx._last_refresh_check = 0.0
     _idx._loaded_model_id = _idx._UNSET

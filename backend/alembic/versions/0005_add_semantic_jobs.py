@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover
 
 
 revision = "0005_add_semantic_jobs"
-down_revision = "0004_artifact_s3_and_slug_unique"
+down_revision = "0004_artf_s3_slug_uniq"
 branch_labels = None
 depends_on = None
 

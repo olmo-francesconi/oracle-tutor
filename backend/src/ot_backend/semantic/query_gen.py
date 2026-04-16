@@ -7,7 +7,7 @@ is the primary fix for poor short-query retrieval quality.
 
 Usage::
 
-    from ot_backend.embed.query_gen import generate_template_queries
+    from ot_backend.semantic.query_gen import generate_template_queries
     queries = generate_template_queries(normalized_text)
     # returns e.g. ["draw a card", "card draw", "draw cards effect"]
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -9,22 +10,21 @@ from sqlalchemy.orm import Session
 from ...core.config import admin_jwt_secret, admin_password
 from ...core.database import get_db
 from ...core.models import SemanticDataset, SemanticModel
-from ...embed.artifacts import (
+from ...semantic.artifacts import (
     SEMANTIC_DATASET_ARTIFACT_KIND_DATASET_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
     list_semantic_dataset_artifacts,
     list_semantic_model_artifacts,
 )
-from ...embed.base_models import get_semantic_base_model, list_semantic_base_models
-from ...embed.dataset_registry import get_semantic_dataset, list_semantic_datasets
-from ...embed.model_registry import (
+from ...semantic.base_model_catalog import get_semantic_base_model, list_semantic_base_models
+from ...semantic.dataset_registry import get_semantic_dataset, list_semantic_datasets
+from ...semantic.model_registry import (
     count_semantic_model_embeddings,
     get_semantic_model,
     list_semantic_models,
-    parse_optional_json_header,
 )
-from ...embed.registration import register_model_bundle_bytes
-from ...embed.semantic_jobs import (
+from ...semantic.bundle_registration import register_model_bundle_bytes
+from ...semantic.semantic_jobs import (
     SEMANTIC_JOB_STATUS_PENDING,
     create_dataset_job,
     create_promote_job,
@@ -32,7 +32,7 @@ from ...embed.semantic_jobs import (
     get_semantic_job,
     list_semantic_jobs,
 )
-from ...embed.train_options import EMBED_BATCH_SIZE_OPTIONS, TRAIN_AUGMENTATION_OPTIONS, TRAIN_BATCH_SIZE_OPTIONS
+from ...semantic.train_options import EMBED_BATCH_SIZE_OPTIONS, TRAIN_AUGMENTATION_OPTIONS, TRAIN_BATCH_SIZE_OPTIONS
 from ..admin_auth import (
     admin_token_ttl_seconds,
     create_admin_token,
@@ -161,6 +161,18 @@ def _serialize_semantic_dataset_summary(dataset: SemanticDataset) -> SemanticDat
         source_semantic_data_version=dataset.source_semantic_data_version,
         error_message=dataset.error_message,
     )
+
+
+def parse_optional_json_header(raw_value: str | None, header_name: str) -> dict[str, object] | None:
+    if raw_value is None or not raw_value.strip():
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{header_name} must be valid JSON.") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{header_name} must decode to a JSON object.")
+    return parsed
 
 
 # ---------------------------------------------------------------------------

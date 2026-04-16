@@ -4,7 +4,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0010_drop_card_face_semantic_embeddings"
+revision = "0010_drop_face_sem_embeds"
 down_revision = "0009_semantic_datasets_uuid"
 branch_labels = None
 depends_on = None

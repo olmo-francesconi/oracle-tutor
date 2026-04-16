@@ -1,7 +1,7 @@
 """Simulate the Modal LLM augmentation flow locally via Ollama.
 
 Uses the same prompt, parser, and gap-face selection rules as
-`ot_backend.embed.modal_train` so you can inspect candidate LLM pairs without
+`ot_backend.semantic.modal_train` so you can inspect candidate LLM pairs without
 running a remote Modal training job.
 """
 
@@ -17,8 +17,8 @@ from pathlib import Path
 # Allow importing ot_backend when running from backend/
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ot_backend.embed import modal_train
-from ot_backend.embed.text_prep import EMPTY_ORACLE_TOKEN
+from ot_backend.semantic import modal_train
+from ot_backend.semantic.text_prep import EMPTY_ORACLE_TOKEN
 
 
 def _call_ollama(

@@ -5,7 +5,7 @@ from typing import Callable, Protocol, cast
 from sqlalchemy.orm import Session
 
 try:
-    from ..embed.index import get_semantic_index as _get_semantic_index_fn
+    from ..semantic.index import get_semantic_index as _get_semantic_index_fn
 except ImportError:
     _get_semantic_index_fn = None  # type: ignore[assignment]
 
@@ -49,6 +49,3 @@ def _get_semantic_index() -> SemanticIndexProtocol | None:
         return None
     return cast(Callable[[], SemanticIndexProtocol | None], _get_semantic_index_fn)()
 
-
-# Alias for backward compat
-get_semantic_index_instance = _get_semantic_index

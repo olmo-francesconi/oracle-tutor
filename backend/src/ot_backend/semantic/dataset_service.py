@@ -27,7 +27,7 @@ from .train_options import (
     serialize_train_augmentation_mode,
 )
 
-logger = logging.getLogger("ot_backend.embed.dataset_service")
+logger = logging.getLogger("ot_backend.semantic.dataset_service")
 
 TRAINING_DATASET_FILE_NAME = "training-dataset.json"
 TRAINING_DATASET_VERSION = 6

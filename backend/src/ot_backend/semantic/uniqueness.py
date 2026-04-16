@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger("ot_backend.embed")
+logger = logging.getLogger("ot_backend.semantic.uniqueness")
 
 UNIQUENESS_THRESHOLD = 0.40
 UNIQUENESS_POWER = 2.0

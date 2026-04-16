@@ -107,25 +107,25 @@ The pipeline CLI manages the full model lifecycle via subcommands:
 cd backend
 
 # Export training dataset
-uv run python -m ot_backend.embed.pipeline export /tmp/dataset.json
+uv run python -m ot_backend.semantic.pipeline export /tmp/dataset.json
 
 # Full fine-tune + ONNX export + embeddings
-uv run python -m ot_backend.embed.pipeline run --epochs 5
+uv run python -m ot_backend.semantic.pipeline run --epochs 5
 
 # Skip fine-tuning, embed from base model only
-uv run python -m ot_backend.embed.pipeline run --no-fine-tune
+uv run python -m ot_backend.semantic.pipeline run --no-fine-tune
 
 # Register a trained model bundle in the registry
-uv run python -m ot_backend.embed.pipeline register ./model.zip --model-slug v2
+uv run python -m ot_backend.semantic.pipeline register ./model.zip --model-slug v2
 
 # Promote a registered model to serve live traffic
-uv run python -m ot_backend.embed.pipeline promote <model-id>
+uv run python -m ot_backend.semantic.pipeline promote <model-id>
 
 # Evaluate a run against scripted queries
-uv run python -m ot_backend.embed.pipeline eval --eval-run-dir data/semantic/runs/<run-id>
+uv run python -m ot_backend.semantic.pipeline eval --eval-run-dir data/semantic/runs/<run-id>
 
 # Recompute embeddings from an explicit model source
-uv run python -m ot_backend.embed.pipeline reembed --base-model ./my-model
+uv run python -m ot_backend.semantic.pipeline reembed --base-model ./my-model
 ```
 
 Pipeline runs are tracked in MLflow (available at `http://localhost:5050` when running via Docker Compose).
@@ -224,7 +224,7 @@ The repo is designed to deploy as **four Railway services** + Railway Postgres +
 
 **API + workers:**
 - `DATABASE_URL` — Railway Postgres connection string (injected automatically)
-- `ORACLE_TUTOR_API_ENV=production`
+- `OT_ENV=production`
 - `REDIS_URL` — Railway Redis connection string
 - `MLFLOW_TRACKING_URI` — MLflow server URL
 

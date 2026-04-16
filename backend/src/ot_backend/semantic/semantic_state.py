@@ -23,9 +23,9 @@ def _get_or_create_row(db: Session, key: str) -> SystemMetadata:
 
     row = SystemMetadata(
         key=key,
-        data_updated_at="",
+        updated_at="",
         last_ingestion=_utcnow_naive(),
-        schema_version="0",
+        version="0",
     )
     db.add(row)
     db.flush()
@@ -51,14 +51,14 @@ def get_semantic_data_version(db: Session) -> int:
     row = _fetch_row(db, SEMANTIC_DATA_KEY)
     if row is None:
         return 0
-    return _parse_int(row.schema_version)
+    return _parse_int(row.version)
 
 
 def bump_semantic_data_version(db: Session) -> int:
     row = _get_or_create_row(db, SEMANTIC_DATA_KEY)
-    next_version = _parse_int(row.schema_version) + 1
-    row.schema_version = str(next_version)
-    row.data_updated_at = _now_iso()
+    next_version = _parse_int(row.version) + 1
+    row.version = str(next_version)
+    row.updated_at = _now_iso()
     row.last_ingestion = _utcnow_naive()
     db.commit()
     return next_version
@@ -66,8 +66,8 @@ def bump_semantic_data_version(db: Session) -> int:
 
 def record_exported_dataset_version(db: Session, semantic_data_version: int) -> None:
     row = _get_or_create_row(db, SEMANTIC_DATASET_EXPORT_KEY)
-    row.schema_version = str(semantic_data_version)
-    row.data_updated_at = _now_iso()
+    row.version = str(semantic_data_version)
+    row.updated_at = _now_iso()
     row.last_ingestion = _utcnow_naive()
     db.commit()
 
@@ -76,13 +76,13 @@ def get_exported_dataset_version(db: Session) -> int:
     row = _fetch_row(db, SEMANTIC_DATASET_EXPORT_KEY)
     if row is None:
         return 0
-    return _parse_int(row.schema_version)
+    return _parse_int(row.version)
 
 
 def record_active_model_data_version(db: Session, semantic_data_version: int) -> None:
     row = _get_or_create_row(db, SEMANTIC_ACTIVE_MODEL_KEY)
-    row.schema_version = str(semantic_data_version)
-    row.data_updated_at = _now_iso()
+    row.version = str(semantic_data_version)
+    row.updated_at = _now_iso()
     row.last_ingestion = _utcnow_naive()
     db.commit()
 
@@ -91,7 +91,7 @@ def get_active_model_data_version(db: Session) -> int:
     row = _fetch_row(db, SEMANTIC_ACTIVE_MODEL_KEY)
     if row is None:
         return 0
-    return _parse_int(row.schema_version)
+    return _parse_int(row.version)
 
 
 def build_training_dataset_metadata(db: Session) -> dict[str, object]:

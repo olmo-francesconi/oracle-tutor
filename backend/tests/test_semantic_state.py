@@ -3,7 +3,7 @@ from __future__ import annotations
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
 from ot_backend.core.models import SystemMetadata
-from ot_backend.embed.semantic_state import (
+from ot_backend.semantic.semantic_state import (
     build_training_dataset_metadata,
     bump_semantic_data_version,
     get_active_model_data_version,

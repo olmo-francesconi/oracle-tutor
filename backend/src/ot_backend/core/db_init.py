@@ -10,7 +10,7 @@ from sqlalchemy import inspect, text
 
 from alembic import command
 
-from .config import DB_SCHEMA_VERSION
+from .config import DB_SCHEMA_VERSION, SCRYFALL_DATA_KEY
 from .database import engine
 from .models import _utcnow_naive
 
@@ -54,19 +54,19 @@ def _set_migration_state(conn, *, state: str, target_version: str) -> None:
     conn.execute(
         text(
             """
-            INSERT INTO system_metadata (key, data_updated_at, last_ingestion, schema_version)
-            VALUES (:key, :data_updated_at, :last_ingestion, :schema_version)
+            INSERT INTO system_metadata (key, updated_at, last_ingestion, version)
+            VALUES (:key, :updated_at, :last_ingestion, :version)
             ON CONFLICT(key) DO UPDATE SET
-                data_updated_at = excluded.data_updated_at,
+                updated_at = excluded.updated_at,
                 last_ingestion = excluded.last_ingestion,
-                schema_version = excluded.schema_version
+                version = excluded.version
             """
         ),
         {
             "key": MIGRATION_STATE_KEY,
-            "data_updated_at": state,
+            "updated_at": state,
             "last_ingestion": now,
-            "schema_version": target_version,
+            "version": target_version,
         },
     )
 
@@ -82,7 +82,7 @@ def get_migration_state() -> str:
         if not inspector.has_table("system_metadata"):
             return MIGRATION_STATE_READY
         row = conn.execute(
-            text("SELECT data_updated_at FROM system_metadata WHERE key = :key"),
+            text("SELECT updated_at FROM system_metadata WHERE key = :key"),
             {"key": MIGRATION_STATE_KEY},
         ).fetchone()
         if not row or not row[0]:
@@ -124,7 +124,7 @@ def wait_for_migration_ready(*, timeout_s: float, interval_s: float = 1.0) -> bo
 def _upsert_schema_version(conn, schema_version: str) -> None:
     now = _utcnow_naive()
     existing_row = conn.execute(
-        text("SELECT data_updated_at FROM system_metadata WHERE key = 'scryfall_data'")
+        text("SELECT updated_at FROM system_metadata WHERE key = 'scryfall_data'")
     ).fetchone()
     existing_updated_at = ""
     if existing_row and existing_row[0]:
@@ -132,19 +132,19 @@ def _upsert_schema_version(conn, schema_version: str) -> None:
     conn.execute(
         text(
             """
-            INSERT INTO system_metadata (key, data_updated_at, last_ingestion, schema_version)
-            VALUES (:key, :data_updated_at, :last_ingestion, :schema_version)
+            INSERT INTO system_metadata (key, updated_at, last_ingestion, version)
+            VALUES (:key, :updated_at, :last_ingestion, :version)
             ON CONFLICT(key) DO UPDATE SET
-                data_updated_at = excluded.data_updated_at,
+                updated_at = excluded.updated_at,
                 last_ingestion = excluded.last_ingestion,
-                schema_version = excluded.schema_version
+                version = excluded.version
             """
         ),
         {
-            "key": "scryfall_data",
-            "data_updated_at": existing_updated_at,
+            "key": SCRYFALL_DATA_KEY,
+            "updated_at": existing_updated_at,
             "last_ingestion": now,
-            "schema_version": schema_version,
+            "version": schema_version,
         },
     )
 

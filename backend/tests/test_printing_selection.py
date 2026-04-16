@@ -1,4 +1,4 @@
-from ot_backend.ingest.data_builder import select_best_printing
+from ot_backend.ingest.scryfall_ingestion import select_best_printing
 
 
 def test_select_best_printing_prefers_paper_over_digital() -> None:

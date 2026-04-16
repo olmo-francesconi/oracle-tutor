@@ -139,7 +139,7 @@ The current `backend/Dockerfile.ingest-worker` already uses that command as its 
 Base command:
 
 ```bash
-uv run python -m ot_backend.embed.promote
+uv run python -m ot_backend.semantic.promote_worker
 ```
 
 Available flags:
@@ -150,12 +150,12 @@ The worker is designed to run once and exit. Multiple promote jobs will be proce
 
 ## Semantic pipeline
 
-The semantic pipeline (`src/ot_backend/embed/pipeline.py`) is an offline workflow: dataset export, model fine-tuning, ONNX export, and bundle creation. After running it, register the resulting bundle via the admin API or `register_model_bundle_bytes`.
+The semantic pipeline (`src/ot_backend/semantic/pipeline.py`) is an offline workflow: dataset export, model fine-tuning, ONNX export, and bundle creation. After running it, register the resulting bundle via the admin API or `register_model_bundle_bytes`.
 
 Base command:
 
 ```bash
-uv run python -m ot_backend.embed.pipeline
+uv run python -m ot_backend.semantic.pipeline
 ```
 
 What it does on a normal run:
@@ -169,16 +169,16 @@ Useful commands:
 
 ```bash
 # Full train + ONNX export
-uv run python -m ot_backend.embed.pipeline
+uv run python -m ot_backend.semantic.pipeline
 
 # Use the base model without fine-tuning
-uv run python -m ot_backend.embed.pipeline --no-fine-tune
+uv run python -m ot_backend.semantic.pipeline --no-fine-tune
 
 # Export only the dataset
-uv run python -m ot_backend.embed.pipeline --export-dataset data/training-dataset.json
+uv run python -m ot_backend.semantic.pipeline --export-dataset data/training-dataset.json
 
 # Evaluate against scripted queries
-uv run python -m ot_backend.embed.pipeline --eval
+uv run python -m ot_backend.semantic.pipeline --eval
 ```
 
 Artifacts are stored under `data/semantic/runs/<run-id>/`. After a run, upload the bundle to the registry with `POST /admin/semantic-models` and promote it with `POST /admin/semantic-models/{id}/promote`.
@@ -189,15 +189,15 @@ Artifacts are stored under `data/semantic/runs/<run-id>/`. After a run, upload t
 
 - `DATABASE_URL`: required in production; overrides `DB_*`
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`: local DB settings when `DATABASE_URL` is absent
-- `ORACLE_TUTOR_API_ENV`: `development` or `production`
+- `OT_ENV`: `development` or `production`
 - `ADMIN_PASSWORD`: password accepted by `POST /admin/auth/token`
 - `ADMIN_JWT_SECRET`: HS256 signing secret for admin bearer tokens
 - `ADMIN_LOGIN_MAX_FAILURES`: consecutive failed admin logins per IP before lockout; defaults to `5`
 - `ADMIN_LOGIN_LOCKOUT_SECONDS`: lockout duration after hitting the failure threshold; defaults to `900`
-- `ORACLE_TUTOR_API_CORS_ORIGINS`: optional comma-separated allowlist
-- `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET`: must be explicitly `true` to allow destructive schema reset flows
-- `ORACLE_TUTOR_API_SCHEMA_WAIT_TIMEOUT_SECONDS`: API startup wait budget for schema readiness
-- `ORACLE_TUTOR_API_SCHEMA_WAIT_INTERVAL_SECONDS`: polling interval while waiting for schema readiness
+- `OT_CORS_ORIGINS`: optional comma-separated allowlist
+- `OT_ALLOW_SCHEMA_RESET`: must be explicitly `true` to allow destructive schema reset flows
+- `OT_SCHEMA_WAIT_TIMEOUT_SECONDS`: API startup wait budget for schema readiness
+- `OT_SCHEMA_WAIT_INTERVAL_SECONDS`: polling interval while waiting for schema readiness
 
 ### Semantic model and caches
 
@@ -220,9 +220,9 @@ Artifacts are stored under `data/semantic/runs/<run-id>/`. After a run, upload t
 ## Schema reset runbook
 
 - API startup is non-destructive and waits for schema readiness.
-- Destructive schema reset flows are guarded behind `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true`.
+- Destructive schema reset flows are guarded behind `OT_ALLOW_SCHEMA_RESET=true`.
 - For schema major/minor bumps:
-  1. Temporarily enable `ORACLE_TUTOR_API_ALLOW_SCHEMA_RESET=true` on the ingestion worker.
+  1. Temporarily enable `OT_ALLOW_SCHEMA_RESET=true` on the ingestion worker.
   2. Run `ingest-worker` once and confirm it completes successfully.
   3. Disable the reset flag again.
   4. Start or restart the API after migration state is `ready`.

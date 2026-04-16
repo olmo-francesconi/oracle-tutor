@@ -15,15 +15,15 @@ from ot_backend.core.models import (
     SemanticModelArtifact,
     SemanticModelEmbedding,
 )
-from ot_backend.embed import dataset_worker, promote, train_worker
-from ot_backend.embed.artifacts import (
+from ot_backend.semantic import dataset_worker, promote_worker, train_worker
+from ot_backend.semantic.artifacts import (
     SEMANTIC_DATASET_ARTIFACT_KIND_DATASET_JSON,
     semantic_dataset_artifact_object_key,
     semantic_model_artifact_object_key,
 )
-from ot_backend.embed.base_models import get_semantic_base_model
-from ot_backend.embed.model_registry import begin_semantic_model_promotion
-from ot_backend.embed.semantic_jobs import (
+from ot_backend.semantic.base_model_catalog import get_semantic_base_model
+from ot_backend.semantic.model_promotion import begin_semantic_model_promotion
+from ot_backend.semantic.semantic_jobs import (
     create_dataset_job,
     create_promote_job,
     create_train_job,
@@ -137,13 +137,13 @@ def test_dataset_worker_drains_pending_plain_dataset_job(monkeypatch) -> None:
         )
         job_id = job.id
 
-    monkeypatch.setattr("ot_backend.embed.dataset_worker.export_training_dataset_bytes", lambda **_kwargs: dataset_bytes)
+    monkeypatch.setattr("ot_backend.semantic.dataset_worker.export_training_dataset_bytes", lambda **_kwargs: dataset_bytes)
     monkeypatch.setattr(
-        "ot_backend.embed.dataset_worker.create_semantic_dataset",
+        "ot_backend.semantic.dataset_worker.create_semantic_dataset",
         lambda _db, **kwargs: SimpleNamespace(id=_create_dataset(slug=kwargs["slug"], augmentation_mode=kwargs["augmentation_mode"])),
     )
     monkeypatch.setattr(
-        "ot_backend.embed.dataset_worker.semantic_dataset_artifact_keys",
+        "ot_backend.semantic.dataset_worker.semantic_dataset_artifact_keys",
         lambda _db, dataset_id: {"dataset_json": f"semantic-registry/datasets/{dataset_id}/training-dataset.json"},
     )
 
@@ -177,18 +177,18 @@ def test_dataset_worker_uses_modal_for_llm_augmentation(monkeypatch) -> None:
         )
         job_id = job.id
 
-    monkeypatch.setattr("ot_backend.embed.dataset_worker.export_training_build_payload_bytes", lambda **_kwargs: payload_bytes)
-    monkeypatch.setattr("ot_backend.embed.dataset_worker.modal_client_configured", lambda: True)
+    monkeypatch.setattr("ot_backend.semantic.dataset_worker.export_training_build_payload_bytes", lambda **_kwargs: payload_bytes)
+    monkeypatch.setattr("ot_backend.semantic.dataset_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
-        "ot_backend.embed.dataset_worker._load_modal_train_module",
+        "ot_backend.semantic.dataset_worker._load_modal_train_module",
         lambda: SimpleNamespace(build_dataset=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or dataset_bytes)),
     )
     monkeypatch.setattr(
-        "ot_backend.embed.dataset_worker.create_semantic_dataset",
+        "ot_backend.semantic.dataset_worker.create_semantic_dataset",
         lambda _db, **kwargs: SimpleNamespace(id=_create_dataset(slug=kwargs["slug"], augmentation_mode=kwargs["augmentation_mode"])),
     )
     monkeypatch.setattr(
-        "ot_backend.embed.dataset_worker.semantic_dataset_artifact_keys",
+        "ot_backend.semantic.dataset_worker.semantic_dataset_artifact_keys",
         lambda _db, dataset_id: {"dataset_json": f"semantic-registry/datasets/{dataset_id}/training-dataset.json"},
     )
 
@@ -254,15 +254,15 @@ def test_train_worker_drains_pending_train_job_and_records_result(monkeypatch) -
         )
         return _db.get(SemanticModel, registered_model_id)
 
-    monkeypatch.setattr("ot_backend.embed.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.modal_client_configured", lambda: True)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker._load_modal_train_module",
+        "ot_backend.semantic.train_worker._load_modal_train_module",
         lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or b"bundle-bytes")),
     )
-    monkeypatch.setattr("ot_backend.embed.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.semantic_train_max_jobs_per_run", lambda: 5)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.semantic_train_max_jobs_per_run", lambda: 5)
 
     exit_code = train_worker.main([])
 
@@ -324,14 +324,14 @@ def test_train_worker_creates_follow_up_promote_job_when_requested(monkeypatch) 
         )
         return _db.get(SemanticModel, model_id)
 
-    monkeypatch.setattr("ot_backend.embed.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.modal_client_configured", lambda: True)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker._load_modal_train_module",
+        "ot_backend.semantic.train_worker._load_modal_train_module",
         lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *_args: b"bundle-bytes")),
     )
-    monkeypatch.setattr("ot_backend.embed.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
 
     exit_code = train_worker.main([])
 
@@ -384,16 +384,16 @@ def test_train_worker_succeeds_when_follow_up_promote_enqueue_fails(monkeypatch)
         )
         return _db.get(SemanticModel, registered_model_id)
 
-    monkeypatch.setattr("ot_backend.embed.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.modal_client_configured", lambda: True)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker._load_modal_train_module",
+        "ot_backend.semantic.train_worker._load_modal_train_module",
         lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *_args: b"bundle-bytes")),
     )
-    monkeypatch.setattr("ot_backend.embed.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker.create_promote_job",
+        "ot_backend.semantic.train_worker.create_promote_job",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("Another semantic promote job is already pending or running.")),
     )
 
@@ -434,19 +434,19 @@ def test_train_worker_passes_skip_fine_tune_to_modal(monkeypatch) -> None:
         )
         job_id = job.id
 
-    monkeypatch.setattr("ot_backend.embed.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
-    monkeypatch.setattr("ot_backend.embed.train_worker.modal_client_configured", lambda: True)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker._load_modal_train_module",
+        "ot_backend.semantic.train_worker._load_modal_train_module",
         lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or b"bundle-bytes")),
     )
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker.register_model_bundle_bytes",
+        "ot_backend.semantic.train_worker.register_model_bundle_bytes",
         lambda _db, **_kwargs: SimpleNamespace(id="model-skip"),
     )
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker.semantic_model_artifact_keys",
+        "ot_backend.semantic.train_worker.semantic_model_artifact_keys",
         lambda _db, _model_id: {"bundle_zip": "semantic-registry/models/model-skip/bundle.zip"},
     )
 
@@ -473,9 +473,9 @@ def test_train_worker_passes_skip_fine_tune_to_modal(monkeypatch) -> None:
 
 
 def test_run_modal_training_requires_modal_credentials(monkeypatch) -> None:
-    monkeypatch.setattr("ot_backend.embed.train_worker.modal_client_configured", lambda: False)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: False)
     monkeypatch.setattr(
-        "ot_backend.embed.train_worker._load_modal_train_module",
+        "ot_backend.semantic.train_worker._load_modal_train_module",
         lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *_args: (_ for _ in ()).throw(AssertionError("should not run")))),
     )
 
@@ -671,15 +671,15 @@ def test_promotion_worker_runs_pending_promote_job(monkeypatch) -> None:
         job_id = job.id
 
     monkeypatch.setattr(
-        "ot_backend.embed.promote.begin_semantic_model_promotion",
+        "ot_backend.semantic.promote_worker.begin_semantic_model_promotion",
         lambda model_id: SimpleNamespace(id=model_id, slug="candidate-promote"),
     )
     monkeypatch.setattr(
-        "ot_backend.embed.promote.run_semantic_model_promotion",
+        "ot_backend.semantic.promote_worker.run_semantic_model_promotion",
         lambda model_id, *, embed_batch_size: isinstance(model_id, str) and len(model_id) > 0 and embed_batch_size == 128,
     )
 
-    exit_code = promote.main([])
+    exit_code = promote_worker.main([])
 
     assert exit_code == 0
     with SessionLocal() as db:

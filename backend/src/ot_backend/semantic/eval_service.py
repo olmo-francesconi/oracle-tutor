@@ -12,7 +12,7 @@ _EVAL_TEXT_PREVIEW = 120
 
 
 def default_eval_queries_bytes() -> bytes:
-    return files("ot_backend.embed").joinpath("eval_queries.json").read_bytes()
+    return files("ot_backend.semantic").joinpath("eval_queries.json").read_bytes()
 
 
 def load_eval_queries_payload(eval_queries_bytes: bytes | None = None) -> dict[str, Any]:

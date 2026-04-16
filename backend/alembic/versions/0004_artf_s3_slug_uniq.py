@@ -5,8 +5,8 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision = "0004_artifact_s3_and_slug_unique"
-down_revision = "0003_add_semantic_model_registry"
+revision = "0004_artf_s3_slug_uniq"
+down_revision = "0003_sem_model_registry"
 branch_labels = None
 depends_on = None
 

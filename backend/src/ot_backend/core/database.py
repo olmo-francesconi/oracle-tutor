@@ -22,7 +22,7 @@ def _build_database_url() -> str:
 
     # Production should be configured via DATABASE_URL (Railway-friendly).
     if is_production_env():
-        raise RuntimeError("DATABASE_URL is required in production (set ORACLE_TUTOR_API_ENV=production).")
+        raise RuntimeError("DATABASE_URL is required in production (set OT_ENV=production).")
 
     # Local/dev defaults match docker-compose.yml in repo root.
     user = os.getenv("DB_USER", "oracle")

@@ -21,7 +21,7 @@ from typing import Protocol, cast
 # Use sqlite for profiling (no external DB needed)
 _ = os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 # Avoid importing before env is set
-_ = os.environ.setdefault("ORACLE_TUTOR_API_ENV", "development")
+_ = os.environ.setdefault("OT_ENV", "development")
 
 # Add backend src to path when run as script
 _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

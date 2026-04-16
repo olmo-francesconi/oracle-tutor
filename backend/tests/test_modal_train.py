@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from ot_backend.embed import modal_train
+from ot_backend.semantic import modal_train
 
 
 def test_build_dataset_state_adds_llm_query_pairs(monkeypatch) -> None:
-    monkeypatch.setattr("ot_backend.embed.modal_train.semantic_llm_model_name", lambda: "test-llm")
+    monkeypatch.setattr("ot_backend.semantic.modal_train.semantic_llm_model_name", lambda: "test-llm")
     monkeypatch.setattr(
-        "ot_backend.embed.modal_train._generate_llm_query_pairs",
+        "ot_backend.semantic.modal_train._generate_llm_query_pairs",
         lambda _rows, llm_config=None: [("burn spell", "this card deals two damage to any target.")],
     )
 
@@ -66,7 +66,7 @@ def test_build_llm_prompt_uses_oracle_text_only() -> None:
 
 def test_select_llm_gap_faces_uses_template_coverage(monkeypatch) -> None:
     monkeypatch.setattr(
-        "ot_backend.embed.modal_train.generate_template_queries",
+        "ot_backend.semantic.modal_train.generate_template_queries",
         lambda text: ["draw a card", "card draw"] if text == "Draw a card." else [],
     )
     selected = modal_train._select_llm_gap_faces(
@@ -90,7 +90,7 @@ def test_select_llm_gap_faces_uses_template_coverage(monkeypatch) -> None:
 
 
 def test_select_llm_gap_faces_skips_blank_oracle_rows(monkeypatch) -> None:
-    monkeypatch.setattr("ot_backend.embed.modal_train.generate_template_queries", lambda _text: [])
+    monkeypatch.setattr("ot_backend.semantic.modal_train.generate_template_queries", lambda _text: [])
 
     selected = modal_train._select_llm_gap_faces(
         [
