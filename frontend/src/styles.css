@@ -96,6 +96,39 @@
   }
 }
 
+@layer components {
+  .ot-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .ot-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    opacity: 0;
+  }
+
+  .ot-slider::-webkit-slider-runnable-track {
+    background: transparent;
+  }
+
+  .ot-slider::-moz-range-thumb {
+    appearance: none;
+    opacity: 0;
+    border: none;
+  }
+
+  .ot-slider::-moz-range-track {
+    background: transparent;
+  }
+
+  .ot-slider::-moz-range-progress {
+    background: transparent;
+  }
+}
+
 @layer utilities {
   .scrollbar-none {
     scrollbar-width: none;

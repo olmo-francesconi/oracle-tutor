@@ -1,9 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FilterBar } from '../components/FilterBar'
-import { ResultsGrid } from '../components/ResultsGrid'
-import { SearchBox } from '../components/SearchBox/SearchBox'
-import { DenseTextBackground } from '../components/background/DenseTextBackground'
-import { HomeEditorialText } from '../components/background/HomeEditorialText'
 import {
   buildCardLoadingState,
   buildCardSuccessState,
@@ -18,14 +13,15 @@ import {
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
 import { getCard, getOracleSamples, getSimilarCards, searchOracleText } from '../lib/api'
 import { reportError, track } from '../lib/observability'
-import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
+import { writeSearchStateToUrl, readSearchStateFromUrl } from '../lib/urlState'
 import type { CardMatch, FilterState, OracleSamples } from '../types/api'
 import type { PinnedCard, SearchShellState } from '../types/ui'
 import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
-import { SearchErrorPanel } from '../components/errors/SearchErrorPanel'
+import { HomeView } from './HomeView'
+import { ResultsView } from './ResultsView'
+import { useUrlSync } from './useUrlSync'
 
 const RESULTS_PAGE_SIZE = 24
-const LEFT_STRIPE_WIDTH_PX = 6
 
 type ViewportSize = {
   width: number
@@ -107,11 +103,9 @@ export function SearchShell() {
   const isHome = state.submittedQuery === null
   const activeFilterCount = getActiveFilterCount(state.filters)
   const hasOracleBackground = oracleSamples.texts.length > 0
+
   const handleDraftChange = useCallback((value: string) => {
-    setState((current) => ({
-      ...current,
-      draftQuery: value,
-    }))
+    setState((current) => ({ ...current, draftQuery: value }))
   }, [])
 
   const fetchFirstPage = useCallback(async (query: string, filters: SearchShellState['filters'], signal: AbortSignal) => {
@@ -186,11 +180,7 @@ export function SearchShell() {
     } catch (error) {
       if (controller.signal.aborted) return
 
-      reportError(error, {
-        source: 'search.first-page',
-        query,
-        filters,
-      })
+      reportError(error, { source: 'search.first-page', query, filters })
       if (isApiDownError(error)) {
         setApiDownMessage(getApiDownMessage(error))
         setState((current) => ({
@@ -220,11 +210,7 @@ export function SearchShell() {
       hasFilters: Object.keys(state.filters).length > 0,
     })
 
-    setState((current) => ({
-      ...current,
-      draftQuery: nextQuery,
-    }))
-
+    setState((current) => ({ ...current, draftQuery: nextQuery }))
     void runSearch(nextQuery, state.filters)
   }, [runSearch, state.draftQuery, state.filters])
 
@@ -239,11 +225,7 @@ export function SearchShell() {
     const nextFilterKeys = Object.keys(normalizedFilters).sort()
     const previousFilterKeys = Object.keys(state.filters).sort()
 
-    setState((current) => ({
-      ...current,
-      filters: normalizedFilters,
-      error: null,
-    }))
+    setState((current) => ({ ...current, filters: normalizedFilters, error: null }))
 
     track('filters_changed', {
       activeCount: nextFilterKeys.length,
@@ -262,15 +244,9 @@ export function SearchShell() {
   const handleClearFilters = useCallback(() => {
     const previousKeys = Object.keys(state.filters).sort()
 
-    track('filters_cleared', {
-      previousKeys,
-    })
+    track('filters_cleared', { previousKeys })
 
-    setState((current) => ({
-      ...current,
-      filters: {},
-      error: null,
-    }))
+    setState((current) => ({ ...current, filters: {}, error: null }))
 
     if (!state.submittedQuery) return
     if (state.pinnedCard) {
@@ -295,11 +271,7 @@ export function SearchShell() {
     const controller = new AbortController()
     activeLoadMoreRequestRef.current = controller
 
-    setState((current) => ({
-      ...current,
-      error: null,
-      isLoadingMore: true,
-    }))
+    setState((current) => ({ ...current, error: null, isLoadingMore: true }))
 
     try {
       const page = state.pinnedCard
@@ -340,20 +312,12 @@ export function SearchShell() {
       })
       if (isApiDownError(error)) {
         setApiDownMessage(getApiDownMessage(error))
-        setState((current) => ({
-          ...current,
-          error: null,
-          isLoadingMore: false,
-        }))
+        setState((current) => ({ ...current, error: null, isLoadingMore: false }))
         return
       }
 
       setApiDownMessage(null)
-      setState((current) => ({
-        ...current,
-        error: getSearchErrorMessage(error),
-        isLoadingMore: false,
-      }))
+      setState((current) => ({ ...current, error: getSearchErrorMessage(error), isLoadingMore: false }))
     }
   }, [
     state.filters,
@@ -396,9 +360,7 @@ export function SearchShell() {
       } catch (error) {
         if (controller.signal.aborted) return
 
-        reportError(error, {
-          source: 'home.oracle-samples',
-        })
+        reportError(error, { source: 'home.oracle-samples' })
 
         if (isApiDownError(error)) {
           setApiDownMessage(getApiDownMessage(error))
@@ -413,9 +375,7 @@ export function SearchShell() {
   }, [loadOracleSamples])
 
   useEffect(() => {
-    const updateViewport = () => {
-      setViewport(getViewportSize())
-    }
+    const updateViewport = () => setViewport(getViewportSize())
 
     const scheduleUpdate = () => {
       if (resizeFrameRef.current !== null) return
@@ -451,50 +411,15 @@ export function SearchShell() {
     void runSearch(state.submittedQuery, state.filters)
   }, [runSearch, runCardSearch, state.filters, state.pinnedCard, state.submittedQuery])
 
-  useEffect(() => {
-    const handlePopState = () => {
-      const nextState = readSearchStateFromUrl()
-
-      if (nextState.pinnedCard) {
-        skipNextUrlWriteRef.current = true
-        void runCardSearch(nextState.pinnedCard.oracle_id, nextState.pinnedCard.face_ix, '', nextState.filters)
-        return
-      }
-
-      const nextQuery = nextState.query
-
-      if (!nextQuery) {
-        activeSearchRequestRef.current?.abort()
-        activeLoadMoreRequestRef.current?.abort()
-        skipNextUrlWriteRef.current = true
-        setState((current) => buildClearedState(current))
-        return
-      }
-
-      skipNextUrlWriteRef.current = true
-      setState((current) => ({
-        ...current,
-        draftQuery: nextQuery,
-        filters: nextState.filters,
-        error: null,
-      }))
-
-      void runSearch(nextQuery, nextState.filters)
-    }
-
-    window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
-  }, [runCardSearch, runSearch])
-
-  useEffect(() => {
-    if (skipNextUrlWriteRef.current) {
-      skipNextUrlWriteRef.current = false
-      return
-    }
-
-    if (state.submittedQuery === null && !state.pinnedCard) return
-    writeSearchStateToUrl(state.submittedQuery, state.filters, state.pinnedCard)
-  }, [state.filters, state.submittedQuery, state.pinnedCard])
+  useUrlSync(
+    state,
+    skipNextUrlWriteRef,
+    activeSearchRequestRef,
+    activeLoadMoreRequestRef,
+    setState,
+    runSearch,
+    runCardSearch,
+  )
 
   return (
     <main
@@ -503,161 +428,31 @@ export function SearchShell() {
         isHome ? 'grid place-items-center px-6 pb-16 pl-11 pt-12 max-[720px]:px-4 max-[720px]:pb-12 max-[720px]:pl-[30px] max-[720px]:pt-8' : '',
       ].join(' ')}
     >
-      <DenseTextBackground
-        texts={oracleSamples.texts}
-        viewport={viewport}
-        isVisible={hasOracleBackground}
-        leftInset={LEFT_STRIPE_WIDTH_PX}
-      />
-      <div className="relative z-10">
-        {isHome ? (
-          <HomeEditorialText
-            texts={oracleSamples.texts}
-            terms={oracleSamples.terms}
-            viewport={viewport}
-            isVisible={hasOracleBackground}
-            leftInset={LEFT_STRIPE_WIDTH_PX}
-          />
-        ) : null}
-
-        <div className="fixed inset-y-0 left-0 z-20 w-1.5 bg-ot-red" aria-hidden="true" />
-
-        {isHome ? (
-          <section className="relative z-20 grid w-full max-w-[560px] gap-7" aria-label="Home state">
-            <div className="grid gap-3 px-[18px] text-left max-[720px]:px-[14px]">
-              <h1 className="m-0 font-display text-[clamp(4.5rem,11vw,7rem)] font-black uppercase leading-[0.86] tracking-[-0.03em]">
-                <span className="block">Oracle</span>
-                <span className="block">Tutor</span>
-              </h1>
-              <div className="h-0.5 w-full max-w-[18.5rem] bg-ot-ink" />
-              <p className="m-0 max-w-[30ch] text-[0.8125rem] lowercase leading-[1.55] tracking-[0.06em] text-ot-muted">
-                find cards by meaning, not keywords.
-              </p>
-            </div>
-
-            <div className="grid gap-0">
-              <SearchBox
-                value={state.draftQuery}
-                onChange={handleDraftChange}
-                onSubmit={handleSubmit}
-                onCardSelect={handleCardSelect}
-                autoFocus
-                showManaRail
-                variant="home"
-              />
-            </div>
-          </section>
-        ) : (
-          <>
-            <div className="sticky top-0 z-30 max-[720px]:static">
-            <header className="grid min-h-[58px] grid-cols-[clamp(148px,16vw,176px)_minmax(0,1fr)_auto] items-stretch border-b-2 border-ot-ink bg-ot-bg max-[720px]:grid-cols-[auto_minmax(0,1fr)_auto]">
-              <button
-                type="button"
-                className="flex min-w-0 cursor-pointer items-center justify-center border-0 border-r-2 border-ot-ink bg-transparent px-[18px] py-0 font-display text-[20px] font-black uppercase leading-none tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[720px]:min-h-14 max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0 max-[720px]:text-[18px]"
-                onClick={handleReset}
-              >
-                <span className="max-[720px]:hidden">Oracle Tutor</span>
-                <span className="hidden max-[720px]:inline">OT</span>
-              </button>
-              <div className="relative flex min-w-0 items-stretch bg-ot-surface">
-                <SearchBox
-                  className="h-full self-stretch"
-                  value={state.draftQuery}
-                  onChange={handleDraftChange}
-                  onSubmit={handleSubmit}
-                  onCardSelect={handleCardSelect}
-                  autoFocus={false}
-                  showManaRail={false}
-                  variant="topbar"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowFilters((v) => !v)}
-                className={[
-                  'flex shrink-0 cursor-pointer items-center justify-center gap-2 border-l-2 border-ot-ink px-4 font-display text-[0.6875rem] font-black uppercase tracking-[0.12em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0',
-                  showFilters || activeFilterCount > 0
-                    ? 'bg-ot-ink text-ot-bg'
-                    : 'bg-transparent text-ot-ink hover:bg-ot-ink hover:text-ot-bg',
-                ].join(' ')}
-                aria-expanded={showFilters}
-                aria-label="Toggle filters"
-              >
-                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden="true">
-                  <path d="M1 3h14l-5 5.5V13l-4 1.5V8.5L1 3Z" />
-                </svg>
-                <span className="max-[720px]:hidden">Filters</span>
-                {activeFilterCount > 0 && (
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center bg-ot-red font-display text-[0.5625rem] font-black text-white max-[720px]:hidden">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </button>
-            </header>
-
-            <section
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink bg-ot-bg px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
-              aria-label="Results summary"
-            >
-              <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">
-                <p className="eyebrow">{state.pinnedCard ? 'Similar to' : 'Results'}</p>
-                <h2 className="m-0 font-display text-[clamp(2.2rem,4.4vw,3.35rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
-                  {state.submittedQuery}
-                </h2>
-              </div>
-              <div className="grid min-w-[13rem] justify-items-end gap-1.5 self-center max-[720px]:min-w-0 max-[720px]:justify-items-start">
-                {!state.isLoading ? (
-                  <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted" aria-live="polite">
-                    {state.results.length}
-                    {state.hasMore || state.isLoadingMore ? '+' : ''} cards
-                  </span>
-                ) : null}
-              </div>
-            </section>
-
-            {showFilters && (
-              <FilterBar filters={state.filters} onChange={handleFiltersChange} onClear={handleClearFilters} />
-            )}
-            </div>
-
-            <section
-              className="px-6 pb-14 pl-[38px] pr-6 pt-6 max-[720px]:px-4 max-[720px]:pl-6"
-              aria-label="Results state"
-            >
-              {state.isLoading ? (
-                <div className="grid gap-3" aria-hidden="true">
-                  <div className="grid gap-1.5">
-                    <span className="block h-3 w-28 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                    <span className="block h-8 w-[min(24rem,78vw)] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                  </div>
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-3 max-[720px]:grid-cols-[repeat(auto-fill,minmax(154px,1fr))]">
-                    {Array.from({ length: 6 }, (_, index) => (
-                      <div key={index} className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-                        <span className="block h-8 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                        <span className="block aspect-[63/88] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_72%,var(--color-ot-bg))]" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {!state.isLoading && state.error ? <SearchErrorPanel message={state.error} /> : null}
-              {!state.isLoading && !state.error && state.results.length === 0 ? (
-                <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
-                  No cards matched {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
-                </p>
-              ) : null}
-              {state.results.length > 0 ? (
-                <ResultsGrid
-                  cards={state.results}
-                  hasMore={state.hasMore}
-                  isLoadingMore={state.isLoadingMore}
-                  onLoadMore={handleLoadMore}
-                />
-              ) : null}
-            </section>
-          </>
-        )}
-      </div>
+      {isHome ? (
+        <HomeView
+          draftQuery={state.draftQuery}
+          oracleSamples={oracleSamples}
+          viewport={viewport}
+          hasOracleBackground={hasOracleBackground}
+          onDraftChange={handleDraftChange}
+          onSubmit={handleSubmit}
+          onCardSelect={handleCardSelect}
+        />
+      ) : (
+        <ResultsView
+          state={state}
+          showFilters={showFilters}
+          activeFilterCount={activeFilterCount}
+          onDraftChange={handleDraftChange}
+          onSubmit={handleSubmit}
+          onCardSelect={handleCardSelect}
+          onReset={handleReset}
+          onToggleFilters={() => setShowFilters((v) => !v)}
+          onFiltersChange={handleFiltersChange}
+          onClearFilters={handleClearFilters}
+          onLoadMore={handleLoadMore}
+        />
+      )}
       {apiDownMessage ? (
         <ApiDownOverlay
           message={apiDownMessage}

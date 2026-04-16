@@ -22,6 +22,9 @@ import type {
 import { AdminRangeField } from './AdminRangeField'
 import { AdminSelect } from './AdminSelect'
 import { AdminSelectionField } from './AdminSelectionField'
+import { DatasetTable } from './DatasetTable'
+import { JobList } from './JobList'
+import { ModelTable } from './ModelTable'
 
 type AdminSnapshot = {
   models: SemanticModelSummary[]
@@ -85,33 +88,6 @@ const DEFAULT_TRAIN_FORM: TrainFormState = {
   batch_size: 64,
   promote_after_register: false,
   embed_batch_size: 256,
-}
-
-function formatTimestamp(value?: string | null) {
-  if (!value) return 'not yet'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('en', {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
-function formatBytes(size: number) {
-  if (size < 1024 * 1024) {
-    return `${Math.max(1, Math.round(size / 1024))} KB`
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function statusTone(status: string) {
-  if (status === 'active' || status === 'succeeded' || status === 'ready') return 'bg-ot-ink text-ot-bg'
-  if (status === 'running' || status === 'embedding') return 'bg-ot-yellow text-ot-ink'
-  if (status === 'pending' || status === 'uploaded') return 'bg-ot-surface text-ot-ink'
-  if (status === 'failed') return 'bg-ot-red text-ot-bg'
-  return 'bg-ot-line text-ot-ink'
 }
 
 function serializeAugmentationKeys(keys: string[]) {
@@ -296,20 +272,6 @@ export function AdminPage({ onLogout }: AdminPageProps) {
 
   return (
     <main className="relative min-h-screen overflow-x-clip bg-ot-bg text-ot-ink">
-      <style>{`
-        .ot-slider {
-          -webkit-appearance: none;
-          appearance: none;
-          background: transparent;
-          cursor: pointer;
-          outline: none;
-        }
-        .ot-slider::-webkit-slider-thumb { -webkit-appearance: none; opacity: 0; }
-        .ot-slider::-webkit-slider-runnable-track { background: transparent; }
-        .ot-slider::-moz-range-thumb { appearance: none; opacity: 0; border: none; }
-        .ot-slider::-moz-range-track { background: transparent; }
-        .ot-slider::-moz-range-progress { background: transparent; }
-      `}</style>
       <div className="fixed inset-y-0 left-0 z-10 w-1.5 bg-ot-red" aria-hidden="true" />
       <div
         className="pointer-events-none absolute inset-0 opacity-60"
@@ -598,331 +560,17 @@ export function AdminPage({ onLogout }: AdminPageProps) {
           </div>
 
           <div className="grid min-w-0 self-start gap-6">
-            <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-              <div className="border-b-2 border-ot-ink px-5 py-4">
-                <p className="eyebrow">Datasets</p>
-                <h2 className="m-0 pt-2 font-display text-[2.1rem] font-black uppercase leading-[0.9] tracking-[-0.03em]">
-                  Training datasets
-                </h2>
-              </div>
+            <DatasetTable datasets={snapshot.datasets} loading={loading} />
 
-              <div className="overflow-x-auto max-[900px]:hidden">
-                <table className="min-w-full border-collapse">
-                  <thead>
-                    <tr className="border-b-2 border-ot-ink bg-ot-bg text-left">
-                      {['Dataset', 'Status', 'Augmentation', 'Created'].map((label) => (
-                        <th key={label} className="px-4 py-3 font-display text-[0.92rem] font-black uppercase tracking-[0.02em]">
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan={4} className="animate-ot-loading-pulse px-4 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                          Loading…
-                        </td>
-                      </tr>
-                    ) : snapshot.datasets.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                          No datasets built yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      snapshot.datasets.map((ds) => (
-                        <tr key={ds.id} className="border-b-2 border-ot-line align-top transition-colors duration-150 hover:bg-ot-bg last:border-b-0">
-                          <td className="px-4 py-4">
-                            <div className="grid gap-1">
-                              <span className="break-words font-display text-[1.25rem] font-black uppercase leading-none tracking-[-0.02em]">
-                                {ds.slug}
-                              </span>
-                              {ds.source_semantic_data_version != null && (
-                                <span className="text-[0.72rem] uppercase tracking-[0.08em] text-ot-muted">
-                                  v{ds.source_semantic_data_version}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-4">
-                            <span className={`inline-block border-2 border-ot-ink px-2 py-1 text-[0.72rem] uppercase tracking-[0.08em] ${statusTone(ds.status)}`}>
-                              {ds.status}
-                            </span>
-                            {ds.error_message ? (
-                              <p className="m-0 break-words pt-2 text-[0.72rem] leading-[1.45] text-ot-red">{ds.error_message}</p>
-                            ) : null}
-                          </td>
-                          <td className="px-4 py-4 text-[0.76rem] uppercase tracking-[0.08em] text-ot-muted">
-                            {ds.augmentation_mode}
-                          </td>
-                          <td className="px-4 py-4 text-[0.76rem] uppercase tracking-[0.08em] text-ot-muted">
-                            {formatTimestamp(ds.created_at)}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+            <ModelTable
+              models={snapshot.models}
+              loading={loading}
+              submitting={submitting}
+              activePromoteJob={activePromoteJob}
+              onPromote={(modelId) => void handlePromote(modelId)}
+            />
 
-              <div className="hidden max-[900px]:grid">
-                {loading ? (
-                  <div className="animate-ot-loading-pulse px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">Loading…</div>
-                ) : snapshot.datasets.length === 0 ? (
-                  <div className="px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">No datasets built yet.</div>
-                ) : (
-                  snapshot.datasets.map((ds) => (
-                    <article key={ds.id} className="grid gap-3 border-b-2 border-ot-line px-5 py-4 last:border-b-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-display text-[1.2rem] font-black uppercase leading-none tracking-[-0.02em]">{ds.slug}</span>
-                        <span className={`inline-block shrink-0 border-2 border-ot-ink px-2 py-1 text-[0.68rem] uppercase tracking-[0.08em] ${statusTone(ds.status)}`}>
-                          {ds.status}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 text-[0.72rem] uppercase tracking-[0.08em] text-ot-muted">
-                        <div>
-                          <span className="block text-ot-ink">Created</span>
-                          {formatTimestamp(ds.created_at)}
-                        </div>
-                        <div>
-                          <span className="block text-ot-ink">Augmentation</span>
-                          {ds.augmentation_mode}
-                        </div>
-                      </div>
-                      {ds.error_message ? (
-                        <p className="m-0 border-2 border-ot-red px-3 py-3 text-[0.76rem] leading-[1.5] text-ot-red">{ds.error_message}</p>
-                      ) : null}
-                    </article>
-                  ))
-                )}
-              </div>
-            </section>
-
-            <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-              <div className="border-b-2 border-ot-ink px-5 py-4">
-                <p className="eyebrow">Models</p>
-                <h2 className="m-0 pt-2 font-display text-[2.1rem] font-black uppercase leading-[0.9] tracking-[-0.03em]">
-                  Available candidates
-                </h2>
-              </div>
-
-              <div className="overflow-x-auto max-[900px]:hidden">
-                <table className="min-w-full border-collapse">
-                  <thead>
-                    <tr className="border-b-2 border-ot-ink bg-ot-bg text-left">
-                      {['Model', 'Status', 'Created', 'Artifact', 'Action'].map((label) => (
-                        <th key={label} className="px-4 py-3 font-display text-[0.92rem] font-black uppercase tracking-[0.02em]">
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan={5} className="animate-ot-loading-pulse px-4 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                          Loading…
-                        </td>
-                      </tr>
-                    ) : snapshot.models.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                          No models registered yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      snapshot.models.map((model) => {
-                        const blockedByPromoteLane = !!activePromoteJob && activePromoteJob.model_id !== model.id
-                        const disablePromote =
-                          submitting ||
-                          model.is_active ||
-                          model.status === 'embedding' ||
-                          blockedByPromoteLane
-
-                        return (
-                          <tr key={model.id} className="border-b-2 border-ot-line align-top transition-colors duration-150 hover:bg-ot-bg last:border-b-0">
-                            <td className="px-4 py-4">
-                              <div className="grid gap-1">
-                                <span className="break-words font-display text-[1.25rem] font-black uppercase leading-none tracking-[-0.02em]">
-                                  {model.slug}
-                                </span>
-                                <span className="text-[0.72rem] uppercase tracking-[0.08em] text-ot-muted">
-                                  {model.base_model}
-                                </span>
-                                {model.is_active ? (
-                                  <span className="inline-block w-fit border-2 border-ot-ink bg-ot-red px-2 py-1 text-[0.68rem] uppercase tracking-[0.08em] text-ot-bg">
-                                    Active
-                                  </span>
-                                ) : null}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4">
-                              <span className={`inline-block border-2 border-ot-ink px-2 py-1 text-[0.72rem] uppercase tracking-[0.08em] ${statusTone(model.status)}`}>
-                                {model.status}
-                              </span>
-                              {model.error_message ? (
-                                <p className="m-0 break-words pt-2 text-[0.72rem] leading-[1.45] text-ot-red">{model.error_message}</p>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-4 text-[0.76rem] uppercase tracking-[0.08em] text-ot-muted">
-                              <div>{formatTimestamp(model.created_at)}</div>
-                              {model.activated_at ? <div className="pt-2 text-ot-ink">live {formatTimestamp(model.activated_at)}</div> : null}
-                            </td>
-                            <td className="px-4 py-4 text-[0.76rem] uppercase tracking-[0.08em] text-ot-muted">
-                              <div>{formatBytes(model.artifact_size_bytes)}</div>
-                              <div className="pt-2 text-ot-ink">dim {model.embedding_dim}</div>
-                            </td>
-                            <td className="px-4 py-4">
-                              <button
-                                type="button"
-                                disabled={disablePromote}
-                                onClick={() => void handlePromote(model.id)}
-                                className="min-h-12 cursor-pointer border-2 border-ot-ink bg-ot-bg px-4 py-2 font-display text-[0.98rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg active:opacity-80 disabled:cursor-not-allowed disabled:border-ot-line disabled:bg-ot-bg disabled:text-ot-muted"
-                              >
-                                {model.is_active ? 'Live now' : blockedByPromoteLane ? 'Lane locked' : 'Promote'}
-                              </button>
-                            </td>
-                          </tr>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="hidden max-[900px]:grid">
-                {loading ? (
-                  <div className="animate-ot-loading-pulse px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">Loading…</div>
-                ) : snapshot.models.length === 0 ? (
-                  <div className="px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                    No models registered yet.
-                  </div>
-                ) : (
-                  snapshot.models.map((model) => {
-                    const blockedByPromoteLane = !!activePromoteJob && activePromoteJob.model_id !== model.id
-                    const disablePromote =
-                      submitting ||
-                      model.is_active ||
-                      model.status === 'embedding' ||
-                      blockedByPromoteLane
-
-                    return (
-                      <article key={model.id} className="grid gap-4 border-b-2 border-ot-line px-5 py-4 last:border-b-0">
-                        <div className="grid gap-3">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="grid min-w-0 gap-1">
-                              <span className="break-words font-display text-[1.25rem] font-black uppercase leading-none tracking-[-0.02em]">
-                                {model.slug}
-                              </span>
-                              <span className="break-words text-[0.72rem] uppercase tracking-[0.08em] text-ot-muted">
-                                {model.base_model}
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <span
-                                className={`inline-block border-2 border-ot-ink px-2 py-1 text-[0.72rem] uppercase tracking-[0.08em] ${statusTone(model.status)}`}
-                              >
-                                {model.status}
-                              </span>
-                              {model.is_active ? (
-                                <span className="inline-block border-2 border-ot-ink bg-ot-red px-2 py-1 text-[0.68rem] uppercase tracking-[0.08em] text-ot-bg">
-                                  Active
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3 text-[0.74rem] uppercase tracking-[0.08em] text-ot-muted max-[420px]:grid-cols-1">
-                            <div className="grid gap-1 border-2 border-ot-line bg-ot-bg px-3 py-3">
-                              <span className="eyebrow">Created</span>
-                              <span>{formatTimestamp(model.created_at)}</span>
-                              {model.activated_at ? <span className="text-ot-ink">live {formatTimestamp(model.activated_at)}</span> : null}
-                            </div>
-                            <div className="grid gap-1 border-2 border-ot-line bg-ot-bg px-3 py-3">
-                              <span className="eyebrow">Artifact</span>
-                              <span>{formatBytes(model.artifact_size_bytes)}</span>
-                              <span className="text-ot-ink">dim {model.embedding_dim}</span>
-                            </div>
-                          </div>
-
-                          {model.error_message ? (
-                            <p className="m-0 border-2 border-ot-red bg-[color-mix(in_srgb,var(--color-ot-red)_6%,var(--color-ot-surface))] px-3 py-3 text-[0.74rem] leading-[1.5] text-ot-red">
-                              {model.error_message}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={disablePromote}
-                          onClick={() => void handlePromote(model.id)}
-                          className="min-h-12 cursor-pointer border-2 border-ot-ink bg-ot-bg px-4 py-2 font-display text-[0.98rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg active:opacity-80 disabled:cursor-not-allowed disabled:border-ot-line disabled:bg-ot-bg disabled:text-ot-muted"
-                        >
-                          {model.is_active ? 'Live now' : blockedByPromoteLane ? 'Lane locked' : 'Promote'}
-                        </button>
-                      </article>
-                    )
-                  })
-                )}
-              </div>
-            </section>
-
-            <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-              <div className="border-b-2 border-ot-ink px-5 py-4">
-                <p className="eyebrow">Jobs</p>
-                <h2 className="m-0 pt-2 font-display text-[2.1rem] font-black uppercase leading-[0.9] tracking-[-0.03em]">
-                  Queue and worker pulse
-                </h2>
-              </div>
-
-              <div className="grid">
-                {loading ? (
-                  <div className="animate-ot-loading-pulse px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">Loading…</div>
-                ) : snapshot.jobs.length === 0 ? (
-                  <div className="px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                    No jobs queued yet.
-                  </div>
-                ) : (
-                  snapshot.jobs.map((job) => (
-                    <article
-                      key={job.id}
-                      className="grid gap-3 border-b-2 border-ot-line px-5 py-4 last:border-b-0"
-                    >
-                      <div className="flex items-start justify-between gap-4 max-[720px]:flex-col">
-                        <div className="grid gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-display text-[1.3rem] font-black uppercase leading-none tracking-[-0.02em]">
-                              #{job.id} {job.job_type}
-                            </span>
-                            <span className={`inline-block border-2 border-ot-ink px-2 py-1 text-[0.72rem] uppercase tracking-[0.08em] ${statusTone(job.status)}`}>
-                              {job.status}
-                            </span>
-                          </div>
-                          <p className="m-0 break-words text-[0.75rem] uppercase tracking-[0.08em] text-ot-muted">
-                            Requested by {job.requested_by}
-                            {job.model_id ? ` / model ${job.model_id}` : ''}
-                            {job.dataset_id ? ` / dataset ${job.dataset_id.slice(0, 8)}` : ''}
-                          </p>
-                        </div>
-
-                        <div className="grid gap-1 text-right text-[0.72rem] uppercase tracking-[0.08em] text-ot-muted max-[720px]:text-left">
-                          <span>created {formatTimestamp(job.created_at)}</span>
-                          <span>heartbeat {formatTimestamp(job.heartbeat_at)}</span>
-                          <span>finished {formatTimestamp(job.finished_at)}</span>
-                        </div>
-                      </div>
-
-                      {job.error_message ? (
-                        <p className="m-0 border-2 border-ot-red bg-[color-mix(in_srgb,var(--color-ot-red)_6%,var(--color-ot-surface))] px-3 py-3 text-[0.76rem] leading-[1.5] text-ot-red">
-                          {job.error_message}
-                        </p>
-                      ) : null}
-                    </article>
-                  ))
-                )}
-              </div>
-            </section>
+            <JobList jobs={snapshot.jobs} loading={loading} />
           </div>
         </section>
       </div>
