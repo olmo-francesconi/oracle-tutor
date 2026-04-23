@@ -15,7 +15,7 @@ from ..core.config import (
 from ..core.database import SessionLocal
 from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.logging_config import setup_loggers
-from .model_promotion import begin_semantic_model_promotion, run_semantic_model_promotion
+from .model_promotion import promote_semantic_model
 from .semantic_jobs import (
     SEMANTIC_JOB_TYPE_PROMOTE,
     claim_next_semantic_job,
@@ -67,9 +67,8 @@ def _run_claimed_promote_job(job_id: str) -> bool:
             payload = parse_promote_job_payload(job.payload_json)
 
         model_id = payload.model_id
-        model = begin_semantic_model_promotion(model_id)
-        logger.info("Running semantic model promotion worker. id=%s slug=%s", model.id, model.slug)
-        success = run_semantic_model_promotion(model_id, embed_batch_size=payload.embed_batch_size)
+        logger.info("Running semantic model promotion worker. id=%s", model_id)
+        success = promote_semantic_model(model_id, embed_batch_size=payload.embed_batch_size)
         if not success:
             raise RuntimeError(f"Semantic model promotion failed for model {model_id}.")
         mark_semantic_job_succeeded(

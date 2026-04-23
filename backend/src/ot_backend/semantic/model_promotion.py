@@ -38,10 +38,15 @@ def _try_promotion_advisory_lock(db: Session) -> bool:
     return bool(db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": _PROMOTION_ADVISORY_LOCK_KEY}))
 
 
-def begin_semantic_model_promotion(model_id: str) -> SemanticModel:
+def _claim_model_for_promotion(model_id: str) -> tuple[Path, Path]:
+    """Validate + transition model to EMBEDDING status under the advisory lock.
+
+    Runs all preconditions (existence, not-already-active, no other in-flight
+    promotion, not stale) in one place so the long-running embed+activate phase
+    can proceed without re-taking the lock.
+    """
     with SessionLocal() as db:
-        lock_acquired = _try_promotion_advisory_lock(db)
-        if not lock_acquired:
+        if not _try_promotion_advisory_lock(db):
             raise RuntimeError("Another semantic model promotion is already running.")
 
         model = db.get(SemanticModel, model_id)
@@ -59,6 +64,8 @@ def begin_semantic_model_promotion(model_id: str) -> SemanticModel:
         )
         if other_embedding is not None:
             raise RuntimeError(f"Another semantic model ({other_embedding}) promotion is already running.")
+        _ensure_model_is_not_stale(db, model)
+
         model.status = SEMANTIC_MODEL_STATUS_EMBEDDING
         model.error_message = None
         merged_metrics = dict(model.metrics_json or {})
@@ -70,26 +77,19 @@ def begin_semantic_model_promotion(model_id: str) -> SemanticModel:
             db.rollback()
             raise RuntimeError("Another semantic model promotion is already running.") from exc
         db.refresh(model)
-        return model
+        return materialize_semantic_model(model)
 
 
-def run_semantic_model_promotion(model_id: str, *, embed_batch_size: int = _DEFAULT_REEMBED_BATCH_SIZE) -> bool:
+def promote_semantic_model(model_id: str, *, embed_batch_size: int = _DEFAULT_REEMBED_BATCH_SIZE) -> bool:
+    """End-to-end promotion: claim, embed, activate.
+
+    Returns True on success, False if the long-running embed/activate phase
+    failed (model is marked failed in that case). Raises on pre-flight failures
+    (missing / already-active / stale / lock contention) before the model is
+    touched.
+    """
+    model_root, bundle_root = _claim_model_for_promotion(model_id)
     try:
-        with SessionLocal() as db:
-            lock_acquired = _try_promotion_advisory_lock(db)
-            if not lock_acquired:
-                raise RuntimeError("Another semantic model promotion is already running.")
-
-            model = db.get(SemanticModel, model_id)
-            if model is None:
-                raise KeyError(f"Semantic model {model_id} not found.")
-            if model.status != SEMANTIC_MODEL_STATUS_EMBEDDING:
-                raise RuntimeError(
-                    f"Semantic model {model_id} must be in '{SEMANTIC_MODEL_STATUS_EMBEDDING}' status before promotion runs."
-                )
-            _ensure_model_is_not_stale(db, model)
-            model_root, bundle_root = materialize_semantic_model(model)
-
         embedding_count, embedding_backend = _populate_model_embeddings(
             model_id,
             model_root,
@@ -154,10 +154,16 @@ def _store_model_embeddings_batches(
     model_id: str,
     row_batches: Iterable[list[tuple[str, int, list[float]]]],
 ) -> int:
+    """Replace all embeddings for `model_id` atomically.
+
+    Staging-via-single-transaction: the old rows and all new batches sit in one
+    transaction, so concurrent readers always see the pre-txn state until the
+    final commit. A crash mid-population rolls back cleanly instead of leaving
+    the model with partial embeddings.
+    """
     total = 0
     with SessionLocal() as db:
         db.query(SemanticModelEmbedding).filter(SemanticModelEmbedding.model_id == model_id).delete()
-        db.commit()
         for rows in row_batches:
             if not rows:
                 continue
@@ -170,8 +176,9 @@ def _store_model_embeddings_batches(
                 )
                 for oracle_id, face_ix, embedding in rows
             )
-            db.commit()
+            db.flush()
             total += len(rows)
+        db.commit()
     return total
 
 

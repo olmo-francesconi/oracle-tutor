@@ -166,12 +166,15 @@ def claim_next_semantic_job(job_type: str, *, job_id: str | None = None) -> Sema
                 raise ValueError(f"Semantic job {job_id} is type '{target.job_type}', not '{job_type}'.")
             target_job_ids = [job_id]
         else:
-            target_job_ids = db.scalars(
+            target_stmt = (
                 select(SemanticJob.id)
                 .where(SemanticJob.job_type == job_type)
                 .where(SemanticJob.status == SEMANTIC_JOB_STATUS_PENDING)
                 .order_by(SemanticJob.created_at.asc(), SemanticJob.id.asc())
-            ).all()
+            )
+            if db.bind is not None and db.bind.dialect.name == "postgresql":
+                target_stmt = target_stmt.with_for_update(skip_locked=True)
+            target_job_ids = db.scalars(target_stmt).all()
             if not target_job_ids:
                 return None
 

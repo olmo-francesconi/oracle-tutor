@@ -603,6 +603,10 @@ def ingest_data_diff(
         if total_kept:
             logger.info("Stage: upsert cards complete processed=%d", processed_cards)
 
+        # Delete phase + sys_meta update run in a single transaction so a
+        # crash cannot leave a split state (e.g. obsolete cards removed but
+        # their card_raw rows left behind, or sys_meta pointing at a bulk file
+        # that wasn't fully reconciled).
         ingest_stats["deleted"] = len(existing_oracle_ids)
         if existing_oracle_ids:
             logger.info("Stage: delete obsolete cards total=%d", len(existing_oracle_ids))
@@ -612,7 +616,7 @@ def ingest_data_diff(
                 chunk = existing_oracle_ids_list[i : i + CHUNK_SIZE]
                 _delete_card_related_rows(session, chunk)
                 session.execute(delete(Card).where(Card.oracle_id.in_(chunk)))
-                session.commit()
+                session.flush()
                 _log_batch_progress(
                     stage="Delete cards",
                     current=batch_ix,
@@ -632,13 +636,13 @@ def ingest_data_diff(
             raw_delete_batches += 1
             raw_delete_count += len(obsolete_raw_batch)
             session.execute(delete(CardRaw).where(CardRaw.id.in_(obsolete_raw_batch)))
-            session.commit()
+            session.flush()
             obsolete_raw_batch = []
         if obsolete_raw_batch:
             raw_delete_batches += 1
             raw_delete_count += len(obsolete_raw_batch)
             session.execute(delete(CardRaw).where(CardRaw.id.in_(obsolete_raw_batch)))
-            session.commit()
+            session.flush()
         if raw_delete_count:
             logger.info("Stage: delete obsolete raw printings complete total=%d", raw_delete_count)
 

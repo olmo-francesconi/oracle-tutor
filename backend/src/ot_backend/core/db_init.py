@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 
@@ -43,10 +45,28 @@ MIGRATION_STATE_FAILED = "failed"
 # ---------------------------------------------------------------------------
 
 
-def _acquire_schema_lock(conn, dialect: str) -> None:
+@contextmanager
+def _schema_lock(dialect: str) -> Iterator[None]:
+    """Hold a session-level advisory lock for the whole init_db body.
+
+    pg_advisory_xact_lock (used previously) was released when the caller's
+    transaction committed, which freed the lock *before* Alembic ran. A
+    session-level pg_advisory_lock on a dedicated connection keeps two
+    concurrent init_db callers serialized across the Alembic upgrade too.
+    """
     if dialect != "postgresql":
+        yield
         return
-    conn.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": SCHEMA_LOCK_KEY})
+    conn = engine.connect()
+    try:
+        conn.execute(text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": SCHEMA_LOCK_KEY})
+        yield
+    finally:
+        try:
+            conn.execute(text("SELECT pg_advisory_unlock(:lock_key)"), {"lock_key": SCHEMA_LOCK_KEY})
+        except Exception:
+            logger.exception("Failed to release schema advisory lock.")
+        conn.close()
 
 
 def _set_migration_state(conn, *, state: str, target_version: str) -> None:
@@ -178,33 +198,33 @@ def init_db(mode: str = INIT_MODE_API) -> None:
         raise ValueError(f"Unsupported init_db mode: {mode}")
     logger.info("Initializing database...")
 
-    try:
-        with engine.begin() as conn:
-            dialect = conn.dialect.name
-            _acquire_schema_lock(conn, dialect)
-            inspector = inspect(conn)
-            if mode == INIT_MODE_WORKER and inspector.has_table("system_metadata"):
-                _set_migration_state(conn, state=MIGRATION_STATE_MIGRATING, target_version=DB_SCHEMA_VERSION)
-        _upgrade_schema_to_head()
-        if mode == INIT_MODE_WORKER:
+    dialect = engine.dialect.name
+    with _schema_lock(dialect):
+        try:
             with engine.begin() as conn:
-                _upsert_schema_version(conn, DB_SCHEMA_VERSION)
-                _set_migration_state(conn, state=MIGRATION_STATE_READY, target_version=DB_SCHEMA_VERSION)
-    except Exception:
-        # Persist failed state in a separate transaction. If we wrote this inside the failed
-        # transaction it would be rolled back alongside the original error.
-        if mode == INIT_MODE_WORKER:
-            try:
-                with engine.begin() as fail_conn:
-                    fail_inspector = inspect(fail_conn)
-                    if fail_inspector.has_table("system_metadata"):
-                        _set_migration_state(
-                            fail_conn,
-                            state=MIGRATION_STATE_FAILED,
-                            target_version=DB_SCHEMA_VERSION,
-                        )
-            except Exception:
-                logger.exception("Failed to persist schema migration failed state.")
-        raise
+                inspector = inspect(conn)
+                if mode == INIT_MODE_WORKER and inspector.has_table("system_metadata"):
+                    _set_migration_state(conn, state=MIGRATION_STATE_MIGRATING, target_version=DB_SCHEMA_VERSION)
+            _upgrade_schema_to_head()
+            if mode == INIT_MODE_WORKER:
+                with engine.begin() as conn:
+                    _upsert_schema_version(conn, DB_SCHEMA_VERSION)
+                    _set_migration_state(conn, state=MIGRATION_STATE_READY, target_version=DB_SCHEMA_VERSION)
+        except Exception:
+            # Persist failed state in a separate transaction. If we wrote this inside the failed
+            # transaction it would be rolled back alongside the original error.
+            if mode == INIT_MODE_WORKER:
+                try:
+                    with engine.begin() as fail_conn:
+                        fail_inspector = inspect(fail_conn)
+                        if fail_inspector.has_table("system_metadata"):
+                            _set_migration_state(
+                                fail_conn,
+                                state=MIGRATION_STATE_FAILED,
+                                target_version=DB_SCHEMA_VERSION,
+                            )
+                except Exception:
+                    logger.exception("Failed to persist schema migration failed state.")
+            raise
 
     logger.info("Database initialized (mode=%s).", mode)

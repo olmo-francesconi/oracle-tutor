@@ -19,8 +19,7 @@ from ot_backend.semantic import index
 from ot_backend.semantic.model_promotion import (
     _populate_model_embeddings,
     _store_model_embeddings,
-    begin_semantic_model_promotion,
-    run_semantic_model_promotion,
+    promote_semantic_model,
 )
 from ot_backend.semantic.model_registry import (
     SEMANTIC_MODEL_STATUS_ACTIVE,
@@ -288,8 +287,7 @@ def test_run_semantic_model_promotion_activates_candidate_and_stores_embeddings(
         ),
     )
 
-    begin_semantic_model_promotion(candidate_id)
-    run_semantic_model_promotion(candidate_id)
+    assert promote_semantic_model(candidate_id) is True
 
     with SessionLocal() as db:
         candidate = db.get(SemanticModel, candidate_id)
@@ -326,15 +324,19 @@ def test_run_semantic_model_promotion_rejects_stale_candidate(tmp_path, monkeypa
         )
         candidate_id = candidate.id
 
-    begin_semantic_model_promotion(candidate_id)
-    run_semantic_model_promotion(candidate_id)
+    try:
+        promote_semantic_model(candidate_id)
+    except RuntimeError as exc:
+        assert "stale" in str(exc)
+    else:
+        raise AssertionError("Expected promote_semantic_model to raise on stale candidate.")
 
     with SessionLocal() as db:
         candidate = db.get(SemanticModel, candidate_id)
         assert candidate is not None
-        assert candidate.status == "failed"
+        # Pre-flight rejection leaves the model untouched (status unchanged).
+        assert candidate.status == "uploaded"
         assert candidate.is_active is False
-        assert "stale" in (candidate.error_message or "")
 
 
 def test_run_semantic_model_promotion_rejects_candidate_without_source_version(tmp_path, monkeypatch):
@@ -356,21 +358,27 @@ def test_run_semantic_model_promotion_rejects_candidate_without_source_version(t
         )
         candidate_id = candidate.id
 
-    begin_semantic_model_promotion(candidate_id)
-    run_semantic_model_promotion(candidate_id)
+    try:
+        promote_semantic_model(candidate_id)
+    except RuntimeError as exc:
+        assert "no source semantic data version" in str(exc)
+    else:
+        raise AssertionError("Expected promote_semantic_model to raise on candidate missing source version.")
 
     with SessionLocal() as db:
         candidate = db.get(SemanticModel, candidate_id)
         assert candidate is not None
-        assert candidate.status == "failed"
+        assert candidate.status == "uploaded"
         assert candidate.is_active is False
-        assert "no source semantic data version" in (candidate.error_message or "")
 
 
-def test_begin_semantic_model_promotion_releases_lock_when_model_is_missing(tmp_path):
+def test_promote_semantic_model_releases_lock_when_model_is_missing(tmp_path, monkeypatch):
     bundle = _make_model_bundle(tmp_path)
+    _mock_artifact_download(monkeypatch, bundle)
     init_db()
     _reset_registry_tables()
+    with SessionLocal() as db:
+        bump_semantic_data_version(db)
 
     with SessionLocal() as db:
         candidate = _create_model_with_bundle_artifact(
@@ -382,26 +390,32 @@ def test_begin_semantic_model_promotion_releases_lock_when_model_is_missing(tmp_
         )
         candidate_id = candidate.id
 
+    monkeypatch.setattr(
+        "ot_backend.semantic.model_promotion._populate_model_embeddings",
+        lambda *_args, **_kwargs: (0, "onnx"),
+    )
+
     try:
-        begin_semantic_model_promotion("00000000-0000-0000-0000-000000000000")
+        promote_semantic_model("00000000-0000-0000-0000-000000000000")
     except KeyError:
         pass
     else:
         raise AssertionError("Expected missing model promotion to raise KeyError.")
 
-    promoted = begin_semantic_model_promotion(candidate_id)
-    assert promoted.id == candidate_id
+    assert promote_semantic_model(candidate_id) is True
 
     with SessionLocal() as db:
         candidate = db.get(SemanticModel, candidate_id)
         assert candidate is not None
-        assert candidate.status == SEMANTIC_MODEL_STATUS_EMBEDDING
+        assert candidate.status == SEMANTIC_MODEL_STATUS_ACTIVE
 
 
-def test_begin_semantic_model_promotion_allows_only_one_embedding_model(tmp_path):
+def test_promote_semantic_model_blocks_when_another_is_embedding(tmp_path):
     bundle = _make_model_bundle(tmp_path)
     init_db()
     _reset_registry_tables()
+    with SessionLocal() as db:
+        bump_semantic_data_version(db)
 
     with SessionLocal() as db:
         first = _create_model_with_bundle_artifact(
@@ -409,6 +423,7 @@ def test_begin_semantic_model_promotion_allows_only_one_embedding_model(tmp_path
             slug="candidate-one",
             base_model="sentence-transformers/all-MiniLM-L6-v2",
             bundle=bundle,
+            status=SEMANTIC_MODEL_STATUS_EMBEDDING,
             config_json={"semantic_data_version": 1},
         )
         second = _create_model_with_bundle_artifact(
@@ -418,13 +433,11 @@ def test_begin_semantic_model_promotion_allows_only_one_embedding_model(tmp_path
             bundle=bundle,
             config_json={"semantic_data_version": 1},
         )
-        first_id = first.id
+        del first  # unused after setup; status=EMBEDDING row is what matters
         second_id = second.id
 
-    begin_semantic_model_promotion(first_id)
-
     try:
-        begin_semantic_model_promotion(second_id)
+        promote_semantic_model(second_id)
     except RuntimeError as exc:
         assert "already running" in str(exc)
     else:
