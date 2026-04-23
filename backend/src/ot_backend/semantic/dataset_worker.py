@@ -1,5 +1,3 @@
-# DEPRECATED: This polling worker is superseded by RQ tasks in semantic/tasks.py.
-# It remains as a fallback for environments without Redis.
 from __future__ import annotations
 
 import argparse
