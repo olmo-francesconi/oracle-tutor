@@ -1,17 +1,6 @@
+import { formatTimestamp } from '../lib/format'
 import type { SemanticDatasetSummary } from '../types/api'
 import { StatusBadge } from './StatusBadge'
-
-function formatTimestamp(value?: string | null) {
-  if (!value) return 'not yet'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('en', {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
 
 type Props = {
   datasets: SemanticDatasetSummary[]

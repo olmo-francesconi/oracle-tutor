@@ -20,13 +20,9 @@ import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
 import { HomeView } from './HomeView'
 import { ResultsView } from './ResultsView'
 import { useUrlSync } from './useUrlSync'
+import { useViewport } from './useViewport'
 
 const RESULTS_PAGE_SIZE = 24
-
-type ViewportSize = {
-  width: number
-  height: number
-}
 
 const INITIAL_STATE: SearchShellState = {
   draftQuery: '',
@@ -43,22 +39,6 @@ const INITIAL_STATE: SearchShellState = {
 const EMPTY_ORACLE_SAMPLES: OracleSamples = {
   texts: [],
   terms: [],
-}
-
-const DEFAULT_VIEWPORT: ViewportSize = {
-  width: 1280,
-  height: 900,
-}
-
-function getViewportSize(): ViewportSize {
-  if (typeof window === 'undefined') {
-    return DEFAULT_VIEWPORT
-  }
-
-  return {
-    width: Math.max(window.innerWidth, 0),
-    height: Math.max(window.innerHeight, window.screen?.height ?? 0),
-  }
 }
 
 function getInitialState(): SearchShellState {
@@ -93,12 +73,11 @@ export function SearchShell() {
   const [apiDownMessage, setApiDownMessage] = useState<string | null>(null)
   const [isRetryingApi, setIsRetryingApi] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
-  const [viewport, setViewport] = useState<ViewportSize>(getViewportSize)
+  const viewport = useViewport()
   const activeSearchRequestRef = useRef<AbortController | null>(null)
   const activeLoadMoreRequestRef = useRef<AbortController | null>(null)
   const hasLoadedInitialQueryRef = useRef(false)
   const skipNextUrlWriteRef = useRef(state.submittedQuery !== null)
-  const resizeFrameRef = useRef<number | null>(null)
 
   const isHome = state.submittedQuery === null
   const activeFilterCount = getActiveFilterCount(state.filters)
@@ -106,10 +85,6 @@ export function SearchShell() {
 
   const handleDraftChange = useCallback((value: string) => {
     setState((current) => ({ ...current, draftQuery: value }))
-  }, [])
-
-  const fetchFirstPage = useCallback(async (query: string, filters: SearchShellState['filters'], signal: AbortSignal) => {
-    return searchOracleText(query, 0, RESULTS_PAGE_SIZE, filters, signal)
   }, [])
 
   const runCardSearch = useCallback(async (oracleId: string, faceIx: number, name: string, filters: FilterState) => {
@@ -171,7 +146,7 @@ export function SearchShell() {
     setState((current) => buildSearchLoadingState(current, query, filters))
 
     try {
-      const page = await fetchFirstPage(query, filters, controller.signal)
+      const page = await searchOracleText(query, 0, RESULTS_PAGE_SIZE, filters, controller.signal)
 
       if (controller.signal.aborted) return
 
@@ -199,7 +174,7 @@ export function SearchShell() {
       setApiDownMessage(null)
       setState((current) => buildSearchFailureState(current, query, filters, getSearchErrorMessage(error)))
     }
-  }, [fetchFirstPage])
+  }, [])
 
   const handleSubmit = useCallback((submittedValue?: string) => {
     const nextQuery = (submittedValue ?? state.draftQuery).trim()
@@ -373,30 +348,6 @@ export function SearchShell() {
 
     return () => controller.abort()
   }, [loadOracleSamples])
-
-  useEffect(() => {
-    const updateViewport = () => setViewport(getViewportSize())
-
-    const scheduleUpdate = () => {
-      if (resizeFrameRef.current !== null) return
-
-      resizeFrameRef.current = window.requestAnimationFrame(() => {
-        resizeFrameRef.current = null
-        updateViewport()
-      })
-    }
-
-    updateViewport()
-    window.addEventListener('resize', scheduleUpdate)
-
-    return () => {
-      window.removeEventListener('resize', scheduleUpdate)
-
-      if (resizeFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeFrameRef.current)
-      }
-    }
-  }, [])
 
   useEffect(() => {
     if (hasLoadedInitialQueryRef.current) return

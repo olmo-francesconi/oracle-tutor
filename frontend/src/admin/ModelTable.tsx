@@ -1,24 +1,6 @@
+import { formatBytes, formatTimestamp } from '../lib/format'
 import type { SemanticJobSummary, SemanticModelSummary } from '../types/api'
 import { StatusBadge } from './StatusBadge'
-
-function formatTimestamp(value?: string | null) {
-  if (!value) return 'not yet'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('en', {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
-function formatBytes(size: number) {
-  if (size < 1024 * 1024) {
-    return `${Math.max(1, Math.round(size / 1024))} KB`
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
 
 type Props = {
   models: SemanticModelSummary[]

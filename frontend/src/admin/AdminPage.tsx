@@ -16,15 +16,19 @@ import type {
   SemanticJobSummary,
   SemanticModelSummary,
   SemanticTrainAugmentationOption,
-  SemanticTrainJobCreate,
   SemanticTrainOptions,
 } from '../types/api'
-import { AdminRangeField } from './AdminRangeField'
-import { AdminSelect } from './AdminSelect'
-import { AdminSelectionField } from './AdminSelectionField'
+import {
+  DEFAULT_DATASET_FORM,
+  DEFAULT_TRAIN_FORM,
+  type DatasetFormState,
+  type TrainFormState,
+} from './adminForms'
+import { DatasetForm } from './DatasetForm'
 import { DatasetTable } from './DatasetTable'
 import { JobList } from './JobList'
 import { ModelTable } from './ModelTable'
+import { TrainForm } from './TrainForm'
 
 type AdminSnapshot = {
   models: SemanticModelSummary[]
@@ -32,10 +36,6 @@ type AdminSnapshot = {
   datasets: SemanticDatasetSummary[]
 }
 
-type DatasetFormState = { dataset_slug: string; augmentation_keys: string[] }
-const DEFAULT_DATASET_FORM: DatasetFormState = { dataset_slug: '', augmentation_keys: [] }
-
-type TrainFormState = Omit<SemanticTrainJobCreate, 'requested_by'>
 type AdminPageProps = {
   onLogout?: () => void
 }
@@ -77,17 +77,6 @@ const FALLBACK_TRAIN_OPTIONS: SemanticTrainOptions = {
 
 function defaultAugmentationKeys(options: SemanticTrainAugmentationOption[]) {
   return options.filter((option) => option.default_enabled).map((option) => option.key)
-}
-
-const DEFAULT_TRAIN_FORM: TrainFormState = {
-  dataset_id: '',
-  model_slug: '',
-  base_model_key: 'mini-lm-l6-v2',
-  skip_fine_tune: true,
-  epochs: 2,
-  batch_size: 64,
-  promote_after_register: false,
-  embed_batch_size: 256,
 }
 
 function serializeAugmentationKeys(keys: string[]) {
@@ -366,197 +355,25 @@ export function AdminPage({ onLogout }: AdminPageProps) {
 
         <section className="grid flex-1 grid-cols-[minmax(0,440px)_minmax(0,1fr)] gap-6 pt-6 max-[1180px]:grid-cols-1">
           <div className="grid h-fit gap-6">
-            <form
+            <DatasetForm
+              form={datasetForm}
+              setForm={setDatasetForm}
               onSubmit={handleQueueDataset}
-              className="grid h-fit gap-0 border-2 border-ot-ink bg-ot-surface"
-            >
-            <div className="border-b-2 border-ot-ink px-5 py-4">
-              <p className="eyebrow">New dataset build</p>
-              <h2 className="m-0 pt-2 font-display text-[2.4rem] font-black uppercase leading-[0.88] tracking-[-0.03em]">
-                Build a dataset
-              </h2>
-            </div>
-
-            <label className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
-              <span className="eyebrow">Dataset slug</span>
-              <input
-                value={datasetForm.dataset_slug}
-                onChange={(event) => setDatasetForm((c) => ({ ...c, dataset_slug: event.target.value }))}
-                className="min-h-12 w-full min-w-0 border-2 border-ot-ink bg-ot-bg px-3 py-2 text-[0.95rem] outline-none transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] focus:border-ot-red focus:bg-ot-surface"
-                placeholder="v3-llm-aug"
-                required
-              />
-            </label>
-
-            <AdminSelectionField
-              legend="Augmentation mode"
-              name="dataset_augmentation"
-              selectionMode="multiple"
-              options={trainOptions.augmentation_options.map((o) => ({ value: o.key, label: o.label, description: o.description }))}
-              value={datasetForm.augmentation_keys}
-              onChange={(keys) => setDatasetForm((c) => ({ ...c, augmentation_keys: keys as string[] }))}
+              submitting={datasetSubmitting}
+              loading={loading}
+              augmentationOptions={trainOptions.augmentation_options}
             />
-
-            <div className="px-5 py-4">
-              <button
-                type="submit"
-                disabled={datasetSubmitting || loading}
-                className="min-h-12 w-full cursor-pointer border-2 border-ot-ink bg-ot-bg px-4 py-2 font-display text-[1rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg active:opacity-80 disabled:cursor-not-allowed disabled:border-ot-line disabled:text-ot-muted"
-              >
-                {datasetSubmitting ? 'Queueing…' : 'Queue dataset job'}
-              </button>
-            </div>
-            </form>
-
-            <form
+            <TrainForm
+              form={form}
+              onFieldChange={handleTrainField}
               onSubmit={handleQueueTrain}
-              className="grid h-fit gap-0 border-2 border-ot-ink bg-ot-surface"
-            >
-            <div className="border-b-2 border-ot-ink px-5 py-4">
-              <p className="eyebrow">New train run</p>
-              <h2 className="m-0 pt-2 font-display text-[2.4rem] font-black uppercase leading-[0.88] tracking-[-0.03em]">
-                Queue a candidate
-              </h2>
-            </div>
-
-            <label className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
-              <span className="eyebrow">Model slug</span>
-              <input
-                value={form.model_slug}
-                onChange={(event) => handleTrainField('model_slug', event.target.value)}
-                className="min-h-12 w-full min-w-0 border-2 border-ot-ink bg-ot-bg px-3 py-2 text-[0.95rem] outline-none transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] focus:border-ot-red focus:bg-ot-surface"
-                placeholder="oracle-tutor-smoke"
-                required
-              />
-            </label>
-
-            <div className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
-              <span className="eyebrow">Base model</span>
-              <AdminSelect
-                label="Base model"
-                options={baseModels.map((m) => ({ value: m.key, label: m.label }))}
-                value={form.base_model_key}
-                placeholder="Select base model"
-                onChange={(v) => handleTrainField('base_model_key', v)}
-              />
-              {selectedBaseModel ? (
-                <span className="break-words text-[0.76rem] uppercase leading-[1.45] tracking-[0.08em] text-ot-muted">
-                  {selectedBaseModel.base_model} / dim {selectedBaseModel.embedding_dim}
-                </span>
-              ) : null}
-            </div>
-
-            <AdminRangeField
-              label="Epochs"
-              value={form.epochs}
-              options={Array.from(
-                { length: trainOptions.epoch_max - trainOptions.epoch_min + 1 },
-                (_, index) => trainOptions.epoch_min + index
-              )}
-              rangeValue={form.epochs}
-              rangeMin={trainOptions.epoch_min}
-              rangeMax={trainOptions.epoch_max}
-              onChange={(nextValue) => handleTrainField('epochs', nextValue)}
+              submitting={submitting}
+              loading={loading}
+              baseModels={baseModels}
+              trainOptions={trainOptions}
+              selectedBaseModel={selectedBaseModel}
+              datasets={snapshot.datasets}
             />
-
-            <AdminRangeField
-              label="Batch size"
-              value={form.batch_size}
-              options={trainOptions.batch_size_options}
-              rangeValue={Math.max(0, trainOptions.batch_size_options.indexOf(form.batch_size))}
-              rangeMin={0}
-              rangeMax={Math.max(0, trainOptions.batch_size_options.length - 1)}
-              onChange={(nextValue) => {
-                const selectedValue = trainOptions.batch_size_options[nextValue]
-                if (selectedValue !== undefined) {
-                  handleTrainField('batch_size', selectedValue)
-                }
-              }}
-            />
-
-            <AdminRangeField
-              label="Embed batch size"
-              value={form.embed_batch_size}
-              options={trainOptions.embed_batch_size_options}
-              rangeValue={Math.max(0, trainOptions.embed_batch_size_options.indexOf(form.embed_batch_size))}
-              rangeMin={0}
-              rangeMax={Math.max(0, trainOptions.embed_batch_size_options.length - 1)}
-              onChange={(nextValue) => {
-                const selectedValue = trainOptions.embed_batch_size_options[nextValue]
-                if (selectedValue !== undefined) {
-                  handleTrainField('embed_batch_size', selectedValue)
-                }
-              }}
-            />
-
-            <div className="grid gap-2 border-b-2 border-ot-ink px-5 py-4">
-              <span className="eyebrow">Dataset</span>
-              {snapshot.datasets.filter((ds) => ds.status === 'ready').length === 0 ? (
-                <p className="m-0 text-[0.76rem] uppercase tracking-[0.08em] text-ot-muted">
-                  No ready datasets yet — build one above.
-                </p>
-              ) : (
-                <AdminSelect
-                  label="Dataset"
-                  options={snapshot.datasets
-                    .filter((ds) => ds.status === 'ready')
-                    .map((ds) => ({ value: String(ds.id), label: `${ds.slug} (${ds.augmentation_mode})` }))}
-                  value={form.dataset_id}
-                  placeholder="Choose a dataset"
-                  onChange={(v) => handleTrainField('dataset_id', v)}
-                />
-              )}
-            </div>
-
-            <div className="grid border-b-2 border-ot-ink">
-              <label className="flex cursor-pointer items-start gap-3 bg-[color-mix(in_srgb,var(--color-ot-red)_5%,var(--color-ot-surface))] px-5 py-4">
-                <input
-                  type="checkbox"
-                  checked={form.skip_fine_tune}
-                  onChange={(event) => handleTrainField('skip_fine_tune', event.target.checked)}
-                  className="mt-[2px] h-4 w-4 accent-ot-red"
-                />
-                <span className="grid gap-1">
-                  <span className="font-display text-[1.2rem] font-black uppercase leading-none tracking-[-0.02em]">
-                    Base-model smoke run
-                  </span>
-                  <span className="text-[0.76rem] uppercase leading-[1.45] tracking-[0.08em] text-ot-muted">
-                    Skip fine-tuning and register an ONNX bundle built directly from the base model.
-                  </span>
-                </span>
-              </label>
-
-              <label className="flex cursor-pointer items-start gap-3 border-t-2 border-ot-ink px-5 py-4">
-                <input
-                  type="checkbox"
-                  checked={form.promote_after_register}
-                  onChange={(event) => handleTrainField('promote_after_register', event.target.checked)}
-                  className="mt-[2px] h-4 w-4 accent-ot-red"
-                />
-                <span className="grid gap-1">
-                  <span className="font-display text-[1.2rem] font-black uppercase leading-none tracking-[-0.02em]">
-                    Queue promotion after register
-                  </span>
-                  <span className="text-[0.76rem] uppercase leading-[1.45] tracking-[0.08em] text-ot-muted">
-                    If the promote lane is occupied, training still succeeds and the warning is recorded with the job.
-                  </span>
-                </span>
-              </label>
-            </div>
-
-            <div className="grid gap-3 px-5 py-4">
-              <button
-                type="submit"
-                disabled={submitting || loading}
-                className="min-h-14 cursor-pointer border-2 border-ot-ink bg-ot-ink px-4 py-3 font-display text-[1.15rem] font-black uppercase tracking-[-0.02em] text-ot-bg transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-red active:opacity-80 disabled:cursor-not-allowed disabled:bg-ot-muted"
-              >
-                {submitting ? 'Queueing…' : 'Queue train job'}
-              </button>
-              <p className="m-0 text-[0.72rem] uppercase leading-[1.55] tracking-[0.08em] text-ot-muted">
-                Defaulted for fast operator loops: the smoke-run toggle starts on so you can validate the stack before burning a slow fine-tune.
-              </p>
-            </div>
-            </form>
           </div>
 
           <div className="grid min-w-0 self-start gap-6">
