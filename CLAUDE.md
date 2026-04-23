@@ -5,7 +5,7 @@ Fast, semantic search engine for Magic: The Gathering cards — pgvector embeddi
 ## Tech stack
 
 - **Backend:** Python 3.12+, FastAPI 0.115+, Hypercorn 0.17+, SQLAlchemy 2, psycopg 3.2+, pgvector 0.3+, ONNX Runtime 1.20+, Alembic 1.14+, sentence-transformers 3.0+ (training only), uv
-- **Frontend:** React 19.2, TypeScript 5.9, Vite 7.2, TailwindCSS 4.1, Framer Motion 12.23
+- **Frontend:** React 19.2, TypeScript 5.9, Vite 7.2, TailwindCSS 4.1
 - **Infra:** Docker Compose (local), Railway (production), GitHub Actions (CI)
 
 ## Repo structure
@@ -116,7 +116,7 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`
 
 ### Frontend conventions
-- Server state: TanStack Query; routing state: React Router params/query string; transient UI: component state
+- Server state: hand-rolled `fetch` via `src/lib/api.ts` with `useState` + `useEffect` + `AbortController` (no TanStack Query); URL state: custom `useUrlSync` hook driving `window.history` (no React Router); transient UI: component state
 - UI components do not fetch directly — use `src/lib/api.ts`
 - Filters (color, CMC, type, rarity, format) are applied server-side in `semantic/index.py`
 
