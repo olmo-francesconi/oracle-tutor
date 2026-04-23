@@ -1,56 +1,51 @@
-import { useEffect } from 'react'
-import type { RefObject } from 'react'
-import { buildClearedState } from './searchShellState'
+import { useEffect, useRef } from 'react'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
-import type { SearchShellState } from '../types/ui'
+import type { FilterState } from '../types/api'
+import type { PinnedCard } from '../types/ui'
 
-type RunSearch = (query: string, filters: SearchShellState['filters']) => void
-type RunCardSearch = (oracleId: string, faceIx: number, name: string, filters: SearchShellState['filters']) => void
-type SetState = React.Dispatch<React.SetStateAction<SearchShellState>>
+type ShellUiState = {
+  draftQuery: string
+  submittedQuery: string | null
+  pinnedCard: PinnedCard | null
+  filters: FilterState
+}
 
-export function useUrlSync(
-  state: SearchShellState,
-  skipRef: RefObject<boolean>,
-  activeSearchRequestRef: RefObject<AbortController | null>,
-  activeLoadMoreRequestRef: RefObject<AbortController | null>,
-  setState: SetState,
-  runSearch: RunSearch,
-  runCardSearch: RunCardSearch,
-): void {
+type SetUi = React.Dispatch<React.SetStateAction<ShellUiState>>
+
+export function useUrlSync(state: ShellUiState, setUi: SetUi): void {
+  const skipRef = useRef(state.submittedQuery !== null || state.pinnedCard !== null)
+
   useEffect(() => {
     const handlePopState = () => {
-      const nextState = readSearchStateFromUrl()
-
-      if (nextState.pinnedCard) {
-        skipRef.current = true
-        void runCardSearch(nextState.pinnedCard.oracle_id, nextState.pinnedCard.face_ix, '', nextState.filters)
-        return
-      }
-
-      const nextQuery = nextState.query
-
-      if (!nextQuery) {
-        activeSearchRequestRef.current?.abort()
-        activeLoadMoreRequestRef.current?.abort()
-        skipRef.current = true
-        setState((current) => buildClearedState(current))
-        return
-      }
-
+      const next = readSearchStateFromUrl()
       skipRef.current = true
-      setState((current) => ({
-        ...current,
-        draftQuery: nextQuery,
-        filters: nextState.filters,
-        error: null,
-      }))
 
-      void runSearch(nextQuery, nextState.filters)
+      if (next.pinnedCard) {
+        setUi({
+          draftQuery: '',
+          submittedQuery: null,
+          pinnedCard: { ...next.pinnedCard, name: '' },
+          filters: next.filters,
+        })
+        return
+      }
+
+      if (next.query) {
+        setUi({
+          draftQuery: next.query,
+          submittedQuery: next.query,
+          pinnedCard: null,
+          filters: next.filters,
+        })
+        return
+      }
+
+      setUi({ draftQuery: '', submittedQuery: null, pinnedCard: null, filters: {} })
     }
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [runCardSearch, runSearch, skipRef, activeSearchRequestRef, activeLoadMoreRequestRef, setState])
+  }, [setUi])
 
   useEffect(() => {
     if (skipRef.current) {
@@ -58,7 +53,7 @@ export function useUrlSync(
       return
     }
 
-    if (state.submittedQuery === null && !state.pinnedCard) return
+    if (state.submittedQuery === null && state.pinnedCard === null) return
     writeSearchStateToUrl(state.submittedQuery, state.filters, state.pinnedCard)
-  }, [state.filters, state.submittedQuery, state.pinnedCard, skipRef])
+  }, [state.filters, state.submittedQuery, state.pinnedCard])
 }

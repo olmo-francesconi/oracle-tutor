@@ -1,20 +1,25 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SearchShell } from './SearchShell'
-import { buildClearedState, buildSearchFailureState, buildSearchLoadingState, buildSearchSuccessState } from './searchShellState'
-import type { FilterState, SimilarCardsPage } from '../types/api'
-import type { SearchShellState } from '../types/ui'
+import { renderWithQueryClient } from '../lib/testQueryClient'
+import type { Card, FilterState, SimilarCardsPage } from '../types/api'
 
-const { searchOracleTextMock, getOracleSamplesMock } = vi.hoisted(() => ({
+const { searchOracleTextMock, getOracleSamplesMock, getSimilarCardsMock, getCardMock } = vi.hoisted(() => ({
   searchOracleTextMock: vi.fn<
     (query: string, offset: number, limit: number, filters?: FilterState, signal?: AbortSignal) => Promise<SimilarCardsPage>
   >(),
   getOracleSamplesMock: vi.fn(() => Promise.resolve({ texts: [], terms: [] })),
+  getSimilarCardsMock: vi.fn<
+    (oracleId: string, faceIx: number, offset: number, limit: number, filters?: FilterState, signal?: AbortSignal) => Promise<SimilarCardsPage>
+  >(),
+  getCardMock: vi.fn<(id: string, signal?: AbortSignal) => Promise<Card>>(),
 }))
 
 vi.mock('../lib/api', () => ({
   getOracleSamples: getOracleSamplesMock,
   searchOracleText: searchOracleTextMock,
+  getSimilarCards: getSimilarCardsMock,
+  getCard: getCardMock,
 }))
 
 vi.mock('../components/background/DenseTextBackground', () => ({
@@ -90,18 +95,6 @@ vi.mock('../components/ResultsGrid', () => ({
   ),
 }))
 
-const BASE_STATE: SearchShellState = {
-  draftQuery: '',
-  submittedQuery: null,
-  pinnedCard: null,
-  filters: {},
-  error: null,
-  results: [],
-  hasMore: false,
-  isLoading: false,
-  isLoadingMore: false,
-}
-
 function createPage(name: string, hasMore: boolean = false): SimilarCardsPage {
   return {
     items: [
@@ -119,52 +112,11 @@ function createPage(name: string, hasMore: boolean = false): SimilarCardsPage {
   }
 }
 
-describe('SearchShell state helpers', () => {
-  it('builds loading, success, failure, and cleared states', () => {
-    const loadingState = buildSearchLoadingState(BASE_STATE, 'bolt', { colors: 'R' })
-    expect(loadingState).toMatchObject({
-      submittedQuery: 'bolt',
-      filters: { colors: 'R' },
-      error: null,
-      isLoading: true,
-      results: [],
-    })
-
-    const successState = buildSearchSuccessState(BASE_STATE, 'bolt', { colors: 'R' }, createPage('Lightning Bolt'))
-    expect(successState).toMatchObject({
-      submittedQuery: 'bolt',
-      filters: { colors: 'R' },
-      isLoading: false,
-      results: [{ name: 'Lightning Bolt' }],
-    })
-
-    const failureState = buildSearchFailureState(BASE_STATE, 'bolt', { colors: 'R' }, 'bad request')
-    expect(failureState).toMatchObject({
-      submittedQuery: 'bolt',
-      filters: { colors: 'R' },
-      error: 'bad request',
-      isLoading: false,
-    })
-
-    const clearedState = buildClearedState({
-      ...BASE_STATE,
-      draftQuery: 'bolt',
-      submittedQuery: 'bolt',
-      filters: { colors: 'R' },
-      error: 'bad request',
-      results: createPage('Lightning Bolt').items,
-      hasMore: true,
-      isLoading: true,
-      isLoadingMore: true,
-    } as SearchShellState)
-
-    expect(clearedState).toEqual(BASE_STATE)
-  })
-})
-
 describe('SearchShell integration', () => {
   beforeEach(() => {
     searchOracleTextMock.mockReset()
+    getSimilarCardsMock.mockReset()
+    getCardMock.mockReset()
     getOracleSamplesMock.mockClear()
     window.history.replaceState({}, '', '/')
   })
@@ -173,7 +125,7 @@ describe('SearchShell integration', () => {
     window.history.replaceState({}, '', '/?q=burn')
     searchOracleTextMock.mockResolvedValue(createPage('Lightning Bolt'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     await waitFor(() => {
       expect(searchOracleTextMock).toHaveBeenCalledWith('burn', 0, 24, {}, expect.any(AbortSignal))
@@ -185,7 +137,7 @@ describe('SearchShell integration', () => {
   it('submits a search and writes the query to the url', async () => {
     searchOracleTextMock.mockResolvedValue(createPage('Counterspell'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'counter' } })
     fireEvent.click(screen.getByText('submit search'))
@@ -223,7 +175,7 @@ describe('SearchShell integration', () => {
       })
       .mockResolvedValueOnce(createPage('Card Three'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
     fireEvent.click(screen.getByText('submit search'))
@@ -241,7 +193,7 @@ describe('SearchShell integration', () => {
       .mockResolvedValueOnce(createPage('Card One'))
       .mockResolvedValueOnce(createPage('Card Modern'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
     fireEvent.click(screen.getByText('submit search'))
@@ -263,13 +215,13 @@ describe('SearchShell integration', () => {
     expect(window.location.search).toBe('?q=value&format=m')
   })
 
-  it('tracks clearing filters once and refetches without filters', async () => {
+  it('clears filters and refetches without filters', async () => {
     searchOracleTextMock
       .mockResolvedValueOnce(createPage('Card One'))
       .mockResolvedValueOnce(createPage('Card Modern'))
       .mockResolvedValueOnce(createPage('Card Reset'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
     fireEvent.click(screen.getByText('submit search'))
@@ -289,7 +241,7 @@ describe('SearchShell integration', () => {
   it('shows a global api-down overlay on home when bootstrap samples cannot load', async () => {
     getOracleSamplesMock.mockRejectedValueOnce(new Error('Failed to fetch'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     expect(await screen.findByText('Oracle Tutor offline.')).toBeInTheDocument()
     expect(
@@ -300,7 +252,7 @@ describe('SearchShell integration', () => {
   it('shows a global api-down overlay on results when the search request cannot reach the api', async () => {
     searchOracleTextMock.mockRejectedValueOnce(new Error('Failed to fetch'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
     fireEvent.click(screen.getByText('submit search'))
@@ -315,7 +267,7 @@ describe('SearchShell integration', () => {
   it('keeps non-network search failures as local search errors', async () => {
     searchOracleTextMock.mockRejectedValueOnce(new Error('Request failed: 422 - invalid query'))
 
-    render(<SearchShell />)
+    renderWithQueryClient(<SearchShell />)
 
     fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
     fireEvent.click(screen.getByText('submit search'))

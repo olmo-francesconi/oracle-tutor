@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { searchCards } from '../../lib/api'
 import type { CardMatch } from '../../types/api'
 import { ManaSymbolRail } from './ManaSymbolRail'
 import { SearchInput } from './SearchInput'
 import { SearchSuggestions } from './SearchSuggestions'
+import { useCardAutocompleteQuery } from './useCardAutocompleteQuery'
 
 const SEARCH_SUGGESTIONS_ID = 'search-suggestions-listbox'
 
@@ -28,8 +28,6 @@ export function SearchBox({
   showManaRail = true,
   variant = 'home',
 }: SearchBoxProps) {
-  const [suggestions, setSuggestions] = useState<CardMatch[]>([])
-  const [isLoading, setIsLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
@@ -38,48 +36,15 @@ export function SearchBox({
   const blurFrameRef = useRef<number | null>(null)
   const internalPointerActiveRef = useRef(false)
 
-  useEffect(() => {
-    const trimmed = value.trim()
-    if (trimmed.length < 2) {
-      setSuggestions([])
-      setIsLoading(false)
-      setIsOpen(false)
-      return
-    }
+  const autocomplete = useCardAutocompleteQuery(value)
+  const suggestions: CardMatch[] = autocomplete.data ?? []
+  const isLoading = autocomplete.isFetching
 
-    const controller = new AbortController()
-    setIsOpen(isFocused)
-    setIsLoading(true)
-
-    const timer = window.setTimeout(async () => {
-      try {
-        const results = await searchCards(trimmed, 6, 0, controller.signal)
-        if (!controller.signal.aborted) {
-          setSuggestions(results)
-          setIsOpen(isFocused)
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          setSuggestions([])
-          setIsOpen(false)
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false)
-        }
-      }
-    }, 180)
-
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-      setIsLoading(false)
-    }
-  }, [isFocused, value])
-
-  useEffect(() => {
-    setActiveIndex(-1)
-  }, [value, suggestions.length])
+  // activeIndex is clamped at render time against the live suggestions list.
+  // If the list shrinks under the hovered index it just snaps back to -1; any
+  // concrete reset to -1 happens in the onChange handler instead of a
+  // setState-in-effect.
+  const effectiveActiveIndex = activeIndex >= suggestions.length ? -1 : activeIndex
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -99,6 +64,16 @@ export function SearchBox({
       }
     }
   }, [])
+
+  const handleInputChange = (next: string) => {
+    onChange(next)
+    setActiveIndex(-1)
+    if (!isFocused) return
+    // Open the panel as soon as the query is long enough to suggest, close it
+    // otherwise. Kept in the event handler so the state flip is user-driven,
+    // not an effect that reacts to changing props.
+    setIsOpen(next.trim().length >= 2)
+  }
 
   const handleInsert = (symbol: string) => {
     setPendingInsert({
@@ -122,18 +97,19 @@ export function SearchBox({
     if (suggestions.length === 0) return
 
     setActiveIndex((current) => {
+      const clamped = current >= suggestions.length ? -1 : current
       if (direction === 'down') {
-        return current < 0 ? 0 : Math.min(current + 1, suggestions.length - 1)
+        return clamped < 0 ? 0 : Math.min(clamped + 1, suggestions.length - 1)
       }
 
-      if (current <= 0) return 0
-      return current - 1
+      if (clamped <= 0) return 0
+      return clamped - 1
     })
   }
 
   const handleSubmit = () => {
-    if (activeIndex >= 0 && suggestions[activeIndex]) {
-      handleSelect(suggestions[activeIndex])
+    if (effectiveActiveIndex >= 0 && suggestions[effectiveActiveIndex]) {
+      handleSelect(suggestions[effectiveActiveIndex])
       return
     }
 
@@ -170,11 +146,11 @@ export function SearchBox({
         value={value}
         autoFocus={autoFocus}
         variant={variant}
-        activeIndex={activeIndex}
+        activeIndex={effectiveActiveIndex}
         suggestionsId={SEARCH_SUGGESTIONS_ID}
         suggestionsOpen={isOpen && suggestions.length > 0}
         pendingInsert={pendingInsert}
-        onChange={onChange}
+        onChange={handleInputChange}
         onSubmit={handleSubmit}
         onArrowNavigate={handleArrowNavigate}
         onFocusChange={(focused) => {
@@ -215,7 +191,7 @@ export function SearchBox({
           id={SEARCH_SUGGESTIONS_ID}
           variant={variant}
           items={suggestions}
-          activeIndex={activeIndex}
+          activeIndex={effectiveActiveIndex}
           isLoading={isLoading}
           onSelect={handleSelect}
           onHover={setActiveIndex}

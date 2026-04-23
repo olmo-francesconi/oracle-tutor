@@ -3,12 +3,10 @@ import { z } from 'zod'
 import {
   assertOk,
   buildSimilarCardsParams,
-  clearCardSearchCache,
   getOracleSamples,
   normalizeCard,
   normalizeCardMatch,
   normalizeSimilarCard,
-  searchCards,
 } from './api'
 
 const anySchema = z.unknown()
@@ -53,69 +51,6 @@ describe('assertOk', () => {
     const response = createJsonResponse({ ok: 'yes' }, { status: 200 })
 
     await expect(assertOk(response, schema)).rejects.toThrow(/Malformed response/)
-  })
-})
-
-describe('searchCards cache', () => {
-  const fetchMock = vi.fn<typeof fetch>()
-
-  beforeEach(() => {
-    clearCardSearchCache()
-    vi.stubGlobal('fetch', fetchMock)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    fetchMock.mockReset()
-    clearCardSearchCache()
-  })
-
-  it('returns cached results without refetching', async () => {
-    fetchMock.mockResolvedValue(
-      createJsonResponse([
-        {
-          name: 'Lightning Bolt',
-          oracle_id: 'oracle-1',
-          scryfall_id: 'card-1',
-          face_ix: 0,
-          image_side: 'front',
-        },
-      ])
-    )
-
-    const first = await searchCards('bolt', 6, 0)
-    const second = await searchCards('bolt', 6, 0)
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(first).toEqual(second)
-    expect(first[0]?.id).toBe('card-1')
-  })
-
-  it('evicts the oldest cache entry when the limit is exceeded', async () => {
-    fetchMock.mockImplementation((input) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      const query = new URL(url, 'http://localhost').searchParams.get('q')
-
-      return Promise.resolve(
-        createJsonResponse([
-          {
-            name: query,
-            oracle_id: `oracle-${query}`,
-            scryfall_id: `card-${query}`,
-            face_ix: 0,
-            image_side: 'front',
-          },
-        ])
-      )
-    })
-
-    for (let index = 0; index <= 40; index += 1) {
-      await searchCards(`query-${index}`, 6, 0)
-    }
-
-    await searchCards('query-0', 6, 0)
-
-    expect(fetchMock).toHaveBeenCalledTimes(42)
   })
 })
 
