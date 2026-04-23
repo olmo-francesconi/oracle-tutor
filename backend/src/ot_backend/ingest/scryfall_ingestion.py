@@ -34,7 +34,6 @@ from ..core.models import (
     SystemMetadata,
 )
 from ..semantic.semantic_state import bump_semantic_data_version
-from ..semantic.uniqueness import compute_and_store_uniqueness_scores
 from .fetch_tags import run_fetch_tags
 
 logger = logging.getLogger("ot_backend.ingest")
@@ -841,13 +840,6 @@ def update_scryfall_data(
                 if remote_meta:
                     save_local_metadata(remote_meta)
 
-            # Compute uniqueness scores now that all cards are in the DB.
-            try:
-                logger.info("Stage: compute uniqueness scores")
-                with SessionLocal() as uniqueness_session:
-                    compute_and_store_uniqueness_scores(uniqueness_session)
-            except Exception as e:
-                logger.error("Uniqueness score computation failed (non-fatal): %s", e, exc_info=True)
             semantic_changed = True
 
         except Exception as e:

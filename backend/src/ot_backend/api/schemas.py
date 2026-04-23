@@ -44,7 +44,6 @@ class SimilarCard(BaseModel):
     layout: str | None = None
     rarity: str | None = None
     legalities: dict[str, str] | None = None
-    uniqueness: float | None = None
     border_color: str | None = None
     set_code: str | None = None
 

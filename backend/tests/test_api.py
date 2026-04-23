@@ -199,7 +199,6 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
                 "layout": "normal",
                 "rarity": "common",
                 "legalities": {},
-                "uniqueness": None,
                 "border_color": None,
                 "set_code": "tst",
             }

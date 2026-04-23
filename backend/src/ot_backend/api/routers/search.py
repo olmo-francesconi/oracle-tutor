@@ -159,7 +159,6 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
                 layout=card.layout,
                 rarity=card.rarity,
                 legalities=card.legalities,
-                uniqueness=card.uniqueness,
                 border_color=card.raw_printing.border_color,
                 set_code=card.raw_printing.set_code,
             )
