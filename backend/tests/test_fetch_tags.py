@@ -290,6 +290,7 @@ def test_tagger_graphql_once_requests_session_reset_on_retryable_status() -> Non
 
     class DummyResponse:
         status_code = 429
+        text = "rate limited"
 
         def json(self):
             return {}

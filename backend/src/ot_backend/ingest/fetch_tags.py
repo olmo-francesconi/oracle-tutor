@@ -5,13 +5,14 @@ import os
 import threading
 import time
 from collections.abc import Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
 from typing import TypedDict, cast
 
 import requests
 from sqlalchemy import Row, delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from ..core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
@@ -31,7 +32,14 @@ MAX_SESSION_RESETS: int = 5
 ORACLE_FOREIGN_KEY = "oracleId"
 TAG_FETCH_BATCH_SIZE = 500
 TAG_FETCH_COMMIT_INTERVAL = 25
-TAG_FETCH_CONCURRENCY = max(1, int(os.getenv("TAG_FETCH_CONCURRENCY", "6")))
+TAG_FETCH_CONCURRENCY = max(1, int(os.getenv("TAG_FETCH_CONCURRENCY", "4")))
+# Per-worker sleep held inside the semaphore slot. Tagger has no public rate
+# limit documentation (it's an undocumented internal endpoint of
+# tagger.scryfall.com). Scryfall's *main* API is documented at ~10 req/s max
+# (https://scryfall.com/docs/api). The defaults below target roughly the same
+# aggregate ceiling (4 workers × 0.4 s ≈ 10 req/s) on the assumption Tagger
+# shares it — tune down via env if you see repeated 429s.
+TAG_FETCH_RATE_LIMIT_SLEEP = float(os.getenv("TAG_FETCH_RATE_LIMIT_SLEEP", "0.4"))
 
 FETCH_CARD_QUERY = """
 query FetchCard(
@@ -318,8 +326,18 @@ def _extract_card_entities(payload: object) -> ExtractedCardEntities:
 
 def _create_tagger_session() -> tuple[requests.Session, str]:
     session = requests.Session()
-    response = session.get(TAGGER_BASE_URL, timeout=REQUEST_TIMEOUT_SECONDS)
-    response.raise_for_status()
+    try:
+        response = session.get(TAGGER_BASE_URL, timeout=REQUEST_TIMEOUT_SECONDS)
+    except Exception as e:
+        logger.warning("Tagger homepage GET failed during session bootstrap: %s", e)
+        raise
+    if response.status_code != 200:
+        logger.warning(
+            "Tagger homepage returned HTTP %s during session bootstrap; body=%r",
+            response.status_code,
+            response.text[:200],
+        )
+        response.raise_for_status()
 
     csrf_token: str | None = None
     marker = 'name="csrf-token" content="'
@@ -330,6 +348,7 @@ def _create_tagger_session() -> tuple[requests.Session, str]:
         break
 
     if not csrf_token:
+        logger.warning("Tagger homepage did not include a csrf-token meta tag.")
         raise RuntimeError("Tagger CSRF token not found in homepage response.")
     return session, csrf_token
 
@@ -412,8 +431,12 @@ def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEn
         )
 
     if relationships:
-        db.bulk_insert_mappings(
-            CardRelationship,
+        # Tagger returns the same relationship ID from both cards it links
+        # (e.g. "Game Trail BETTER_THAN Timber Gorge" shows up when fetching
+        # either card). We store it once; whichever card inserts first wins
+        # the card_id column. ON CONFLICT DO NOTHING prevents the second
+        # card's insert from crashing the ingest on a PK collision.
+        stmt = pg_insert(CardRelationship).values(
             [
                 {
                     "id": relationship["id"],
@@ -431,8 +454,9 @@ def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEn
                     "related_name": relationship.get("related_name"),
                 }
                 for relationship in relationships
-            ],
+            ]
         )
+        db.execute(stmt.on_conflict_do_nothing(index_elements=["id"]))
 
 
 @dataclass(frozen=True)
@@ -467,14 +491,45 @@ def _tagger_graphql_once(
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
     except Exception as e:
-        logger.info("Tagger GraphQL request failed for %s: %s", card_id, e)
+        logger.warning(
+            "Tagger GraphQL request raised (%s) for %s (%s/%s)",
+            type(e).__name__,
+            card_id,
+            scryfall_set,
+            collector_number,
+        )
         return FetchExtraction(FetchOutcome.FAILED)
 
-    if resp.status_code == 429 or resp.status_code >= 500:
+    if resp.status_code == 429:
+        logger.warning(
+            "Tagger rate-limited (HTTP 429) for %s (%s/%s); body=%r",
+            card_id,
+            scryfall_set,
+            collector_number,
+            resp.text[:200],
+        )
+        return FetchExtraction(FetchOutcome.RESET_SESSION)
+
+    if resp.status_code >= 500:
+        logger.warning(
+            "Tagger server error HTTP %s for %s (%s/%s); body=%r",
+            resp.status_code,
+            card_id,
+            scryfall_set,
+            collector_number,
+            resp.text[:200],
+        )
         return FetchExtraction(FetchOutcome.RESET_SESSION)
 
     if resp.status_code != 200:
-        logger.info("Tagger returned HTTP %s for %s", resp.status_code, card_id)
+        logger.warning(
+            "Tagger returned HTTP %s for %s (%s/%s); body=%r",
+            resp.status_code,
+            card_id,
+            scryfall_set,
+            collector_number,
+            resp.text[:200],
+        )
         return FetchExtraction(FetchOutcome.FAILED)
 
     try:
@@ -536,12 +591,33 @@ def _fetch_card_extraction(
     while True:
         with rate_sem:
             session, csrf_token = _worker_session()
+            started = time.monotonic()
             result = _tagger_graphql_once(
                 session, csrf_token, card.set_code, card.collector_number, card.oracle_id
             )
+            elapsed = time.monotonic() - started
+            # Surface any request that takes unusually long — helps spot a slow
+            # Tagger endpoint that isn't an outright 4xx/5xx.
+            if elapsed > 3.0:
+                logger.warning(
+                    "Tagger slow response for %s (%s/%s): %.1fs outcome=%s",
+                    card.oracle_id,
+                    card.set_code,
+                    card.collector_number,
+                    elapsed,
+                    result.outcome.value,
+                )
+            time.sleep(TAG_FETCH_RATE_LIMIT_SLEEP)
         if result.outcome != FetchOutcome.RESET_SESSION:
             return result
         resets += 1
+        logger.warning(
+            "Tagger session reset #%d for %s (%s/%s)",
+            resets,
+            card.oracle_id,
+            card.set_code,
+            card.collector_number,
+        )
         if resets >= MAX_SESSION_RESETS:
             logger.error(
                 "Tagger rate limit: exceeded max session resets for card %s/%s, skipping.",
@@ -642,15 +718,38 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
     cards = list(_iter_cards_needing_tag_fetch(db, refresh_tags))
     rate_sem = threading.Semaphore(TAG_FETCH_CONCURRENCY)
 
-    with ThreadPoolExecutor(max_workers=TAG_FETCH_CONCURRENCY, thread_name_prefix="tagger") as executor:
-        # executor.map preserves input order and streams results — lets us write
-        # to the DB in the same thread we already own the session on.
-        futures = executor.map(
-            lambda card: (card, _fetch_card_extraction(card, rate_sem)),
-            cards,
-        )
+    # Stall watchdog: if no card completes for 60 s, log a warning so the
+    # operator knows the ingest is stuck rather than quietly chugging.
+    stall_stop = threading.Event()
+    last_progress_ts = [time.monotonic()]
 
-        for card, result in futures:
+    def _stall_watch() -> None:
+        while not stall_stop.wait(30.0):
+            idle = time.monotonic() - last_progress_ts[0]
+            if idle > 60.0:
+                logger.warning(
+                    "Tag ingestion appears stalled: no card completed for %.0fs (processed %d/%d).",
+                    idle,
+                    processed,
+                    total,
+                )
+
+    watchdog = threading.Thread(target=_stall_watch, name="tagger-watchdog", daemon=True)
+    watchdog.start()
+
+    executor = ThreadPoolExecutor(max_workers=TAG_FETCH_CONCURRENCY, thread_name_prefix="tagger")
+    try:
+        # Use as_completed so progress streams in completion order. With map()
+        # a single slow card blocks visibility of every later card that has
+        # already finished — looks like the whole ingest froze.
+        future_to_card = {
+            executor.submit(_fetch_card_extraction, card, rate_sem): card for card in cards
+        }
+
+        for future in as_completed(future_to_card):
+            card = future_to_card[future]
+            result = future.result()
+            last_progress_ts[0] = time.monotonic()
             processed += 1
             counts[result.outcome] += 1
             oracle_tag_count = 0
@@ -682,6 +781,16 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
         # pool shuts down.
         for _ in range(TAG_FETCH_CONCURRENCY):
             executor.submit(_close_worker_session)
+        executor.shutdown(wait=True)
+    except BaseException:
+        # Cancel any still-pending futures so the default wait-for-all
+        # shutdown doesn't stall the process for the thousands of queued
+        # cards that haven't started yet.
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        stall_stop.set()
+        watchdog.join(timeout=1.0)
 
     if pending_commits:
         db.commit()
