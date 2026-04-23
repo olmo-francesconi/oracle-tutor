@@ -171,9 +171,8 @@ def claim_next_semantic_job(job_type: str, *, job_id: str | None = None) -> Sema
                 .where(SemanticJob.job_type == job_type)
                 .where(SemanticJob.status == SEMANTIC_JOB_STATUS_PENDING)
                 .order_by(SemanticJob.created_at.asc(), SemanticJob.id.asc())
+                .with_for_update(skip_locked=True)
             )
-            if db.bind is not None and db.bind.dialect.name == "postgresql":
-                target_stmt = target_stmt.with_for_update(skip_locked=True)
             target_job_ids = db.scalars(target_stmt).all()
             if not target_job_ids:
                 return None

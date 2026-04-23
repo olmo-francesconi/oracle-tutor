@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from uuid import uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -16,24 +17,16 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
-
-try:
-    from pgvector.sqlalchemy import Vector as PgVector
-except Exception:  # pragma: no cover - optional dependency for sqlite tests
-    PgVector = None
-
 
 SEMANTIC_EMBEDDING_DIMENSION = 384
 
 
 def _semantic_embedding_type():
-    if PgVector is None:
-        return JSON
-    return PgVector(SEMANTIC_EMBEDDING_DIMENSION)
+    return Vector(SEMANTIC_EMBEDDING_DIMENSION)
 
 
 def _utcnow_naive() -> datetime.datetime:
@@ -193,13 +186,9 @@ class CardFace(Base):
     defense: Mapped[str | None] = mapped_column(String, nullable=True)
     colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    # Normalized primary card types extracted from type_line. Postgres uses a
-    # native ARRAY with a GIN index for fast overlap filters; SQLite falls back
-    # to JSON (tests use the ilike path).
-    type_categories: Mapped[list[str] | None] = mapped_column(
-        JSON().with_variant(postgresql.ARRAY(Text), "postgresql"),
-        nullable=True,
-    )
+    # Normalized primary card types extracted from type_line. GIN-indexed
+    # native ARRAY column for fast overlap filters.
+    type_categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     image_uris: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
     artist: Mapped[str | None] = mapped_column(String, nullable=True)
     flavor_text: Mapped[str | None] = mapped_column(Text, nullable=True)

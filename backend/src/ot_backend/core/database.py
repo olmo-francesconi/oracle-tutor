@@ -6,7 +6,6 @@ from collections.abc import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from .config import is_production_env
 
@@ -46,10 +45,6 @@ DATABASE_URL = _build_database_url()
 # Engine setup
 # ---------------------------------------------------------------------------
 
-# Future note: if we ever use async SQLAlchemy, this needs to change.
-#
-# Tests often use sqlite :memory:, which requires a StaticPool to keep one connection alive
-# across the whole process.
 def _pool_defaults_for_role() -> tuple[int, int]:
     """Role-aware pool defaults.
 
@@ -66,15 +61,6 @@ def _pool_defaults_for_role() -> tuple[int, int]:
 
 def _create_engine(database_url: str) -> Engine:
     pool_recycle_seconds = int(os.getenv("DB_POOL_RECYCLE", "3600"))
-    if database_url.startswith("sqlite") and ":memory:" in database_url:
-        return create_engine(
-            database_url,
-            pool_pre_ping=True,
-            pool_recycle=pool_recycle_seconds,
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-
     default_pool_size, default_max_overflow = _pool_defaults_for_role()
     return create_engine(
         database_url,

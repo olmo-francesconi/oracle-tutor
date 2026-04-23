@@ -46,7 +46,7 @@ MIGRATION_STATE_FAILED = "failed"
 
 
 @contextmanager
-def _schema_lock(dialect: str) -> Iterator[None]:
+def _schema_lock() -> Iterator[None]:
     """Hold a session-level advisory lock for the whole init_db body.
 
     pg_advisory_xact_lock (used previously) was released when the caller's
@@ -54,9 +54,6 @@ def _schema_lock(dialect: str) -> Iterator[None]:
     session-level pg_advisory_lock on a dedicated connection keeps two
     concurrent init_db callers serialized across the Alembic upgrade too.
     """
-    if dialect != "postgresql":
-        yield
-        return
     conn = engine.connect()
     try:
         conn.execute(text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": SCHEMA_LOCK_KEY})
@@ -198,8 +195,7 @@ def init_db(mode: str = INIT_MODE_API) -> None:
         raise ValueError(f"Unsupported init_db mode: {mode}")
     logger.info("Initializing database...")
 
-    dialect = engine.dialect.name
-    with _schema_lock(dialect):
+    with _schema_lock():
         try:
             with engine.begin() as conn:
                 inspector = inspect(conn)

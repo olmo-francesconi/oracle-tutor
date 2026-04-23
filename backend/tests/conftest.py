@@ -1,23 +1,45 @@
+import atexit
 import os
-import sqlite3
 import sys
 from collections.abc import Generator
-from datetime import date, datetime
 from pathlib import Path
 
-# Python 3.12 deprecated sqlite3's default datetime/date adapters.
-# Register explicit ones to silence the DeprecationWarning from SQLAlchemy.
-sqlite3.register_adapter(datetime, lambda v: v.isoformat())
-sqlite3.register_adapter(date, lambda v: v.isoformat())
-
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from testcontainers.postgres import PostgresContainer
 
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+# ---------------------------------------------------------------------------
+# Session-wide Postgres container
+#
+# Tests run against a real Postgres (with pgvector) rather than SQLite so the
+# app exercises the same code paths as production — pgvector queries, JSONB,
+# ARRAY columns, GIN indexes, advisory locks, FOR UPDATE SKIP LOCKED, etc.
+# The container starts once per session, survives across tests via the
+# per-test truncate+seed pattern in _seed_db, and is torn down at exit.
+# ---------------------------------------------------------------------------
+
+_POSTGRES_IMAGE = "pgvector/pgvector:pg17"
+
+_container = PostgresContainer(_POSTGRES_IMAGE, driver="psycopg")
+_container.start()
+atexit.register(_container.stop)
+
+# testcontainers returns a SQLAlchemy-ready URL with the psycopg driver.
+_database_url = _container.get_connection_url()
+
+# pgvector requires the `vector` extension; create it before the app imports
+# the engine so migrations can refer to it.
+with psycopg.connect(_database_url.replace("+psycopg", "")) as _setup_conn:
+    with _setup_conn.cursor() as _cur:
+        _cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    _setup_conn.commit()
+
+os.environ["DATABASE_URL"] = _database_url
 os.environ.setdefault("OT_UPDATE_ENABLED", "false")
 os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password")
 os.environ.setdefault("ADMIN_JWT_SECRET", "test-admin-jwt-secret-which-is-at-least-32-bytes")
-# Prevent lifespan's wait_for_migration_ready from blocking for 30s if state is stale
+# Prevent lifespan's wait_for_migration_ready from blocking for 30s if state is stale.
 os.environ.setdefault("OT_SCHEMA_WAIT_TIMEOUT_SECONDS", "0.5")
 
 # Ensure the `src/` layout package is importable when running pytest without an editable install.
@@ -72,7 +94,6 @@ def _make_card_raw(
 def _seed_db() -> None:
     init_db()
     with SessionLocal() as db:
-        # Clean slate (sqlite :memory: persists across tests with StaticPool)
         db.query(SemanticJob).delete()
         db.query(SemanticModelEmbedding).delete()
         db.query(SemanticModelArtifact).delete()

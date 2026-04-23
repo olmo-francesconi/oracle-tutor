@@ -17,9 +17,9 @@ from ..core.config import (
 from ..core.database import SessionLocal
 from ..core.db_init import INIT_MODE_WORKER, init_db
 from ..core.logging_config import setup_loggers
+from .bundle_registration import register_model_bundle_bytes, semantic_model_artifact_keys
 from .dataset_registry import get_semantic_dataset, get_semantic_dataset_bytes
 from .eval_service import default_eval_queries_bytes
-from .bundle_registration import register_model_bundle_bytes, semantic_model_artifact_keys
 from .semantic_jobs import (
     SEMANTIC_JOB_TYPE_TRAIN,
     claim_next_semantic_job,

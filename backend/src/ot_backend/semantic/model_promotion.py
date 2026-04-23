@@ -33,8 +33,6 @@ _EMBEDDINGS_ARCHIVE_RELATIVE_PATH = Path("embeddings") / "embeddings.npz"
 
 
 def _try_promotion_advisory_lock(db: Session) -> bool:
-    if db.bind is None or db.bind.dialect.name != "postgresql":  # type: ignore[union-attr]
-        return True
     return bool(db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": _PROMOTION_ADVISORY_LOCK_KEY}))
 
 

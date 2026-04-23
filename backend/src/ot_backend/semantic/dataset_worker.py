@@ -21,7 +21,6 @@ from ..core.config import (
     semantic_llm_model_name,
     semantic_llm_temperature,
     semantic_max_jobs_per_run,
-    semantic_train_max_jobs_per_run,
 )
 from ..core.database import SessionLocal
 from ..core.db_init import INIT_MODE_WORKER, init_db

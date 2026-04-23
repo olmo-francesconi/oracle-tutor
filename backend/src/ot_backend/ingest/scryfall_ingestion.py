@@ -21,7 +21,7 @@ from ..core.config import (
     SCRYFALL_DATA_KEY,
     ensure_data_dir,
 )
-from ..core.database import SessionLocal, engine
+from ..core.database import SessionLocal
 from ..core.db_init import MIGRATION_STATE_READY, get_migration_state, parse_version
 from ..core.logging_config import setup_loggers
 from ..core.models import (
@@ -245,7 +245,7 @@ def cleanup_unplayable_cards(session) -> dict[str, int]:
 
     stats = {"deleted_cards_by_layout": 0, "deleted_cards_by_type_line_card": 0}
 
-    # Delete by skipped layouts (delete dependents explicitly for sqlite / non-cascading FKs).
+    # Delete dependent rows explicitly before the parent delete.
     ids_by_layout = session.scalars(select(Card.oracle_id).where(Card.layout.in_(SKIPPED_LAYOUTS))).all()
     _delete_card_related_rows(session, ids_by_layout)
     res = session.execute(delete(Card).where(Card.oracle_id.in_(ids_by_layout)))
@@ -410,48 +410,39 @@ def ingest_batch(session, batch_cards: list[dict[str, Any]]) -> None:
         for face_ix, face in enumerate(faces):
             faces_to_insert.append(prepare_card_face(oracle_id, face_ix, face))
 
-    if engine.dialect.name == "postgresql":
-        raw_stmt = insert(CardRaw).values(raw_cards)
-        raw_stmt = raw_stmt.on_conflict_do_update(
-            index_elements=["id"],
+    raw_stmt = insert(CardRaw).values(raw_cards)
+    raw_stmt = raw_stmt.on_conflict_do_update(
+        index_elements=["id"],
+        set_={
+            column.name: getattr(raw_stmt.excluded, column.name)
+            for column in CardRaw.__table__.columns
+            if column.name != "id"
+        },
+    )
+    session.execute(raw_stmt)
+
+    if parents:
+        parent_stmt = insert(Card).values(parents)
+        parent_stmt = parent_stmt.on_conflict_do_update(
+            index_elements=["oracle_id"],
             set_={
-                column.name: getattr(raw_stmt.excluded, column.name)
-                for column in CardRaw.__table__.columns
-                if column.name != "id"
+                "scryfall_id": parent_stmt.excluded.scryfall_id,
+                "name": parent_stmt.excluded.name,
+                "layout": parent_stmt.excluded.layout,
+                "cmc": parent_stmt.excluded.cmc,
+                "edhrec_rank": parent_stmt.excluded.edhrec_rank,
+                "rarity": parent_stmt.excluded.rarity,
+                "legalities": parent_stmt.excluded.legalities,
+                "color_identity": parent_stmt.excluded.color_identity,
             },
         )
-        session.execute(raw_stmt)
-
-        if parents:
-            parent_stmt = insert(Card).values(parents)
-            parent_stmt = parent_stmt.on_conflict_do_update(
-                index_elements=["oracle_id"],
-                set_={
-                    "scryfall_id": parent_stmt.excluded.scryfall_id,
-                    "name": parent_stmt.excluded.name,
-                    "layout": parent_stmt.excluded.layout,
-                    "cmc": parent_stmt.excluded.cmc,
-                    "edhrec_rank": parent_stmt.excluded.edhrec_rank,
-                    "rarity": parent_stmt.excluded.rarity,
-                    "legalities": parent_stmt.excluded.legalities,
-                    "color_identity": parent_stmt.excluded.color_identity,
-                },
-            )
-            session.execute(parent_stmt)
-    else:
-        for raw_card in raw_cards:
-            session.merge(CardRaw(**raw_card))
-        for p in parents:
-            session.merge(Card(**p))
+        session.execute(parent_stmt)
 
     parent_oracle_ids = list(face_oracle_ids)
     _delete_card_related_rows(session, parent_oracle_ids)
 
     if faces_to_insert:
-        if engine.dialect.name == "postgresql":
-            session.execute(insert(CardFace).values(faces_to_insert))
-        else:
-            session.bulk_insert_mappings(CardFace, faces_to_insert)
+        session.execute(insert(CardFace).values(faces_to_insert))
 
 
 def select_best_printing(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:

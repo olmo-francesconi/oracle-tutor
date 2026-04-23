@@ -19,13 +19,13 @@ from ...semantic.artifacts import (
     list_semantic_model_artifacts,
 )
 from ...semantic.base_model_catalog import get_semantic_base_model, list_semantic_base_models
+from ...semantic.bundle_registration import register_model_bundle_bytes
 from ...semantic.dataset_registry import get_semantic_dataset, list_semantic_datasets
 from ...semantic.model_registry import (
     count_semantic_model_embeddings,
     get_semantic_model,
     list_semantic_models,
 )
-from ...semantic.bundle_registration import register_model_bundle_bytes
 from ...semantic.semantic_jobs import (
     SEMANTIC_JOB_STATUS_PENDING,
     create_dataset_job,

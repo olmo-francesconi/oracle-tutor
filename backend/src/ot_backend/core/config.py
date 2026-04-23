@@ -14,7 +14,8 @@ SCRYFALL_DATA_KEY = "scryfall_data"
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
-DB_SCHEMA_VERSION = "3.0.0"
+# Reset to 1.0.0 alongside the migration squash for v2.0.0.
+DB_SCHEMA_VERSION = "1.0.0"
 
 # API startup migration wait behavior
 SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("OT_SCHEMA_WAIT_TIMEOUT_SECONDS", "30"))

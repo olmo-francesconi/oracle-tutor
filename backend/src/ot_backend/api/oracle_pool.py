@@ -5,7 +5,7 @@ import logging
 import os
 
 from fastapi import FastAPI
-from sqlalchemy import func, text
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..core.database import SessionLocal
@@ -24,27 +24,6 @@ def _oracle_pool_refresh_seconds() -> float:
 
 
 def _sample_oracle_texts(db: Session) -> list[tuple[str | None]]:
-    """Sample up to ORACLE_TEXT_POOL_LIMIT non-empty oracle texts.
-
-    Postgres uses TABLESAMPLE SYSTEM for page-level sampling — orders of
-    magnitude cheaper than ORDER BY random() on a full table scan. SQLite
-    (tests) has no TABLESAMPLE, so falls back to the naive path.
-    """
-    dialect = db.bind.dialect.name if db.bind is not None else ""
-    if dialect == "postgresql":
-        rows = db.execute(
-            text(
-                """
-                SELECT oracle_text
-                FROM card_faces TABLESAMPLE SYSTEM (2)
-                WHERE oracle_text IS NOT NULL AND oracle_text <> ''
-                LIMIT :limit
-                """
-            ),
-            {"limit": ORACLE_TEXT_POOL_LIMIT},
-        ).all()
-        return [(row[0],) for row in rows]
-
     return (
         db.query(CardFace.oracle_text)
         .filter(CardFace.oracle_text.isnot(None), CardFace.oracle_text != "")
@@ -55,21 +34,6 @@ def _sample_oracle_texts(db: Session) -> list[tuple[str | None]]:
 
 
 def _sample_keywords(db: Session) -> list[tuple[list[str] | None]]:
-    dialect = db.bind.dialect.name if db.bind is not None else ""
-    if dialect == "postgresql":
-        rows = db.execute(
-            text(
-                """
-                SELECT keywords
-                FROM cards_raw TABLESAMPLE SYSTEM (2)
-                WHERE keywords IS NOT NULL
-                LIMIT :limit
-                """
-            ),
-            {"limit": HOME_TERM_POOL_LIMIT},
-        ).all()
-        return [(row[0],) for row in rows]
-
     return (
         db.query(CardRaw.keywords)
         .filter(CardRaw.keywords.isnot(None))

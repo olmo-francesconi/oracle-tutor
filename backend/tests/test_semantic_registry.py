@@ -8,7 +8,7 @@ import numpy as np
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
-from ot_backend.core.models import SemanticJob, SemanticModel, SemanticModelArtifact, SemanticModelEmbedding, SystemMetadata
+from ot_backend.core.models import Card, CardFace, CardRaw, SemanticJob, SemanticModel, SemanticModelArtifact, SemanticModelEmbedding, SystemMetadata
 from ot_backend.semantic.artifacts import (
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
     SEMANTIC_MODEL_ARTIFACT_KIND_EVAL_JSON,
@@ -79,6 +79,67 @@ def _reset_registry_tables() -> None:
         db.query(SemanticModelArtifact).delete()
         db.query(SemanticModel).delete()
         db.query(SystemMetadata).filter(SystemMetadata.key.in_(["semantic_data", "semantic_dataset_export", "semantic_active_model"])).delete()
+        db.commit()
+
+    _seed_minimal_cards()
+
+
+def _seed_minimal_cards() -> None:
+    """Seed the minimal (oracle_id, face_ix) rows referenced by promotion tests
+    so that `semantic_model_embeddings` FK constraints pass on Postgres.
+    """
+    with SessionLocal() as db:
+        if db.query(CardFace).filter(CardFace.oracle_id == "o1").count() > 0:
+            return
+
+        db.query(CardFace).delete()
+        db.query(Card).delete()
+        db.query(CardRaw).delete()
+        db.commit()
+
+        for oracle_id, scryfall_id, name in (("o1", "s1", "Lightning Bolt"), ("o2", "s2", "Shock")):
+            db.add(
+                CardRaw(
+                    id=scryfall_id,
+                    oracle_id=oracle_id,
+                    name=name,
+                    lang="en",
+                    layout="normal",
+                    color_identity=["R"],
+                    keywords=[],
+                    legalities={},
+                    rarity="common",
+                    set_code="tst",
+                    set_id="set-tst",
+                    set_name="Test Set",
+                    set_type="expansion",
+                    collector_number=scryfall_id,
+                    games=["paper"],
+                    finishes=["nonfoil"],
+                )
+            )
+        db.flush()
+
+        for oracle_id, scryfall_id, name in (("o1", "s1", "Lightning Bolt"), ("o2", "s2", "Shock")):
+            db.add(
+                Card(
+                    oracle_id=oracle_id,
+                    scryfall_id=scryfall_id,
+                    name=name,
+                    layout="normal",
+                    rarity="common",
+                    legalities={},
+                    color_identity=["R"],
+                )
+            )
+        db.flush()
+
+        db.add_all(
+            [
+                CardFace(oracle_id="o1", face_ix=0, name="Lightning Bolt", type_line="Instant", colors=["R"]),
+                CardFace(oracle_id="o2", face_ix=0, name="Shock", type_line="Instant", colors=["R"]),
+            ]
+        )
         db.commit()
 
 

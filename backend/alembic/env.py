@@ -13,7 +13,7 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 if not os.getenv("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "sqlite:///./alembic.db"
+    raise RuntimeError("DATABASE_URL must be set before running Alembic.")
 
 import ot_backend.core.models  # noqa: E402,F401
 from ot_backend.core.database import Base  # noqa: E402
@@ -28,7 +28,10 @@ target_metadata = Base.metadata
 
 
 def get_database_url() -> str:
-    return os.getenv("DATABASE_URL", "sqlite:///./alembic.db")
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL must be set before running Alembic.")
+    return url
 
 
 def run_migrations_offline() -> None:
