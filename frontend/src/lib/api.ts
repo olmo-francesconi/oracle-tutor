@@ -1,3 +1,4 @@
+import type { ZodType } from 'zod'
 import type {
   Card,
   CardMatch,
@@ -6,6 +7,12 @@ import type {
   SimilarCard,
   SimilarCardsPage,
 } from '../types/api'
+import {
+  CardMatchListSchema,
+  CardSchema,
+  OracleSamplesSchema,
+  SimilarCardsPageSchema,
+} from '../types/schemas'
 import { encodeCardTypeFilter, encodeFormatFilter } from './filters'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
@@ -35,10 +42,6 @@ type OracleSearchParams = SimilarCardsParams & {
 type ApiCardMatch = Omit<CardMatch, 'id'>
 type ApiCard = Omit<Card, 'id'>
 type ApiSimilarCard = Omit<SimilarCard, 'id'>
-type ApiSimilarCardsPage = {
-  items: ApiSimilarCard[]
-  has_more: boolean
-}
 
 export function buildUrl(path: string, params?: Record<string, string | number | undefined>) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
@@ -78,18 +81,18 @@ function writeCachedCardMatches(key: string, matches: CardMatch[]) {
   }
 }
 
-export async function assertOk<T>(response: Response): Promise<T> {
+export async function assertOk<T>(response: Response, schema: ZodType<T>): Promise<T> {
   if (!response.ok) {
     let detail = ''
     const responseClone = response.clone()
 
     try {
-      const body = await response.json()
+      const body: unknown = await response.json()
 
       if (typeof body === 'string') {
         detail = body
       } else if (body && typeof body === 'object' && 'detail' in body) {
-        const nextDetail = body.detail
+        const nextDetail = (body as { detail: unknown }).detail
         detail = typeof nextDetail === 'string' ? nextDetail : JSON.stringify(nextDetail)
       } else {
         detail = JSON.stringify(body)
@@ -105,11 +108,17 @@ export async function assertOk<T>(response: Response): Promise<T> {
     throw new Error(`Request failed: ${response.status}${detail ? ` - ${detail}` : ''}`)
   }
 
-  return response.json() as Promise<T>
+  const body: unknown = await response.json()
+  const parsed = schema.safeParse(body)
+  if (!parsed.success) {
+    throw new Error(`Malformed response: ${parsed.error.issues.map((i) => i.message).join(', ')}`)
+  }
+  return parsed.data
 }
 
 async function getJson<T>(
   path: string,
+  schema: ZodType<T>,
   params?: Record<string, string | number | undefined>,
   signal?: AbortSignal
 ): Promise<T> {
@@ -118,7 +127,7 @@ async function getJson<T>(
     signal,
   })
 
-  return assertOk<T>(response)
+  return assertOk<T>(response, schema)
 }
 
 export function normalizeCardMatch(card: ApiCardMatch): CardMatch {
@@ -195,13 +204,9 @@ export async function searchCards(
     return cached
   }
 
-  const data = await getJson<ApiCardMatch[]>(
-    '/search',
-    { q: query, limit, offset },
-    signal
-  )
+  const data = await getJson('/search', CardMatchListSchema, { q: query, limit, offset }, signal)
 
-  const matches = data.map(normalizeCardMatch)
+  const matches = data.map((card) => normalizeCardMatch(card as ApiCardMatch))
   writeCachedCardMatches(cacheKey, matches)
   return matches
 }
@@ -211,8 +216,8 @@ export function clearCardSearchCache() {
 }
 
 export async function getCard(id: string, signal?: AbortSignal): Promise<Card> {
-  const data = await getJson<ApiCard>(`/card/${id}`, undefined, signal)
-  return normalizeCard(data)
+  const data = await getJson(`/card/${id}`, CardSchema, undefined, signal)
+  return normalizeCard(data as ApiCard)
 }
 
 export async function getSimilarCards(
@@ -223,8 +228,9 @@ export async function getSimilarCards(
   filters?: FilterState,
   signal?: AbortSignal
 ): Promise<SimilarCardsPage> {
-  const data = await getJson<ApiSimilarCardsPage>(
+  const data = await getJson(
     '/similar-cards',
+    SimilarCardsPageSchema,
     {
       ...buildSimilarCardsParams(limit, offset, filters),
       oracle_id: id,
@@ -234,7 +240,7 @@ export async function getSimilarCards(
   )
 
   return {
-    items: data.items.map(normalizeSimilarCard),
+    items: data.items.map((card) => normalizeSimilarCard(card as ApiSimilarCard)),
     has_more: data.has_more,
   }
 }
@@ -251,18 +257,14 @@ export async function searchOracleText(
     ...buildSimilarCardsParams(limit, offset, filters),
   }
 
-  const data = await getJson<ApiSimilarCardsPage>('/similar-cards', params, signal)
+  const data = await getJson('/similar-cards', SimilarCardsPageSchema, params, signal)
 
   return {
-    items: data.items.map(normalizeSimilarCard),
+    items: data.items.map((card) => normalizeSimilarCard(card as ApiSimilarCard)),
     has_more: data.has_more,
   }
 }
 
 export async function getOracleSamples(signal?: AbortSignal): Promise<OracleSamples> {
-  return getJson<OracleSamples>(
-    '/oracle-samples',
-    { n: 60 },
-    signal
-  )
+  return getJson('/oracle-samples', OracleSamplesSchema, { n: 60 }, signal)
 }

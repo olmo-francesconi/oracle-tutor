@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import {
   assertOk,
   buildSimilarCardsParams,
@@ -9,6 +10,8 @@ import {
   normalizeSimilarCard,
   searchCards,
 } from './api'
+
+const anySchema = z.unknown()
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -21,27 +24,35 @@ function createJsonResponse(body: unknown, init?: ResponseInit): Response {
 
 describe('assertOk', () => {
   it('returns parsed json for successful responses', async () => {
+    const schema = z.object({ ok: z.boolean() })
     const response = createJsonResponse({ ok: true }, { status: 200 })
 
-    await expect(assertOk<{ ok: boolean }>(response)).resolves.toEqual({ ok: true })
+    await expect(assertOk(response, schema)).resolves.toEqual({ ok: true })
   })
 
   it('includes string detail from json bodies', async () => {
     const response = createJsonResponse({ detail: 'bad request' }, { status: 400 })
 
-    await expect(assertOk(response)).rejects.toThrow('Request failed: 400 - bad request')
+    await expect(assertOk(response, anySchema)).rejects.toThrow('Request failed: 400 - bad request')
   })
 
   it('includes nested json detail payloads', async () => {
     const response = createJsonResponse({ detail: { field: 'q', error: 'required' } }, { status: 422 })
 
-    await expect(assertOk(response)).rejects.toThrow('Request failed: 422 - {"field":"q","error":"required"}')
+    await expect(assertOk(response, anySchema)).rejects.toThrow('Request failed: 422 - {"field":"q","error":"required"}')
   })
 
   it('falls back to response text for non-json bodies', async () => {
     const response = new Response('server exploded', { status: 500 })
 
-    await expect(assertOk(response)).rejects.toThrow('Request failed: 500 - server exploded')
+    await expect(assertOk(response, anySchema)).rejects.toThrow('Request failed: 500 - server exploded')
+  })
+
+  it('rejects successful responses that do not match the schema', async () => {
+    const schema = z.object({ ok: z.boolean() })
+    const response = createJsonResponse({ ok: 'yes' }, { status: 200 })
+
+    await expect(assertOk(response, schema)).rejects.toThrow(/Malformed response/)
   })
 })
 

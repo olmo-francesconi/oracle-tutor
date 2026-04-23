@@ -58,6 +58,26 @@ const FORMAT_CODES: Record<(typeof FORMAT_OPTIONS)[number], string> = {
 
 const MATCH_MODE_OPTIONS: NonNullable<FilterState['matchMode']>[] = ['at_least', 'at_most', 'exact']
 const COLOR_FEATURE_OPTIONS: NonNullable<FilterState['colorFeature']>[] = ['identity', 'colors']
+const RARITY_VALUES: readonly string[] = RARITY_OPTIONS.map((r) => r.value)
+
+function validMatchMode(value: string | null | undefined): FilterState['matchMode'] {
+  return value && (MATCH_MODE_OPTIONS as readonly string[]).includes(value)
+    ? (value as FilterState['matchMode'])
+    : undefined
+}
+
+function validColorFeature(value: string | null | undefined): FilterState['colorFeature'] {
+  return value && (COLOR_FEATURE_OPTIONS as readonly string[]).includes(value)
+    ? (value as FilterState['colorFeature'])
+    : undefined
+}
+
+function validRarities(values: string[] | undefined): string[] | undefined {
+  const normalized = normalizeStringArray(values)
+  if (!normalized) return undefined
+  const filtered = normalized.filter((v) => RARITY_VALUES.includes(v))
+  return filtered.length > 0 ? filtered : undefined
+}
 
 function normalizeStringArray(values: string[] | undefined): string[] | undefined {
   if (!values?.length) return undefined
@@ -74,9 +94,11 @@ export function normalizeFilterState(filters: FilterState): FilterState {
   if (filters.format?.length) next.format = normalizeStringArray(filters.format)
   if (filters.cmcMin !== undefined && Number.isFinite(filters.cmcMin)) next.cmcMin = filters.cmcMin
   if (filters.cmcMax !== undefined && Number.isFinite(filters.cmcMax)) next.cmcMax = filters.cmcMax
-  if (filters.rarities?.length) next.rarities = normalizeStringArray(filters.rarities)
-  if (filters.matchMode && filters.matchMode !== 'at_least') next.matchMode = filters.matchMode
-  if (filters.colorFeature && filters.colorFeature !== 'identity') next.colorFeature = filters.colorFeature
+  if (filters.rarities?.length) next.rarities = validRarities(filters.rarities)
+  const nextMatchMode = validMatchMode(filters.matchMode)
+  if (nextMatchMode && nextMatchMode !== 'at_least') next.matchMode = nextMatchMode
+  const nextColorFeature = validColorFeature(filters.colorFeature)
+  if (nextColorFeature && nextColorFeature !== 'identity') next.colorFeature = nextColorFeature
 
   return next
 }

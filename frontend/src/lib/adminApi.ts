@@ -10,6 +10,17 @@ import type {
   SemanticTrainJobCreate,
   SemanticTrainOptions,
 } from '../types/api'
+import {
+  AdminAuthTokenResponseSchema,
+  SemanticBaseModelListSchema,
+  SemanticDatasetListSchema,
+  SemanticJobDetailSchema,
+  SemanticJobListSchema,
+  SemanticModelListSchema,
+  SemanticPromoteAcceptedSchema,
+  SemanticTrainOptionsSchema,
+} from '../types/schemas'
+import type { ZodType } from 'zod'
 import { assertOk, buildUrl } from './api'
 
 const ADMIN_HEADERS = { 'Content-Type': 'application/json' }
@@ -30,6 +41,12 @@ function setAdminToken(token: string): void {
   window.sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token)
 }
 
+let unauthorizedHandler: (() => void) | null = null
+
+export function setAdminUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
+}
+
 function withAdminHeaders(): Record<string, string> {
   const token = getAdminToken()
   if (!token) return { ...ADMIN_HEADERS }
@@ -39,27 +56,25 @@ function withAdminHeaders(): Record<string, string> {
   }
 }
 
-async function assertAdminOk<T>(response: Response): Promise<T> {
+async function assertAdminOk<T>(response: Response, schema: ZodType<T>): Promise<T> {
   if (response.status === 401) {
     clearAdminToken()
-    if (typeof window !== 'undefined') {
-      window.location.reload()
-    }
+    unauthorizedHandler?.()
   }
-  return assertOk<T>(response)
+  return assertOk<T>(response, schema)
 }
 
-async function getAdminJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function getAdminJson<T>(path: string, schema: ZodType<T>, signal?: AbortSignal): Promise<T> {
   const response = await fetch(buildUrl(path), {
     method: 'GET',
     headers: withAdminHeaders(),
     signal,
   })
 
-  return assertAdminOk<T>(response)
+  return assertAdminOk<T>(response, schema)
 }
 
-async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+async function postJson<T>(path: string, schema: ZodType<T>, body: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(buildUrl(path), {
     method: 'POST',
     headers: withAdminHeaders(),
@@ -67,7 +82,7 @@ async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): P
     signal,
   })
 
-  return assertAdminOk<T>(response)
+  return assertAdminOk<T>(response, schema)
 }
 
 export async function exchangeAdminPasswordForToken(password: string): Promise<AdminAuthTokenResponse> {
@@ -77,32 +92,32 @@ export async function exchangeAdminPasswordForToken(password: string): Promise<A
     body: JSON.stringify({ password }),
   })
 
-  const payload = await assertOk<AdminAuthTokenResponse>(response)
+  const payload = await assertOk(response, AdminAuthTokenResponseSchema)
   setAdminToken(payload.access_token)
   return payload
 }
 
 export async function getAdminSemanticModels(signal?: AbortSignal): Promise<SemanticModelSummary[]> {
-  return getAdminJson<SemanticModelSummary[]>('/admin/semantic-models', signal)
+  return getAdminJson('/admin/semantic-models', SemanticModelListSchema, signal)
 }
 
 export async function getAdminSemanticJobs(signal?: AbortSignal): Promise<SemanticJobSummary[]> {
-  return getAdminJson<SemanticJobSummary[]>('/admin/semantic-jobs', signal)
+  return getAdminJson('/admin/semantic-jobs', SemanticJobListSchema, signal)
 }
 
 export async function getAdminSemanticBaseModels(signal?: AbortSignal): Promise<SemanticBaseModelOption[]> {
-  return getAdminJson<SemanticBaseModelOption[]>('/admin/semantic-base-models', signal)
+  return getAdminJson('/admin/semantic-base-models', SemanticBaseModelListSchema, signal)
 }
 
 export async function getAdminSemanticTrainOptions(signal?: AbortSignal): Promise<SemanticTrainOptions> {
-  return getAdminJson<SemanticTrainOptions>('/admin/semantic-train-options', signal)
+  return getAdminJson('/admin/semantic-train-options', SemanticTrainOptionsSchema, signal)
 }
 
 export async function queueSemanticTrainJob(
   payload: SemanticTrainJobCreate,
   signal?: AbortSignal
 ): Promise<SemanticJobDetail> {
-  return postJson<SemanticJobDetail>('/admin/semantic-jobs/train', payload, signal)
+  return postJson('/admin/semantic-jobs/train', SemanticJobDetailSchema, payload, signal)
 }
 
 export async function queueSemanticPromotion(
@@ -110,16 +125,16 @@ export async function queueSemanticPromotion(
   payload: { requested_by: string; embed_batch_size: number },
   signal?: AbortSignal
 ): Promise<SemanticPromoteAccepted> {
-  return postJson<SemanticPromoteAccepted>(`/admin/semantic-models/${modelId}/promote`, payload, signal)
+  return postJson(`/admin/semantic-models/${modelId}/promote`, SemanticPromoteAcceptedSchema, payload, signal)
 }
 
 export async function getAdminSemanticDatasets(signal?: AbortSignal): Promise<SemanticDatasetSummary[]> {
-  return getAdminJson<SemanticDatasetSummary[]>('/admin/semantic-datasets', signal)
+  return getAdminJson('/admin/semantic-datasets', SemanticDatasetListSchema, signal)
 }
 
 export async function queueSemanticDatasetJob(
   payload: SemanticDatasetJobCreate,
   signal?: AbortSignal
 ): Promise<SemanticJobDetail> {
-  return postJson<SemanticJobDetail>('/admin/semantic-jobs/dataset', payload, signal)
+  return postJson('/admin/semantic-jobs/dataset', SemanticJobDetailSchema, payload, signal)
 }

@@ -47,8 +47,9 @@ export function readSearchStateFromUrl(): SearchUrlState {
     cmcMin: readNumberParam(params, CMC_MIN_PARAM),
     cmcMax: readNumberParam(params, CMC_MAX_PARAM),
     rarities: rarities?.length ? rarities : undefined,
-    matchMode: (params.get(MATCH_MODE_PARAM) as FilterState['matchMode']) || undefined,
-    colorFeature: (params.get(COLOR_FEATURE_PARAM) as FilterState['colorFeature']) || undefined,
+    // Unvalidated casts — normalizeFilterState drops unknown values against its enum allowlists.
+    matchMode: params.get(MATCH_MODE_PARAM) as FilterState['matchMode'],
+    colorFeature: params.get(COLOR_FEATURE_PARAM) as FilterState['colorFeature'],
   })
 
   return {
