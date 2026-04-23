@@ -1,6 +1,5 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ReactNode } from 'react'
 import { RuntimeCrashPanel } from './errors/RuntimeCrashPanel'
-import { isErrorReportingConfigured, reportError } from '../lib/observability'
 
 type ErrorBoundaryProps = {
   children: ReactNode
@@ -21,13 +20,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    reportError(error, {
-      source: 'react.error-boundary',
-      componentStack: errorInfo.componentStack,
-    })
-  }
-
   private handleReload = () => {
     window.location.reload()
   }
@@ -37,6 +29,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return this.props.children
     }
 
-    return <RuntimeCrashPanel isReportingConfigured={isErrorReportingConfigured()} onReload={this.handleReload} />
+    return <RuntimeCrashPanel onReload={this.handleReload} />
   }
 }

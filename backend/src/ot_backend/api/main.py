@@ -38,7 +38,6 @@ from .routers.search import (
 from .routers.search import (
     router as search_router,
 )
-from .routers.telemetry import router as telemetry_router
 
 logger = logging.getLogger("ot_backend.api")
 
@@ -184,7 +183,6 @@ if origins:
     )
 
 app.include_router(admin_router)
-app.include_router(telemetry_router)
 app.include_router(search_router)
 
 

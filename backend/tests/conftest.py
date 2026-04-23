@@ -29,11 +29,9 @@ from ot_backend.api.admin_auth import clear_admin_login_attempts_for_tests  # no
 from ot_backend.core.database import SessionLocal  # noqa: E402
 from ot_backend.core.db_init import init_db  # noqa: E402
 from ot_backend.core.models import (  # noqa: E402
-    AnalyticsEvent,
     Card,
     CardFace,
     CardRaw,
-    ClientErrorEvent,
     SemanticJob,
     SemanticModel,
     SemanticModelArtifact,
@@ -75,8 +73,6 @@ def _seed_db() -> None:
     init_db()
     with SessionLocal() as db:
         # Clean slate (sqlite :memory: persists across tests with StaticPool)
-        db.query(AnalyticsEvent).delete()
-        db.query(ClientErrorEvent).delete()
         db.query(SemanticJob).delete()
         db.query(SemanticModelEmbedding).delete()
         db.query(SemanticModelArtifact).delete()

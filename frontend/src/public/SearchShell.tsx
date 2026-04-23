@@ -12,7 +12,6 @@ import {
 } from './searchShellState'
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
 import { getCard, getOracleSamples, getSimilarCards, searchOracleText } from '../lib/api'
-import { reportError, track } from '../lib/observability'
 import { writeSearchStateToUrl, readSearchStateFromUrl } from '../lib/urlState'
 import type { CardMatch, FilterState, OracleSamples } from '../types/api'
 import type { PinnedCard, SearchShellState } from '../types/ui'
@@ -110,7 +109,6 @@ export function SearchShell() {
     } catch (error) {
       if (controller.signal.aborted) return
 
-      reportError(error, { source: 'card.similar', oracleId })
       if (isApiDownError(error)) {
         setApiDownMessage(getApiDownMessage(error))
         setState((current) => ({ ...current, isLoading: false, isLoadingMore: false }))
@@ -155,7 +153,6 @@ export function SearchShell() {
     } catch (error) {
       if (controller.signal.aborted) return
 
-      reportError(error, { source: 'search.first-page', query, filters })
       if (isApiDownError(error)) {
         setApiDownMessage(getApiDownMessage(error))
         setState((current) => ({
@@ -180,33 +177,18 @@ export function SearchShell() {
     const nextQuery = (submittedValue ?? state.draftQuery).trim()
     if (!nextQuery) return
 
-    track('search_submitted', {
-      queryLength: nextQuery.length,
-      hasFilters: Object.keys(state.filters).length > 0,
-    })
-
     setState((current) => ({ ...current, draftQuery: nextQuery }))
     void runSearch(nextQuery, state.filters)
   }, [runSearch, state.draftQuery, state.filters])
 
   const handleCardSelect = useCallback((card: CardMatch) => {
     if (!card.oracle_id) return
-    track('card_selected', { oracleId: card.oracle_id, name: card.name })
     void runCardSearch(card.oracle_id, card.face_ix, card.name, state.filters)
   }, [runCardSearch, state.filters])
 
   const handleFiltersChange = useCallback((nextFilters: FilterState) => {
     const normalizedFilters = normalizeFilterState(nextFilters)
-    const nextFilterKeys = Object.keys(normalizedFilters).sort()
-    const previousFilterKeys = Object.keys(state.filters).sort()
-
     setState((current) => ({ ...current, filters: normalizedFilters, error: null }))
-
-    track('filters_changed', {
-      activeCount: nextFilterKeys.length,
-      keys: nextFilterKeys,
-      previousKeys: previousFilterKeys,
-    })
 
     if (!state.submittedQuery) return
     if (state.pinnedCard) {
@@ -214,13 +196,9 @@ export function SearchShell() {
       return
     }
     void runSearch(state.submittedQuery, normalizedFilters)
-  }, [runSearch, runCardSearch, state.filters, state.pinnedCard, state.submittedQuery])
+  }, [runSearch, runCardSearch, state.pinnedCard, state.submittedQuery])
 
   const handleClearFilters = useCallback(() => {
-    const previousKeys = Object.keys(state.filters).sort()
-
-    track('filters_cleared', { previousKeys })
-
     setState((current) => ({ ...current, filters: {}, error: null }))
 
     if (!state.submittedQuery) return
@@ -229,18 +207,12 @@ export function SearchShell() {
       return
     }
     void runSearch(state.submittedQuery, {})
-  }, [runSearch, runCardSearch, state.filters, state.pinnedCard, state.submittedQuery])
+  }, [runSearch, runCardSearch, state.pinnedCard, state.submittedQuery])
 
   const handleLoadMore = useCallback(async () => {
     if (!state.submittedQuery || state.isLoading || state.isLoadingMore || !state.hasMore) {
       return
     }
-
-    track('load_more_requested', {
-      queryLength: state.submittedQuery.length,
-      offset: state.results.length,
-      hasFilters: Object.keys(state.filters).length > 0,
-    })
 
     activeLoadMoreRequestRef.current?.abort()
     const controller = new AbortController()
@@ -279,12 +251,6 @@ export function SearchShell() {
     } catch (error) {
       if (controller.signal.aborted) return
 
-      reportError(error, {
-        source: 'search.load-more',
-        query: state.submittedQuery,
-        offset: state.results.length,
-        filters: state.filters,
-      })
       if (isApiDownError(error)) {
         setApiDownMessage(getApiDownMessage(error))
         setState((current) => ({ ...current, error: null, isLoadingMore: false }))
@@ -334,8 +300,6 @@ export function SearchShell() {
         await loadOracleSamples(controller.signal)
       } catch (error) {
         if (controller.signal.aborted) return
-
-        reportError(error, { source: 'home.oracle-samples' })
 
         if (isApiDownError(error)) {
           setApiDownMessage(getApiDownMessage(error))

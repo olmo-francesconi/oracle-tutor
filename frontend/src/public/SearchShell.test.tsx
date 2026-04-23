@@ -12,19 +12,9 @@ const { searchOracleTextMock, getOracleSamplesMock } = vi.hoisted(() => ({
   getOracleSamplesMock: vi.fn(() => Promise.resolve({ texts: [], terms: [] })),
 }))
 
-const { reportErrorMock, trackMock } = vi.hoisted(() => ({
-  reportErrorMock: vi.fn(),
-  trackMock: vi.fn(),
-}))
-
 vi.mock('../lib/api', () => ({
   getOracleSamples: getOracleSamplesMock,
   searchOracleText: searchOracleTextMock,
-}))
-
-vi.mock('../lib/observability', () => ({
-  reportError: reportErrorMock,
-  track: trackMock,
 }))
 
 vi.mock('../components/background/DenseTextBackground', () => ({
@@ -176,8 +166,6 @@ describe('SearchShell integration', () => {
   beforeEach(() => {
     searchOracleTextMock.mockReset()
     getOracleSamplesMock.mockClear()
-    reportErrorMock.mockReset()
-    trackMock.mockReset()
     window.history.replaceState({}, '', '/')
   })
 
@@ -294,11 +282,6 @@ describe('SearchShell integration', () => {
     fireEvent.click(screen.getByText('clear filters'))
     await screen.findByText('Card Reset')
 
-    expect(trackMock).toHaveBeenCalledWith('filters_cleared', {
-      previousKeys: ['format'],
-    })
-    expect(trackMock.mock.calls.filter(([eventName]) => eventName === 'filters_changed')).toHaveLength(1)
-    expect(trackMock.mock.calls.filter(([eventName]) => eventName === 'filters_cleared')).toHaveLength(1)
     expect(searchOracleTextMock).toHaveBeenNthCalledWith(3, 'value', 0, 24, {}, expect.any(AbortSignal))
     expect(window.location.search).toBe('?q=value')
   })

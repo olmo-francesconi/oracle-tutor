@@ -1,13 +1,8 @@
 type RuntimeCrashPanelProps = {
-  isReportingConfigured: boolean
   onReload: () => void
 }
 
-export function RuntimeCrashPanel({ isReportingConfigured, onReload }: RuntimeCrashPanelProps) {
-  const recoveryCopy = isReportingConfigured
-    ? 'Reload Oracle Tutor. A runtime report was queued for review.'
-    : 'Reload Oracle Tutor.'
-
+export function RuntimeCrashPanel({ onReload }: RuntimeCrashPanelProps) {
   return (
     <main className="relative min-h-screen bg-ot-bg">
       <div className="absolute inset-y-0 left-0 w-1.5 bg-ot-red" aria-hidden="true" />
@@ -30,7 +25,7 @@ export function RuntimeCrashPanel({ isReportingConfigured, onReload }: RuntimeCr
             Recovery action
           </p>
           <p className="m-0 text-[0.75rem] uppercase leading-[1.6] tracking-[0.12em] text-ot-muted">
-            {recoveryCopy}
+            Reload Oracle Tutor.
           </p>
           <button
             type="button"

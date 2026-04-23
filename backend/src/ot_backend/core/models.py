@@ -71,31 +71,6 @@ class IngestionLog(Base):
     trigger_type: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class ClientErrorEvent(Base):
-    __tablename__ = "client_error_events"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    occurred_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
-    error_name: Mapped[str] = mapped_column(String)
-    message: Mapped[str] = mapped_column(Text)
-    stack: Mapped[str | None] = mapped_column(Text, nullable=True)
-    page_url: Mapped[str] = mapped_column(Text)
-    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    context: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-
-
-class AnalyticsEvent(Base):
-    __tablename__ = "analytics_events"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    occurred_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
-    event_name: Mapped[str] = mapped_column(String, index=True)
-    page_url: Mapped[str] = mapped_column(Text)
-    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
-    props: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-
-
 class CardRaw(Base):
     __tablename__ = "cards_raw"
 

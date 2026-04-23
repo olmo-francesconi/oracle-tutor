@@ -7,8 +7,6 @@ from ot_backend.api.admin_auth import create_admin_token
 from ot_backend.api.routers.search import _CARD_TYPE_MAP, _FORMAT_MAP, _parse_code_filter
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.models import (
-    AnalyticsEvent,
-    ClientErrorEvent,
     SemanticDataset,
     SemanticJob,
     SemanticModel,
@@ -280,97 +278,6 @@ def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):
     assert res.status_code == 503
 
 
-def test_client_error_telemetry_is_persisted(client):
-    res = client.post(
-        "/telemetry/client-error",
-        json={
-            "message": "render exploded",
-            "name": "TypeError",
-            "stack": "TypeError: render exploded",
-            "context": {
-                "source": "react.error-boundary",
-                "route": "/search",
-            },
-            "url": "https://example.test/search?q=bolt",
-            "userAgent": "Vitest Browser",
-            "timestamp": "2026-03-28T12:00:00Z",
-        },
-    )
-
-    assert res.status_code == 202
-    assert res.json() == {"accepted": True}
-
-    with SessionLocal() as db:
-        event = db.query(ClientErrorEvent).one()
-
-    assert event.error_name == "TypeError"
-    assert event.message == "render exploded"
-    assert event.source == "react.error-boundary"
-    assert event.context == {
-        "source": "react.error-boundary",
-        "route": "/search",
-    }
-
-
-def test_analytics_telemetry_is_persisted(client):
-    res = client.post(
-        "/telemetry/analytics",
-        json={
-            "event": "filters_cleared",
-            "props": {
-                "previousKeys": ["format"],
-                "queryLength": 5,
-            },
-            "url": "https://example.test/search?q=bolt",
-            "userAgent": "Vitest Browser",
-            "timestamp": "2026-03-28T12:00:00Z",
-        },
-    )
-
-    assert res.status_code == 202
-    assert res.json() == {"accepted": True}
-
-    with SessionLocal() as db:
-        event = db.query(AnalyticsEvent).one()
-
-    assert event.event_name == "filters_cleared"
-    assert event.props == {
-        "previousKeys": ["format"],
-        "queryLength": 5,
-    }
-
-
-def test_analytics_telemetry_rejects_invalid_event_name(client):
-    res = client.post(
-        "/telemetry/analytics",
-        json={
-            "event": "mystery_event",
-            "props": {},
-            "url": "https://example.test/search",
-            "userAgent": "Vitest Browser",
-        },
-    )
-
-    assert res.status_code == 422
-
-
-def test_client_error_telemetry_rejects_oversized_context(client):
-    res = client.post(
-        "/telemetry/client-error",
-        json={
-            "message": "render exploded",
-            "name": "TypeError",
-            "context": {
-                "payload": "x" * 9000,
-            },
-            "url": "https://example.test/search",
-            "userAgent": "Vitest Browser",
-        },
-    )
-
-    assert res.status_code == 413
-
-
 def test_search_rejects_overlong_query(client):
     res = client.get("/search", params={"q": "x" * 201})
 
@@ -387,16 +294,6 @@ def test_similar_cards_rejects_overlong_query(client, monkeypatch):
     res = client.get("/similar-cards", params={"q": "x" * 201})
 
     assert res.status_code == 422
-
-
-def test_telemetry_rejects_oversized_request_body(client):
-    res = client.post(
-        "/telemetry/client-error",
-        content=b"x" * 40000,
-        headers={"content-type": "application/json"},
-    )
-
-    assert res.status_code == 413
 
 
 def test_rejects_disallowed_host_header(client):

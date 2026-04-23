@@ -1,16 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-
-const { isErrorReportingConfiguredMock, reportErrorMock } = vi.hoisted(() => ({
-  isErrorReportingConfiguredMock: vi.fn(() => true),
-  reportErrorMock: vi.fn(),
-}))
-
-vi.mock('../lib/observability', () => ({
-  isErrorReportingConfigured: isErrorReportingConfiguredMock,
-  reportError: reportErrorMock,
-}))
-
+import { describe, expect, it } from 'vitest'
 import { ErrorBoundary } from './ErrorBoundary'
 
 function ThrowingChild() {
@@ -19,27 +8,14 @@ function ThrowingChild() {
 }
 
 describe('ErrorBoundary', () => {
-  it('uses reporting copy when runtime reporting is configured', () => {
-    isErrorReportingConfiguredMock.mockReturnValue(true)
-
+  it('renders the crash panel when a child throws', () => {
     render(
       <ErrorBoundary>
         <ThrowingChild />
       </ErrorBoundary>
     )
 
-    expect(screen.getByText(/Reload Oracle Tutor\. A runtime report was queued for review\./i)).toBeInTheDocument()
-  })
-
-  it('uses neutral recovery copy when runtime reporting is disabled', () => {
-    isErrorReportingConfiguredMock.mockReturnValue(false)
-
-    render(
-      <ErrorBoundary>
-        <ThrowingChild />
-      </ErrorBoundary>
-    )
-
-    expect(screen.getByText(/^Reload Oracle Tutor\.$/i)).toBeInTheDocument()
+    expect(screen.getByText(/Oracle Tutor halted/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Reload Oracle Tutor/i })).toBeInTheDocument()
   })
 })
