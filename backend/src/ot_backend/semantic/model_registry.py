@@ -135,10 +135,6 @@ def get_semantic_model(db: Session, model_id: str) -> SemanticModel | None:
     )
 
 
-def get_active_semantic_model(db: Session) -> SemanticModel | None:
-    return db.scalars(select(SemanticModel).where(SemanticModel.is_active.is_(True)).limit(1)).first()
-
-
 def get_active_semantic_model_id(db: Session) -> str | None:
     return db.scalar(select(SemanticModel.id).where(SemanticModel.is_active.is_(True)).limit(1))
 
@@ -204,13 +200,11 @@ def materialize_semantic_model(
 
 def _path_contains_onnx_model(path: Path) -> bool:
     parts = path.parts
-    if len(parts) >= 2 and parts[-2:] == ("onnx", "model.onnx"):
-        return True
-    return path.name == "model.onnx"
+    return len(parts) >= 2 and parts[-2:] == ("onnx", "model.onnx")
 
 
 def _model_root_has_onnx(path: Path) -> bool:
-    return (path / "onnx" / "model.onnx").exists() or (path / "model.onnx").exists()
+    return (path / "onnx" / "model.onnx").exists()
 
 
 def _resolve_extracted_model_root(extract_dir: Path) -> Path:

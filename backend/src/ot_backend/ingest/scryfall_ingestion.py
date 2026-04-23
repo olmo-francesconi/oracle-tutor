@@ -488,7 +488,6 @@ def select_best_printing(current: dict[str, Any], candidate: dict[str, Any]) -> 
 
 def ingest_data_diff(
     new_path: Path,
-    old_path: Path | None,
     scryfall_metadata: dict[str, Any],
     *,
     trigger_type: str = "scheduled",
@@ -824,16 +823,8 @@ def update_scryfall_data(
         logger.info("System is up to date.")
     else:
         try:
-            old_path_for_diff: Path | None
-            if ingestion_source == TEMP_CARDS_JSON:
-                old_path_for_diff = CARDS_JSON
-            else:
-                # Treat as full re-process when re-ingesting existing file.
-                old_path_for_diff = None
-
             ingest_data_diff(
                 new_path=ingestion_source,
-                old_path=old_path_for_diff,
                 scryfall_metadata=remote_meta if remote_meta else (local_meta or {}),
                 trigger_type=effective_trigger,
             )

@@ -5,7 +5,6 @@ from ot_backend.core.config import (
     configure_huggingface_env,
     huggingface_cache_dir,
     semantic_active_model_poll_seconds,
-    semantic_base_model_name,
     semantic_temp_dir,
 )
 
@@ -24,12 +23,6 @@ def test_huggingface_cache_dir_defaults_to_writable_data_path(monkeypatch, tmp_p
     assert cache_dir.exists()
     assert "TRANSFORMERS_CACHE" not in os.environ
     assert Path(cache_dir, "sentence-transformers") == Path(os.environ["SENTENCE_TRANSFORMERS_HOME"])
-
-
-def test_semantic_base_model_name_reads_env(monkeypatch):
-    monkeypatch.setenv("SEMANTIC_BASE_MODEL", "sentence-transformers/test-model")
-
-    assert semantic_base_model_name() == "sentence-transformers/test-model"
 
 
 def test_semantic_active_model_poll_seconds_reads_env(monkeypatch):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import re
 from typing import Final, Literal
 
@@ -12,6 +13,7 @@ from ...core.config import MAX_QUERY_LENGTH
 from ...core.database import get_db
 from ...core.logging_config import log_performance
 from ...core.models import Card, CardFace
+from .. import _semantic_index as _sem_idx_mod
 from .._ensure_schema_ready import ensure_schema_ready
 from ..schemas import CardMatch, OracleSamplesResponse, SimilarCard, SimilarCardsPage
 
@@ -171,7 +173,6 @@ def oracle_samples(
     request: Request,
     n: int = Query(60, ge=1, le=100),
 ) -> OracleSamplesResponse:
-    import random
     oracle_text_pool: list[str] = getattr(request.app.state, "oracle_text_pool", [])
     home_term_pool: list[str] = getattr(request.app.state, "home_term_pool", [])
     texts = random.sample(oracle_text_pool, min(n, len(oracle_text_pool))) if oracle_text_pool else []
@@ -251,7 +252,6 @@ def get_similar_cards(
     card_type_list = _parse_code_filter(card_type, _CARD_TYPE_MAP, "card type")
     format_list = _parse_code_filter(format, _FORMAT_MAP, "format")
 
-    from .. import _semantic_index as _sem_idx_mod
     index = _sem_idx_mod._get_semantic_index()
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")

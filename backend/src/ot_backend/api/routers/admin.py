@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
@@ -87,54 +88,39 @@ def _dataset_artifact_summary(dataset: SemanticDataset) -> tuple[str, int] | Non
     return None
 
 
-def _serialize_semantic_model(model: SemanticModel, *, embedding_count: int | None = None) -> SemanticModelDetail:
-    count = embedding_count if embedding_count is not None else 0
+def _semantic_model_shared_fields(model: SemanticModel) -> dict[str, Any]:
     bundle = _bundle_artifact_summary(model)
     base_model_key = None
-    config_json = model.config_json or {}
-    raw_base_model_key = config_json.get("base_model_key")
+    raw_base_model_key = (model.config_json or {}).get("base_model_key")
     if isinstance(raw_base_model_key, str):
         base_model_key = raw_base_model_key
+    return {
+        "id": model.id,
+        "slug": model.slug,
+        "base_model_key": base_model_key,
+        "base_model": model.base_model,
+        "status": model.status,
+        "is_active": model.is_active,
+        "embedding_dim": model.embedding_dim,
+        "artifact_sha256": bundle[0] if bundle else "",
+        "artifact_size_bytes": bundle[1] if bundle else 0,
+        "created_at": model.created_at,
+        "activated_at": model.activated_at,
+        "error_message": model.error_message,
+    }
+
+
+def _serialize_semantic_model(model: SemanticModel, *, embedding_count: int | None = None) -> SemanticModelDetail:
     return SemanticModelDetail(
-        id=model.id,
-        slug=model.slug,
-        base_model_key=base_model_key,
-        base_model=model.base_model,
-        status=model.status,
-        is_active=model.is_active,
-        embedding_dim=model.embedding_dim,
-        artifact_sha256=bundle[0] if bundle else "",
-        artifact_size_bytes=bundle[1] if bundle else 0,
-        created_at=model.created_at,
-        activated_at=model.activated_at,
-        error_message=model.error_message,
+        **_semantic_model_shared_fields(model),
         config_json=model.config_json,
         metrics_json=model.metrics_json,
-        embedding_count=count,
+        embedding_count=embedding_count if embedding_count is not None else 0,
     )
 
 
 def _serialize_semantic_model_summary(model: SemanticModel) -> SemanticModelSummary:
-    bundle = _bundle_artifact_summary(model)
-    base_model_key = None
-    config_json = model.config_json or {}
-    raw_base_model_key = config_json.get("base_model_key")
-    if isinstance(raw_base_model_key, str):
-        base_model_key = raw_base_model_key
-    return SemanticModelSummary(
-        id=model.id,
-        slug=model.slug,
-        base_model_key=base_model_key,
-        base_model=model.base_model,
-        status=model.status,
-        is_active=model.is_active,
-        embedding_dim=model.embedding_dim,
-        artifact_sha256=bundle[0] if bundle else "",
-        artifact_size_bytes=bundle[1] if bundle else 0,
-        created_at=model.created_at,
-        activated_at=model.activated_at,
-        error_message=model.error_message,
-    )
+    return SemanticModelSummary(**_semantic_model_shared_fields(model))
 
 
 def _serialize_semantic_dataset(dataset: SemanticDataset) -> SemanticDatasetDetail:

@@ -69,13 +69,7 @@ def _pooling_config_path(model_root: Path) -> Path:
 
 
 def _resolve_onnx_model_path(model_root: Path) -> Path:
-    default_path = model_root / "onnx" / "model.onnx"
-    legacy_path = model_root / "model.onnx"
-    if default_path.exists():
-        return default_path
-    if legacy_path.exists():
-        return legacy_path
-    return default_path
+    return model_root / "onnx" / "model.onnx"
 
 
 def _validate_pooling_strategy(model_root: Path) -> None:

@@ -10,9 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_ROOT / "data"
 CARDS_JSON = DATA_DIR / "cards.json"
 DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
-DEFAULT_SEMANTIC_BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 SCRYFALL_DATA_KEY = "scryfall_data"
-DEFAULT_SEMANTIC_RUNS_DIR = Path("data/semantic/runs")
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
@@ -86,11 +84,6 @@ def allowed_hosts() -> list[str]:
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def semantic_base_model_name() -> str:
-    return os.getenv("SEMANTIC_BASE_MODEL", DEFAULT_SEMANTIC_BASE_MODEL)
-
 
 
 def semantic_active_model_poll_seconds() -> float:
