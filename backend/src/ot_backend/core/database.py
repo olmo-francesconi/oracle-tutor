@@ -50,6 +50,20 @@ DATABASE_URL = _build_database_url()
 #
 # Tests often use sqlite :memory:, which requires a StaticPool to keep one connection alive
 # across the whole process.
+def _pool_defaults_for_role() -> tuple[int, int]:
+    """Role-aware pool defaults.
+
+    API serves concurrent requests and needs headroom for the pgvector query
+    that pins a connection per /similar-cards call. Workers are one-shot
+    containers that use 1-2 connections (job claim + DB writes); sizing them
+    like the API just wastes Postgres backends.
+    """
+    role = os.getenv("OT_SERVICE_ROLE", "api").strip().lower()
+    if role == "worker":
+        return 2, 1
+    return 10, 5
+
+
 def _create_engine(database_url: str) -> Engine:
     pool_recycle_seconds = int(os.getenv("DB_POOL_RECYCLE", "3600"))
     if database_url.startswith("sqlite") and ":memory:" in database_url:
@@ -61,12 +75,13 @@ def _create_engine(database_url: str) -> Engine:
             poolclass=StaticPool,
         )
 
+    default_pool_size, default_max_overflow = _pool_defaults_for_role()
     return create_engine(
         database_url,
         pool_pre_ping=True,
         pool_recycle=pool_recycle_seconds,
-        pool_size=int(os.getenv("DB_POOL_SIZE", "3")),
-        max_overflow=int(os.getenv("DB_POOL_MAX_OVERFLOW", "2")),
+        pool_size=int(os.getenv("DB_POOL_SIZE", str(default_pool_size))),
+        max_overflow=int(os.getenv("DB_POOL_MAX_OVERFLOW", str(default_max_overflow))),
         pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "30")),
     )
 

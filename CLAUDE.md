@@ -153,13 +153,15 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 | `DB_HOST` | `localhost` | |
 | `DB_PORT` | `5432` | |
 | `DB_NAME` | `mtg_search` | |
-| `DB_POOL_SIZE` | `3` | |
-| `DB_POOL_MAX_OVERFLOW` | `2` | |
+| `OT_SERVICE_ROLE` | `api` | `api` \| `worker` — sizes the DB pool defaults |
+| `DB_POOL_SIZE` | `10` (api) / `2` (worker) | |
+| `DB_POOL_MAX_OVERFLOW` | `5` (api) / `1` (worker) | |
 | `DB_POOL_RECYCLE` | `3600` | |
 | `DB_POOL_TIMEOUT` | `30` | |
 | `OT_ENV` | `development` | `development` \| `production` |
 | `OT_CORS_ORIGINS` | — | Comma-separated allowed origins |
 | `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` | `5` | How often the API checks for a new active model |
+| `OT_ORACLE_POOL_REFRESH_SECONDS` | `600` | How often the API rotates the homepage oracle-text/keyword pools |
 | `SEMANTIC_TEMP_DIR` | `$TMPDIR/mtg-search-semantic-models` | Local cache for materialized model bundles |
 | `SEMANTIC_ONNX_INTRA_OP_THREADS` | `1` | ONNX Runtime intra-op thread count |
 | `SEMANTIC_ONNX_INTER_OP_THREADS` | `1` | ONNX Runtime inter-op thread count |

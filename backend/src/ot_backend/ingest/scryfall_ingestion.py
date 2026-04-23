@@ -344,14 +344,35 @@ def prepare_parent_card(card_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+KNOWN_CARD_TYPE_CATEGORIES: frozenset[str] = frozenset(
+    {"creature", "instant", "sorcery", "enchantment", "artifact", "planeswalker", "land"}
+)
+
+
+def _extract_type_categories(type_line: str | None) -> list[str]:
+    """Return the normalized primary card types from a Scryfall type_line.
+
+    Type lines look like "Legendary Creature — Human Soldier"; primary types
+    always sit on the LHS of the em dash. Anything not in the whitelist is
+    dropped (supertypes like "Legendary", unusual subtypes, etc.).
+    """
+    if not type_line:
+        return []
+    lhs = type_line.split("—", 1)[0]
+    tokens = {word.lower() for word in lhs.split() if word}
+    return sorted(token for token in tokens if token in KNOWN_CARD_TYPE_CATEGORIES)
+
+
 def prepare_card_face(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -> dict[str, Any]:
+    type_line = face_data.get("type_line")
     return {
         "oracle_id": oracle_id,
         "face_ix": face_ix,
         "scryfall_face_oracle_id": face_data.get("oracle_id"),
         "name": face_data.get("name"),
         "mana_cost": face_data.get("mana_cost"),
-        "type_line": face_data.get("type_line"),
+        "type_line": type_line,
+        "type_categories": _extract_type_categories(type_line),
         "oracle_text": face_data.get("oracle_text"),
         "power": face_data.get("power"),
         "toughness": face_data.get("toughness"),

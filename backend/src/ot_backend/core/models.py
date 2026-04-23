@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -192,6 +193,13 @@ class CardFace(Base):
     defense: Mapped[str | None] = mapped_column(String, nullable=True)
     colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # Normalized primary card types extracted from type_line. Postgres uses a
+    # native ARRAY with a GIN index for fast overlap filters; SQLite falls back
+    # to JSON (tests use the ilike path).
+    type_categories: Mapped[list[str] | None] = mapped_column(
+        JSON().with_variant(postgresql.ARRAY(Text), "postgresql"),
+        nullable=True,
+    )
     image_uris: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
     artist: Mapped[str | None] = mapped_column(String, nullable=True)
     flavor_text: Mapped[str | None] = mapped_column(Text, nullable=True)

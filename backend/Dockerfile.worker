@@ -63,6 +63,8 @@ RUN set -eux; \
 # ── ingest target ─────────────────────────────────────────────────────
 FROM runtime-base AS ingest
 
+ENV OT_SERVICE_ROLE=worker
+
 COPY --from=builder-ingest --chown=app:app /opt/venv /opt/venv
 COPY --chown=app:app src/ot_backend/__init__.py ./src/ot_backend/
 COPY --chown=app:app src/ot_backend/core ./src/ot_backend/core
@@ -78,7 +80,8 @@ CMD ["python", "-m", "ot_backend.ingest.main", "--strict", "--trigger-type", "cr
 # ── semantic-base (shared by dataset / train / promote) ───────────────
 FROM runtime-base AS semantic-base
 
-ENV HF_HOME=/app/data/huggingface \
+ENV OT_SERVICE_ROLE=worker \
+    HF_HOME=/app/data/huggingface \
     TRANSFORMERS_CACHE=/app/data/huggingface/transformers \
     SENTENCE_TRANSFORMERS_HOME=/app/data/huggingface/sentence-transformers
 

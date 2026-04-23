@@ -12,7 +12,7 @@ from ot_backend.ingest.fetch_tags import (
     _cards_needing_tag_fetch,
     _extract_card_entities,
     _replace_card_entities,
-    fetch_and_store_tags,
+    _tagger_graphql_once,
 )
 
 SAMPLE_TAGGER_PAYLOAD = {
@@ -285,7 +285,7 @@ def test_cards_needing_tag_fetch_only_returns_cards_without_taggings() -> None:
         assert [card.oracle_id for card in _cards_needing_tag_fetch(db, refresh_tags=True)] == ["card-1", "card-2"]
 
 
-def test_fetch_and_store_tags_requests_session_reset_on_retryable_status() -> None:
+def test_tagger_graphql_once_requests_session_reset_on_retryable_status() -> None:
     init_db()
 
     class DummyResponse:
@@ -298,16 +298,13 @@ def test_fetch_and_store_tags_requests_session_reset_on_retryable_status() -> No
         def post(self, *args: object, **kwargs: object) -> DummyResponse:
             return DummyResponse()
 
-    with SessionLocal() as db:
-        result = fetch_and_store_tags(
-            db,
-            cast(requests.Session, cast(object, DummySession())),
-            "csrf-token",
-            "rvr",
-            "404",
-            "card-1",
-        )
+    result = _tagger_graphql_once(
+        cast(requests.Session, cast(object, DummySession())),
+        "csrf-token",
+        "rvr",
+        "404",
+        "card-1",
+    )
 
     assert result.outcome == FetchOutcome.RESET_SESSION
-    assert result.oracle_tag_count == 0
-    assert result.relationship_count == 0
+    assert result.extracted is None

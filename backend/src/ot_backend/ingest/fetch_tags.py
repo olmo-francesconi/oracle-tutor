@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import time
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from typing import TypedDict, cast
@@ -22,13 +25,13 @@ logger = logging.getLogger("ot_backend.ingest")
 
 TAGGER_BASE_URL = "https://tagger.scryfall.com"
 TAGGER_GRAPHQL_URL = f"{TAGGER_BASE_URL}/graphql"
-RATE_LIMIT_SLEEP = 0.1
 SESSION_RESET_BACKOFF_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_SESSION_RESETS: int = 5
 ORACLE_FOREIGN_KEY = "oracleId"
 TAG_FETCH_BATCH_SIZE = 500
 TAG_FETCH_COMMIT_INTERVAL = 25
+TAG_FETCH_CONCURRENCY = max(1, int(os.getenv("TAG_FETCH_CONCURRENCY", "6")))
 
 FETCH_CARD_QUERY = """
 query FetchCard(
@@ -432,24 +435,25 @@ def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEn
         )
 
 
-def fetch_and_store_tags(
-    db: Session,
+@dataclass(frozen=True)
+class FetchExtraction:
+    """Result of a Tagger HTTP call; the DB write happens on the main thread."""
+
+    outcome: FetchOutcome
+    extracted: ExtractedCardEntities | None = None
+
+
+def _tagger_graphql_once(
     session: requests.Session,
     csrf_token: str,
     scryfall_set: str,
     collector_number: str,
     card_id: str,
-) -> FetchResult:
-    if not scryfall_set or not collector_number:
-        return FetchResult(FetchOutcome.FAILED)
-
+) -> FetchExtraction:
     try:
         resp = session.post(
             TAGGER_GRAPHQL_URL,
-            headers={
-                "X-CSRF-Token": csrf_token,
-                "Content-Type": "application/json",
-            },
+            headers={"X-CSRF-Token": csrf_token, "Content-Type": "application/json"},
             json={
                 "query": FETCH_CARD_QUERY,
                 "variables": {
@@ -464,38 +468,92 @@ def fetch_and_store_tags(
         )
     except Exception as e:
         logger.info("Tagger GraphQL request failed for %s: %s", card_id, e)
-        return FetchResult(FetchOutcome.FAILED)
+        return FetchExtraction(FetchOutcome.FAILED)
 
     if resp.status_code == 429 or resp.status_code >= 500:
-        logger.warning(
-            "Tagger returned retryable HTTP %s for %s; rotating session.",
-            resp.status_code,
-            card_id,
-        )
-        return FetchResult(FetchOutcome.RESET_SESSION)
+        return FetchExtraction(FetchOutcome.RESET_SESSION)
 
     if resp.status_code != 200:
         logger.info("Tagger returned HTTP %s for %s", resp.status_code, card_id)
-        return FetchResult(FetchOutcome.FAILED)
+        return FetchExtraction(FetchOutcome.FAILED)
 
     try:
         payload = cast(dict[str, object], resp.json())
     except Exception as e:
         logger.info("Tagger JSON parse failed for %s: %s", card_id, e)
-        return FetchResult(FetchOutcome.FAILED)
+        return FetchExtraction(FetchOutcome.FAILED)
 
     if payload.get("errors"):
         logger.info("Tagger GraphQL errors for %s: %s", card_id, payload["errors"])
-        return FetchResult(FetchOutcome.FAILED)
+        return FetchExtraction(FetchOutcome.FAILED)
 
-    extracted = _extract_card_entities(payload)
-    _replace_card_entities(db, card_id, extracted)
-    time.sleep(RATE_LIMIT_SLEEP)
-    return FetchResult(
-        FetchOutcome.SUCCESS,
-        oracle_tag_count=len(extracted["taggings"]),
-        relationship_count=len(extracted["relationships"]),
-    )
+    return FetchExtraction(FetchOutcome.SUCCESS, _extract_card_entities(payload))
+
+
+# Per-thread Tagger session (requests.Session is not thread-safe).
+_thread_local = threading.local()
+
+
+def _worker_session() -> tuple[requests.Session, str]:
+    state = getattr(_thread_local, "state", None)
+    if state is not None:
+        return state
+    session, csrf = _create_tagger_session()
+    _thread_local.state = (session, csrf)
+    return session, csrf
+
+
+def _reset_worker_session() -> tuple[requests.Session, str]:
+    state = getattr(_thread_local, "state", None)
+    if state is not None:
+        try:
+            state[0].close()
+        except Exception:
+            logger.debug("Failed to close Tagger session cleanly.", exc_info=True)
+    _thread_local.state = None
+    time.sleep(SESSION_RESET_BACKOFF_SECONDS)
+    return _worker_session()
+
+
+def _close_worker_session() -> None:
+    state = getattr(_thread_local, "state", None)
+    if state is not None:
+        try:
+            state[0].close()
+        except Exception:
+            logger.debug("Failed to close Tagger session cleanly.", exc_info=True)
+        _thread_local.state = None
+
+
+def _fetch_card_extraction(
+    card: Row[tuple[str, str, str, str]],
+    rate_sem: threading.Semaphore,
+) -> FetchExtraction:
+    if not card.set_code or not card.collector_number:
+        return FetchExtraction(FetchOutcome.FAILED)
+
+    resets = 0
+    while True:
+        with rate_sem:
+            session, csrf_token = _worker_session()
+            result = _tagger_graphql_once(
+                session, csrf_token, card.set_code, card.collector_number, card.oracle_id
+            )
+        if result.outcome != FetchOutcome.RESET_SESSION:
+            return result
+        resets += 1
+        if resets >= MAX_SESSION_RESETS:
+            logger.error(
+                "Tagger rate limit: exceeded max session resets for card %s/%s, skipping.",
+                card.set_code,
+                card.collector_number,
+            )
+            return FetchExtraction(FetchOutcome.FAILED)
+        try:
+            _reset_worker_session()
+        except Exception as e:
+            logger.warning("Tagger session re-bootstrap failed after retryable response: %s", e)
+            return FetchExtraction(FetchOutcome.FAILED)
 
 
 # ---------------------------------------------------------------------------
@@ -553,8 +611,10 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
             inserted_relationships=0,
         )
 
+    # Eager bootstrap: if the Tagger front door is unreachable we want to bail
+    # before spinning up worker threads.
     try:
-        tagger_session, csrf_token = _create_tagger_session()
+        _create_tagger_session()
     except Exception as e:
         logger.warning("Tagger session bootstrap failed; skipping community tag ingestion: %s", e)
         return TagFetchStats(
@@ -567,9 +627,10 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
         )
 
     logger.info(
-        "Starting tag ingestion. mode=tagger_graphql cards=%d refresh_tags=%s",
+        "Starting tag ingestion. mode=tagger_graphql cards=%d refresh_tags=%s concurrency=%d",
         total,
         refresh_tags,
+        TAG_FETCH_CONCURRENCY,
     )
 
     counts = {FetchOutcome.SUCCESS: 0, FetchOutcome.FAILED: 0, FetchOutcome.RESET_SESSION: 0}
@@ -578,13 +639,34 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
     processed = 0
     pending_commits = 0
 
-    for card in _iter_cards_needing_tag_fetch(db, refresh_tags):
-        processed += 1
-        oracle_tag_count = 0
-        relationship_count = 0
+    cards = list(_iter_cards_needing_tag_fetch(db, refresh_tags))
+    rate_sem = threading.Semaphore(TAG_FETCH_CONCURRENCY)
 
-        if not card.set_code or not card.collector_number:
-            counts[FetchOutcome.FAILED] += 1
+    with ThreadPoolExecutor(max_workers=TAG_FETCH_CONCURRENCY, thread_name_prefix="tagger") as executor:
+        # executor.map preserves input order and streams results — lets us write
+        # to the DB in the same thread we already own the session on.
+        futures = executor.map(
+            lambda card: (card, _fetch_card_extraction(card, rate_sem)),
+            cards,
+        )
+
+        for card, result in futures:
+            processed += 1
+            counts[result.outcome] += 1
+            oracle_tag_count = 0
+            relationship_count = 0
+
+            if result.outcome == FetchOutcome.SUCCESS and result.extracted is not None:
+                _replace_card_entities(db, card.oracle_id, result.extracted)
+                oracle_tag_count = len(result.extracted["taggings"])
+                relationship_count = len(result.extracted["relationships"])
+                inserted_oracle_taggings += oracle_tag_count
+                inserted_relationships += relationship_count
+                pending_commits += 1
+                if pending_commits >= TAG_FETCH_COMMIT_INTERVAL:
+                    db.commit()
+                    pending_commits = 0
+
             logger.info(
                 _format_progress_line(
                     current=processed,
@@ -595,77 +677,12 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
                     relationship_count=relationship_count,
                 )
             )
-            continue
 
-        result = fetch_and_store_tags(
-            db,
-            tagger_session,
-            csrf_token,
-            card.set_code,
-            card.collector_number,
-            card.oracle_id,
-        )
+        # Worker threads own per-thread Tagger sessions; close them before the
+        # pool shuts down.
+        for _ in range(TAG_FETCH_CONCURRENCY):
+            executor.submit(_close_worker_session)
 
-        session_resets = 0
-        while result.outcome == FetchOutcome.RESET_SESSION:
-            counts[FetchOutcome.RESET_SESSION] += 1
-            session_resets += 1
-            if session_resets >= MAX_SESSION_RESETS:
-                logger.error(
-                    "Tagger rate limit: exceeded max session resets for card %s/%s, skipping.",
-                    card.set_code,
-                    card.collector_number,
-                )
-                result = FetchResult(FetchOutcome.FAILED)
-                break
-
-            try:
-                tagger_session.close()
-            except Exception:
-                logger.debug("Failed to close Tagger session cleanly.", exc_info=True)
-
-            time.sleep(SESSION_RESET_BACKOFF_SECONDS)
-            try:
-                tagger_session, csrf_token = _create_tagger_session()
-            except Exception as e:
-                logger.warning("Tagger session re-bootstrap failed after retryable response: %s", e)
-                result = FetchResult(FetchOutcome.FAILED)
-                break
-
-            result = fetch_and_store_tags(
-                db,
-                tagger_session,
-                csrf_token,
-                card.set_code,
-                card.collector_number,
-                card.oracle_id,
-            )
-
-        counts[result.outcome] += 1
-        oracle_tag_count = result.oracle_tag_count
-        relationship_count = result.relationship_count
-        inserted_oracle_taggings += oracle_tag_count
-        inserted_relationships += relationship_count
-        if result.outcome == FetchOutcome.SUCCESS:
-            pending_commits += 1
-            if pending_commits >= TAG_FETCH_COMMIT_INTERVAL:
-                db.commit()
-                pending_commits = 0
-        logger.info(
-            _format_progress_line(
-                current=processed,
-                total=total,
-                name=card.name,
-                oracle_id=card.oracle_id,
-                oracle_tag_count=oracle_tag_count,
-                relationship_count=relationship_count,
-            )
-        )
-
-    try:
-        tagger_session.close()
-    except Exception:
-        logger.debug("Failed to close Tagger session cleanly at end of run.", exc_info=True)
     if pending_commits:
         db.commit()
 

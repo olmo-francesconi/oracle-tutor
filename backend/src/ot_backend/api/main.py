@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.metadata
 import logging
 from collections.abc import AsyncIterator
@@ -10,7 +11,6 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import func
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -24,20 +24,12 @@ from ..core.config import (
     allowed_hosts,
     cors_origins,
 )
-from ..core.database import get_db
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import setup_loggers
-from ..core.models import CardFace, CardRaw
 from ._semantic_index import _get_semantic_index  # noqa: F401 — re-exported for test monkeypatching
+from .oracle_pool import apply_oracle_pools, load_oracle_pools, rotate_oracle_pools
 from .routers.admin import router as admin_router
-from .routers.search import (
-    HOME_TERM_POOL_LIMIT,
-    ORACLE_TEXT_POOL_LIMIT,
-    _build_home_term_pool,
-)
-from .routers.search import (
-    router as search_router,
-)
+from .routers.search import router as search_router
 
 logger = logging.getLogger("ot_backend.api")
 
@@ -133,39 +125,24 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     oracle_text_pool: list[str] = []
     home_term_pool: list[str] = []
     try:
-        db = next(get_db())
-        try:
-            oracle_rows = (
-                db.query(CardFace.oracle_text)
-                .filter(
-                    CardFace.oracle_text.isnot(None),
-                    CardFace.oracle_text != "",
-                )
-                .order_by(func.random())
-                .limit(ORACLE_TEXT_POOL_LIMIT)
-                .all()
-            )
-            oracle_text_pool.extend(row[0] for row in oracle_rows if row[0] and row[0].strip())
-            keyword_rows = (
-                db.query(CardRaw.keywords)
-                .filter(CardRaw.keywords.isnot(None))
-                .order_by(func.random())
-                .limit(HOME_TERM_POOL_LIMIT)
-                .all()
-            )
-            home_term_pool.extend(_build_home_term_pool(keyword_rows, oracle_rows))
-            logger.info("Oracle home pools loaded: %d texts, %d terms", len(oracle_text_pool), len(home_term_pool))
-        finally:
-            db.close()
+        oracle_text_pool, home_term_pool = load_oracle_pools()
+        logger.info("Oracle home pools loaded: %d texts, %d terms", len(oracle_text_pool), len(home_term_pool))
     except Exception as exc:
         logger.warning("Oracle home pools failed to load: %s", exc)
 
-    _app.state.oracle_text_pool = oracle_text_pool
-    _app.state.home_term_pool = home_term_pool
+    apply_oracle_pools(_app, oracle_text_pool, home_term_pool)
 
-    yield
+    rotation_task = asyncio.create_task(rotate_oracle_pools(_app))
 
-    logger.info("API shutting down...")
+    try:
+        yield
+    finally:
+        logger.info("API shutting down...")
+        rotation_task.cancel()
+        try:
+            await rotation_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(lifespan=lifespan, title="oracle-tutor api", version=API_VERSION)

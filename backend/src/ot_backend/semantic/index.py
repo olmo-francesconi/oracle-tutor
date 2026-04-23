@@ -295,7 +295,13 @@ class SemanticIndex:
             )
 
         if card_type:
-            query = query.filter(or_(*(CardFace.type_line.ilike(f"%{value}%") for value in card_type)))
+            dialect = db.bind.dialect.name if db.bind is not None else ""
+            if dialect == "postgresql":
+                # Array overlap against the GIN-indexed type_categories column.
+                query = query.filter(CardFace.type_categories.op("&&")(card_type))
+            else:
+                # SQLite fallback: no ARRAY op; scan with ilike (tests only).
+                query = query.filter(or_(*(CardFace.type_line.ilike(f"%{value}%") for value in card_type)))
 
         if colors is not None:
             color_values: list[str] = []

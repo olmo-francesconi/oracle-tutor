@@ -40,8 +40,6 @@ type AdminPageProps = {
   onLogout?: () => void
 }
 
-const REFRESH_INTERVAL_MS = 15_000
-
 const FALLBACK_TRAIN_OPTIONS: SemanticTrainOptions = {
   epoch_min: 1,
   epoch_max: 10,
@@ -167,14 +165,6 @@ export function AdminPage({ onLogout }: AdminPageProps) {
 
   useEffect(() => {
     void refreshBoard('initial')
-  }, [refreshBoard])
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      void refreshBoard('refresh')
-    }, REFRESH_INTERVAL_MS)
-
-    return () => window.clearInterval(intervalId)
   }, [refreshBoard])
 
   const handleTrainField = useCallback(
