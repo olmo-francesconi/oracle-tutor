@@ -8,30 +8,28 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 
 - **Semantic search** — query by oracle text meaning ("deals damage to all creatures", "gains life when you draw") using sentence-transformer embeddings stored in pgvector
 - **Similar cards** — find cards mechanically similar to any card in the database
-- **Name autocomplete** — fast trigram-based name suggestions
+- **Name autocomplete** — fast card-name suggestions via TanStack Query debounced lookups
 - **Full card data** — 3-layer schema: raw Scryfall printings, oracle-deduplicated canonical cards, and per-face data with image URIs
-- **Community tags** — Scryfall Tagger integration for semantic categories (shocklands, cantrips, etc.)
+- **Community tags** — parallel Scryfall Tagger GraphQL integration for semantic categories (shocklands, cantrips, etc.)
 - **Daily sync** — Railway Cron `ingest-worker` pulls Scryfall bulk data and re-ingests changes automatically
 - **Model registry** — admin panel for managing semantic models, datasets, and training/promotion jobs
-- **Experiment tracking** — MLflow dual-write for model comparison and lineage
 
 ## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.12+, FastAPI, Hypercorn, SQLAlchemy 2 |
+| Backend | Python 3.12+, FastAPI, Hypercorn, SQLAlchemy 2, psycopg 3, uv |
 | Database | PostgreSQL with pgvector, Alembic migrations |
 | Inference | ONNX Runtime (CPU), sentence-transformers (training only) |
-| ML tracking | MLflow (experiment tracking, model registry) |
-| Job queue | RQ + Redis |
 | Ingestion | ijson streaming, Scryfall bulk API, Tagger GraphQL |
-| Frontend | React 19, TypeScript, Vite 7, TailwindCSS 4, Framer Motion |
+| Artifact storage | S3-compatible (MinIO locally, any S3 in production) |
+| Frontend | React 19, TypeScript, Vite 7, TailwindCSS 4, TanStack Query v5, zod |
 | Infra | Docker Compose (local), Railway (production), GitHub Actions (CI) |
 
 ## Local development
 
 ### Prerequisites
-- Docker + Docker Compose
+- Docker + Docker Compose (required — tests spin up a Postgres container via testcontainers)
 - `uv` (`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Node 20+ (for frontend-only work)
 
@@ -41,23 +39,23 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 docker compose up --build
 ```
 
-This starts PostgreSQL, Redis, MLflow, MinIO, the API (`:8000`), and the React frontend (`:5173`).
+This starts PostgreSQL (pgvector/pgvector:pg17), MinIO, the API (`:8000`), and the React frontend (`:5173`). Worker containers (`ingest-worker`, `dataset-worker`, `train-worker`, `promotion-worker`) are defined as separate services and are invoked on demand.
 
 If you want the app stack without kicking off ingestion, start only the long-running services:
 
 ```bash
-docker compose up --build db redis mlflow minio minio-init api frontend
+docker compose up --build db minio minio-init api frontend
 ```
 
 ### Backend (without Docker)
 
 ```bash
 cd backend
-uv sync --all-extras --group dev    # first time only
+uv sync --all-extras --group dev    # first time only (includes testcontainers)
 
 uv run ruff check src/ --fix        # lint
-uv run basedpyright src/            # type check (0 errors expected)
-uv run pytest -x -q                 # tests
+uv run basedpyright src/            # type check
+uv run pytest -x -q                 # tests — requires Docker running; spawns a pgvector container
 ```
 
 ### Frontend (without Docker)
@@ -82,9 +80,8 @@ uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 
 When work is needed, it:
 - downloads the latest Oracle Cards bulk file
-- diff-ingests `cards_raw`, `cards`, and `card_faces`
-- computes card uniqueness scores
-- refreshes community tags unless `--skip-tags` is set
+- diff-ingests `cards_raw`, `cards`, and `card_faces` (including `type_categories` extracted from `type_line`)
+- refreshes community tags in parallel (configurable via `TAG_FETCH_CONCURRENCY`) unless `--skip-tags` is set
 
 Useful variants:
 
@@ -99,36 +96,22 @@ uv run python -m ot_backend.ingest.main --refresh-tags --strict --trigger-type m
 uv run python -m ot_backend.ingest.main --skip-tags --strict --trigger-type manual
 ```
 
-### Run the semantic pipeline locally
+### Train and promote a semantic model
 
-The pipeline CLI manages the full model lifecycle via subcommands:
+The model lifecycle runs through the admin panel + one-shot workers:
+
+1. Open `http://localhost:5173/admin`, authenticate with `ADMIN_PASSWORD`.
+2. **Queue dataset job** — picks augmentation mode, writes to `semantic_jobs`. The `dataset-worker` claims the job, builds the training dataset, uploads it as an artifact.
+3. **Queue train job** — picks base model + hyperparameters + dataset. The `train-worker` claims the job, runs training (locally for smoke runs, or Modal for full fine-tunes), packages an ONNX bundle, registers it in `semantic_models`.
+4. **Queue promote job** (or toggle "Queue promotion after register" on the train form) — the `promotion-worker` downloads the bundle, populates `semantic_model_embeddings`, flips `is_active`. The API picks up the new model on its next poll.
+
+Workers can also be invoked directly for local testing:
 
 ```bash
-cd backend
-
-# Export training dataset
-uv run python -m ot_backend.semantic.pipeline export /tmp/dataset.json
-
-# Full fine-tune + ONNX export + embeddings
-uv run python -m ot_backend.semantic.pipeline run --epochs 5
-
-# Skip fine-tuning, embed from base model only
-uv run python -m ot_backend.semantic.pipeline run --no-fine-tune
-
-# Register a trained model bundle in the registry
-uv run python -m ot_backend.semantic.pipeline register ./model.zip --model-slug v2
-
-# Promote a registered model to serve live traffic
-uv run python -m ot_backend.semantic.pipeline promote <model-id>
-
-# Evaluate a run against scripted queries
-uv run python -m ot_backend.semantic.pipeline eval --eval-run-dir data/semantic/runs/<run-id>
-
-# Recompute embeddings from an explicit model source
-uv run python -m ot_backend.semantic.pipeline reembed --base-model ./my-model
+uv run python -m ot_backend.semantic.dataset_worker --job-id <id>
+uv run python -m ot_backend.semantic.train_worker --job-id <id>
+uv run python -m ot_backend.semantic.promote_worker --job-id <id>
 ```
-
-Pipeline runs are tracked in MLflow (available at `http://localhost:5050` when running via Docker Compose).
 
 ## Project structure
 
@@ -136,30 +119,32 @@ Pipeline runs are tracked in MLflow (available at `http://localhost:5050` when r
 backend/
   src/ot_backend/
     api/
-      main.py                App setup, lifespan, middleware, meta routes
-      routers/               admin.py, search.py, telemetry.py
+      main.py                App setup, lifespan (oracle pool rotation), middleware, meta routes
+      oracle_pool.py         Homepage oracle-text / keyword pool loader + periodic rotation
+      routers/               admin.py, search.py
       schemas.py             Pydantic response schemas
-    core/                    Config, database, ORM models, logging
-    embed/
-      index.py               Runtime ONNX inference + pgvector search
-      pipeline.py            CLI (subcommands: run, export, register, promote, eval, reembed)
-      mlflow_bridge.py       MLflow client wrapper (optional)
-      task_queue.py          RQ enqueue helpers
-      tasks.py               RQ task callables
-      model_registry.py      Model materialization, promotion
-      uniqueness.py          Card uniqueness scoring
+    core/                    Config, database, ORM models (source-of-truth schema), logging
+    semantic/
+      index.py               Runtime ONNX inference + pgvector search (HNSW-indexed)
+      model_registry.py      Model CRUD, materialization, bundle utilities
+      model_promotion.py     Single-entry `promote_semantic_model` orchestration
       artifacts.py           S3 artifact storage
-    ingest/                  Scryfall ingestion + Tagger sync
-  tests/                     Pytest suite (SQLite in-memory)
-  alembic/                   DB migrations
+      bundle_registration.py Bundle parsing and model registration
+      dataset_worker.py      One-shot worker: build dataset, upload artifacts
+      train_worker.py        One-shot worker: train (local or Modal), register bundle
+      promote_worker.py      One-shot worker: materialize + embed + activate
+      semantic_jobs.py       DB job records with FOR UPDATE SKIP LOCKED claim
+    ingest/                  Scryfall ingestion + parallel Tagger GraphQL sync
+  tests/                     Pytest suite — real Postgres via testcontainers
+  alembic/                   Single initial-schema migration
 frontend/
   src/
-    public/                  SearchShell, HomeView, ResultsView
-    admin/                   Admin panel components
-    components/              Shared UI components
-    lib/                     API client, filters, helpers
+    public/                  SearchShell, HomeView, ResultsView + TanStack Query hooks
+    admin/                   Admin panel — AdminPage, forms, tables, adminQueries/adminMutations
+    components/              Shared UI + SearchBox autocomplete
+    lib/                     API client (zod-validated), filters, URL state, queryClient
+    types/                   TS types + zod schemas
   nginx/                     Nginx config + proxy_params
-docs/                        Architecture roadmap
 ```
 
 ## API endpoints
@@ -169,20 +154,19 @@ docs/                        Architecture roadmap
 | GET | `/health` | Health check |
 | GET | `/version` | Schema + API version |
 | GET | `/oracle-samples` | Random sample oracle text and keyword pool for the UI |
-| GET | `/search?q=` | Name search with trigram similarity |
+| GET | `/search?q=` | Name search |
 | GET | `/card/{oracle_id}` | Full card by oracle ID |
 | GET | `/similar-cards?oracle_id=` | Similar cards to a known oracle ID |
 | GET | `/similar-cards?q=` | Semantic free-text search with optional filters |
-| POST | `/telemetry/client-error` | Client error reporting |
-| POST | `/telemetry/analytics` | Frontend analytics events |
-| POST | `/admin/auth/token` | Exchange admin password for bearer token |
-| GET | `/admin/semantic-models` | List registered semantic models |
-| POST | `/admin/semantic-models` | Register a new model (bundle zip body) |
-| POST | `/admin/semantic-jobs/dataset` | Create a dataset build job |
-| POST | `/admin/semantic-jobs/train` | Create a training job |
-| POST | `/admin/semantic-jobs/promote` | Create a promotion job |
+| POST | `/admin/auth/token` | Exchange admin password for bearer token (timing-safe compare) |
+| GET/POST | `/admin/semantic-models` | List / register models |
+| POST | `/admin/semantic-models/{id}/promote` | Queue a promote job |
+| GET/POST | `/admin/semantic-datasets` | List datasets |
+| GET | `/admin/semantic-base-models`, `/admin/semantic-train-options` | Training form metadata |
+| GET | `/admin/semantic-jobs`, `/admin/semantic-jobs/{id}` | Jobs list + detail |
+| POST | `/admin/semantic-jobs/{dataset,train,promote}` | Queue jobs |
 
-Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature`, `match_mode`
+Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature`, `match_mode`.
 
 ```bash
 curl "http://localhost:8000/similar-cards?q=deals+3+damage+to+any+target&limit=10"
@@ -194,41 +178,43 @@ curl "http://localhost:8000/similar-cards?q=deals+3+damage+to+any+target&limit=1
 cards_raw              — 1:1 Scryfall bulk mirror, all printings, ~300k rows
   └── cards            — oracle-deduplicated, one row per card identity, ~30k rows
         ├── card_faces                   — (oracle_id, face_ix) composite PK
+        │                                  + type_categories text[] with GIN index
         ├── card_taggings                — Scryfall Tagger community tags
         └── card_relationships           — related-card graph (tokens, meld, combos)
 tags / tag_ancestor_map                  — tag definitions + hierarchy
 semantic_models                          — registered model versions
   ├── semantic_model_artifacts           — S3 artifact records per model
-  ├── semantic_model_embeddings          — pgvector(384) per (model, face)
-  └── semantic_jobs                      — job history (promote, train, dataset)
+  └── semantic_model_embeddings          — pgvector(384) per (model, face) + HNSW index
+semantic_jobs                            — job history (dataset, train, promote)
 semantic_datasets                        — training dataset records
   └── semantic_dataset_artifacts         — S3 artifact records per dataset
 system_metadata / ingestion_logs         — operational tracking
 ```
 
-Migrations are managed with **Alembic** (`backend/alembic/`).
+The schema is defined by the ORM models in `backend/src/ot_backend/core/models.py`. The single `alembic/versions/0001_initial_schema.py` uses `Base.metadata.create_all()` plus explicit DDL for the pgvector HNSW index on `semantic_model_embeddings.embedding` and the GIN index on `card_faces.type_categories`.
 
 ## Railway deployment
 
-The repo is designed to deploy as **four Railway services** + Railway Postgres + Railway Redis.
+The repo is designed to deploy as **five Railway services** plus Railway Postgres (with pgvector) and an S3-compatible bucket.
 
-| Service | Dockerfile | Purpose |
+| Service | Dockerfile target | Purpose |
 |---|---|---|
 | API | `backend/Dockerfile` | Web process |
-| ingest-worker | `backend/Dockerfile.ingest-worker` | Daily ingest cron |
-| train-worker | `backend/Dockerfile.train-worker` | Dataset export + Modal orchestration + model registration |
-| promotion-worker | `backend/Dockerfile.promotion-worker` | Embedding build + model activation |
+| ingest-worker | `backend/Dockerfile.worker` (`ingest` stage) | Daily scryfall-sync cron |
+| dataset-worker | `backend/Dockerfile.worker` (`dataset` stage) | Build training datasets |
+| train-worker | `backend/Dockerfile.worker` (`train` stage) | Train + Modal orchestration + register bundle |
+| promotion-worker | `backend/Dockerfile.worker` (`promote` stage) | Embedding build + model activation |
 | Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
+
+Workers set `ENV OT_SERVICE_ROLE=worker` which sizes their DB pool defaults to `2+1` (vs `10+5` on the API).
 
 ### Required environment variables
 
 **API + workers:**
-- `DATABASE_URL` — Railway Postgres connection string (injected automatically)
+- `DATABASE_URL` — Railway Postgres connection string (injected automatically); Postgres must have pgvector
 - `OT_ENV=production`
-- `REDIS_URL` — Railway Redis connection string
-- `MLFLOW_TRACKING_URI` — MLflow server URL
 
-**train-worker (Modal orchestration):**
+**train-worker + dataset-worker (Modal orchestration):**
 - `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` — credentials for remote Modal jobs
 
 **API (runtime):**
