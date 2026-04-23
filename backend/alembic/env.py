@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -12,11 +11,8 @@ SRC_PATH = ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-if not os.getenv("DATABASE_URL"):
-    raise RuntimeError("DATABASE_URL must be set before running Alembic.")
-
 import ot_backend.core.models  # noqa: E402,F401
-from ot_backend.core.database import Base  # noqa: E402
+from ot_backend.core.database import DATABASE_URL, Base  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
@@ -28,10 +24,7 @@ target_metadata = Base.metadata
 
 
 def get_database_url() -> str:
-    url = os.getenv("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL must be set before running Alembic.")
-    return url
+    return DATABASE_URL
 
 
 def run_migrations_offline() -> None:
