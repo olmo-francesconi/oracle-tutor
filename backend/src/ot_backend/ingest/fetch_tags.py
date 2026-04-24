@@ -358,86 +358,51 @@ def _create_tagger_session() -> tuple[requests.Session, str]:
 # ---------------------------------------------------------------------------
 
 
-def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEntities) -> None:
-    tags = extracted["tags"]
-    taggings = extracted["taggings"]
-    ancestor_edges = extracted["ancestor_edges"]
-    relationships = extracted["relationships"]
-    direct_tag_ids = sorted(
-        tagging["tag_id"]
-        for tagging in taggings
-        if isinstance(tagging.get("tag_id"), str) and tagging["tag_id"]
-    )
+def _flush_card_batch(db: Session, batch: list[tuple[str, ExtractedCardEntities]]) -> None:
+    """Write all extracted entities for `batch` cards in one go.
 
-    _ = db.execute(delete(CardRelationship).where(CardRelationship.card_id == card_id))
-    _ = db.execute(delete(CardTagging).where(CardTagging.card_id == card_id))
+    Operates entirely through the Core API (no ORM identity map), so memory
+    stays flat regardless of how many cards have been ingested. All writes
+    are coalesced into one statement per table per batch.
+    """
+    if not batch:
+        return
 
-    tag_ids = [tag_data["id"] for tag_data in tags]
-    existing_tags = {
-        tag.id: tag
-        for tag in db.scalars(select(Tag).where(Tag.id.in_(tag_ids))).all()
-    } if tag_ids else {}
+    card_ids = [card_id for card_id, _ in batch]
 
-    for tag_data in tags:
-        tag_id = tag_data["id"]
-        tag = existing_tags.get(tag_id)
-        if tag is None:
-            db.add(
-                Tag(
-                    id=tag_id,
-                    tag_name=tag_data["tag_name"] or "",
-                    tag_description=tag_data.get("tag_description"),
-                    tag_type=tag_data.get("tag_type"),
-                    tag_namespace=tag_data.get("tag_namespace"),
-                    tag_slug=tag_data.get("tag_slug"),
-                )
-            )
-            continue
+    tags_by_id: dict[str, TagRecord] = {}
+    ancestor_edges_set: set[tuple[str, str]] = set()
+    tagging_rows: list[dict[str, object]] = []
+    relationship_rows: list[dict[str, object]] = []
+    direct_tag_ids: set[str] = set()
 
-        tag.tag_name = tag_data["tag_name"] or tag.tag_name
-        if tag_data.get("tag_description"):
-            tag.tag_description = tag_data["tag_description"]
-        if tag_data.get("tag_type"):
-            tag.tag_type = tag_data["tag_type"]
-        if tag_data.get("tag_namespace"):
-            tag.tag_namespace = tag_data["tag_namespace"]
-        if tag_data.get("tag_slug"):
-            tag.tag_slug = tag_data["tag_slug"]
-    db.flush()
-
-    if direct_tag_ids:
-        _ = db.execute(delete(TagAncestorMap).where(TagAncestorMap.tag_id.in_(direct_tag_ids)))
-
-    if ancestor_edges:
-        db.bulk_insert_mappings(TagAncestorMap, ancestor_edges)
-
-    if taggings:
-        db.bulk_insert_mappings(
-            CardTagging,
-            [
+    for card_id, extracted in batch:
+        for tag_data in extracted["tags"]:
+            # Last writer wins on overlapping tag rows inside the batch — the
+            # fields are the same across cards, it's just metadata about the
+            # tag itself.
+            tags_by_id[tag_data["id"]] = tag_data
+        for edge in extracted["ancestor_edges"]:
+            ancestor_edges_set.add((edge["tag_id"], edge["ancestor_tag_id"]))
+        for tagging in extracted["taggings"]:
+            tag_id = tagging.get("tag_id")
+            if isinstance(tag_id, str) and tag_id:
+                direct_tag_ids.add(tag_id)
+            tagging_rows.append(
                 {
-                    "id": tagging_data["id"],
+                    "id": tagging["id"],
                     "card_id": card_id,
-                    "tag_id": tagging_data["tag_id"],
-                    "foreign_key": tagging_data.get("foreign_key"),
-                    "status": tagging_data.get("status"),
-                    "tagging_type": tagging_data.get("tagging_type"),
-                    "weight": tagging_data.get("weight"),
-                    "annotation": tagging_data.get("annotation"),
-                    "related_id": tagging_data.get("related_id"),
+                    "tag_id": tagging["tag_id"],
+                    "foreign_key": tagging.get("foreign_key"),
+                    "status": tagging.get("status"),
+                    "tagging_type": tagging.get("tagging_type"),
+                    "weight": tagging.get("weight"),
+                    "annotation": tagging.get("annotation"),
+                    "related_id": tagging.get("related_id"),
                 }
-                for tagging_data in taggings
-            ],
-        )
-
-    if relationships:
-        # Tagger returns the same relationship ID from both cards it links
-        # (e.g. "Game Trail BETTER_THAN Timber Gorge" shows up when fetching
-        # either card). We store it once; whichever card inserts first wins
-        # the card_id column. ON CONFLICT DO NOTHING prevents the second
-        # card's insert from crashing the ingest on a PK collision.
-        stmt = pg_insert(CardRelationship).values(
-            [
+            )
+        for relationship in extracted["relationships"]:
+            relationship_rows.append(
                 {
                     "id": relationship["id"],
                     "card_id": card_id,
@@ -453,10 +418,60 @@ def _replace_card_entities(db: Session, card_id: str, extracted: ExtractedCardEn
                     "related_remote_id": relationship.get("related_remote_id"),
                     "related_name": relationship.get("related_name"),
                 }
-                for relationship in relationships
-            ]
+            )
+
+    # One DELETE per table for the whole batch.
+    db.execute(delete(CardRelationship).where(CardRelationship.card_id.in_(card_ids)))
+    db.execute(delete(CardTagging).where(CardTagging.card_id.in_(card_ids)))
+
+    # Upsert Tag rows through Core API — bypasses identity map entirely.
+    # COALESCE(EXCLUDED.x, tags.x) preserves an existing field when the new
+    # payload has NULL for that field (matches the old per-card behavior).
+    if tags_by_id:
+        tag_rows = [
+            {
+                "id": t["id"],
+                "tag_name": t["tag_name"] or "",
+                "tag_description": t.get("tag_description"),
+                "tag_type": t.get("tag_type"),
+                "tag_namespace": t.get("tag_namespace"),
+                "tag_slug": t.get("tag_slug"),
+            }
+            for t in tags_by_id.values()
+        ]
+        tag_stmt = pg_insert(Tag).values(tag_rows)
+        db.execute(
+            tag_stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "tag_name": tag_stmt.excluded.tag_name,
+                    "tag_description": func.coalesce(tag_stmt.excluded.tag_description, Tag.__table__.c.tag_description),
+                    "tag_type": func.coalesce(tag_stmt.excluded.tag_type, Tag.__table__.c.tag_type),
+                    "tag_namespace": func.coalesce(tag_stmt.excluded.tag_namespace, Tag.__table__.c.tag_namespace),
+                    "tag_slug": func.coalesce(tag_stmt.excluded.tag_slug, Tag.__table__.c.tag_slug),
+                },
+            )
         )
-        db.execute(stmt.on_conflict_do_nothing(index_elements=["id"]))
+
+    if direct_tag_ids:
+        db.execute(delete(TagAncestorMap).where(TagAncestorMap.tag_id.in_(direct_tag_ids)))
+
+    if ancestor_edges_set:
+        ancestor_stmt = pg_insert(TagAncestorMap).values(
+            [{"tag_id": tag_id, "ancestor_tag_id": ancestor_id} for tag_id, ancestor_id in sorted(ancestor_edges_set)]
+        )
+        db.execute(ancestor_stmt.on_conflict_do_nothing())
+
+    if tagging_rows:
+        tagging_stmt = pg_insert(CardTagging).values(tagging_rows)
+        db.execute(tagging_stmt.on_conflict_do_nothing(index_elements=["id"]))
+
+    if relationship_rows:
+        # Tagger returns the same relationship id from both linked cards.
+        # First writer inside the batch wins the card_id column; subsequent
+        # duplicates (same id across cards) are silently skipped.
+        rel_stmt = pg_insert(CardRelationship).values(relationship_rows)
+        db.execute(rel_stmt.on_conflict_do_nothing(index_elements=["id"]))
 
 
 @dataclass(frozen=True)
@@ -713,7 +728,6 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
     inserted_oracle_taggings = 0
     inserted_relationships = 0
     processed = 0
-    pending_commits = 0
 
     cards = list(_iter_cards_needing_tag_fetch(db, refresh_tags))
     rate_sem = threading.Semaphore(TAG_FETCH_CONCURRENCY)
@@ -738,6 +752,7 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
     watchdog.start()
 
     executor = ThreadPoolExecutor(max_workers=TAG_FETCH_CONCURRENCY, thread_name_prefix="tagger")
+    pending_batch: list[tuple[str, ExtractedCardEntities]] = []
     try:
         # Use as_completed so progress streams in completion order. With map()
         # a single slow card blocks visibility of every later card that has
@@ -756,15 +771,15 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
             relationship_count = 0
 
             if result.outcome == FetchOutcome.SUCCESS and result.extracted is not None:
-                _replace_card_entities(db, card.oracle_id, result.extracted)
                 oracle_tag_count = len(result.extracted["taggings"])
                 relationship_count = len(result.extracted["relationships"])
                 inserted_oracle_taggings += oracle_tag_count
                 inserted_relationships += relationship_count
-                pending_commits += 1
-                if pending_commits >= TAG_FETCH_COMMIT_INTERVAL:
+                pending_batch.append((card.oracle_id, result.extracted))
+                if len(pending_batch) >= TAG_FETCH_COMMIT_INTERVAL:
+                    _flush_card_batch(db, pending_batch)
                     db.commit()
-                    pending_commits = 0
+                    pending_batch.clear()
 
             logger.info(
                 _format_progress_line(
@@ -792,8 +807,10 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
         stall_stop.set()
         watchdog.join(timeout=1.0)
 
-    if pending_commits:
+    if pending_batch:
+        _flush_card_batch(db, pending_batch)
         db.commit()
+        pending_batch.clear()
 
     logger.info(
         "Tag ingestion complete. success=%d failed=%d inserted: ot=%d rel=%d",

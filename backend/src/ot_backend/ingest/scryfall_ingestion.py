@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -77,18 +76,6 @@ def _format_stage_progress(*, current: int, total: int) -> str:
 
 def _log_batch_progress(*, stage: str, current: int, total: int, items_in_batch: int) -> None:
     logger.info("%s %s batch_items=%d", stage, _format_stage_progress(current=current, total=total), items_in_batch)
-
-
-def _write_inline_progress(*, stage: str, current: int, total: int, items_in_batch: int) -> None:
-    if not sys.stdout.isatty():
-        _log_batch_progress(stage=stage, current=current, total=total, items_in_batch=items_in_batch)
-        return
-
-    message = f"\r{stage} {_format_stage_progress(current=current, total=total)} batch_items={items_in_batch}"
-    sys.stdout.write(message)
-    if current == total:
-        sys.stdout.write("\n")
-    sys.stdout.flush()
 
 
 def _delete_card_related_rows(session, oracle_ids: list[str]) -> None:
@@ -590,7 +577,7 @@ def ingest_data_diff(
                 session.commit()
                 processed_cards += batch_size
                 completed_upsert_batches += 1
-                _write_inline_progress(
+                _log_batch_progress(
                     stage="Upsert progress",
                     current=completed_upsert_batches,
                     total=total_upsert_batches,
@@ -604,7 +591,7 @@ def ingest_data_diff(
             session.commit()
             processed_cards += batch_size
             completed_upsert_batches += 1
-            _write_inline_progress(
+            _log_batch_progress(
                 stage="Upsert progress",
                 current=completed_upsert_batches,
                 total=total_upsert_batches,

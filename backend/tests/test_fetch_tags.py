@@ -11,7 +11,7 @@ from ot_backend.ingest.fetch_tags import (
     FetchOutcome,
     _cards_needing_tag_fetch,
     _extract_card_entities,
-    _replace_card_entities,
+    _flush_card_batch,
     _tagger_graphql_once,
 )
 
@@ -180,7 +180,7 @@ def test_replace_card_entities_persists_only_oracle_scoped_rows() -> None:
         )
         db.commit()
 
-        _replace_card_entities(db, "card-1", extracted)
+        _flush_card_batch(db, [("card-1", extracted)])
 
         tags = {tag.id: tag for tag in db.query(Tag).all()}
         assert set(tags) == {"tag-card-1", "tag-card-parent-1"}
@@ -251,7 +251,7 @@ def test_replace_card_entities_removes_existing_artwork_rows_on_refresh() -> Non
         )
         db.commit()
 
-        _replace_card_entities(db, "card-1", extracted)
+        _flush_card_batch(db, [("card-1", extracted)])
 
         taggings = {(tagging.id, tagging.foreign_key) for tagging in db.query(CardTagging).all()}
         assert taggings == {("tagging-card-1", "oracleId")}
