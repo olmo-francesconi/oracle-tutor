@@ -44,7 +44,7 @@ const ResultCard = memo(function ResultCard({ card }: ResultCardProps) {
   return (
     <article
       className="group grid gap-0 border-2 border-ot-ink bg-ot-surface p-0 text-left text-inherit transition-transform duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-      style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color) }}
+      style={{ ['--result-card-frame' as string]: getCardFrameColor(card.border_color ?? undefined) }}
     >
       <span className="relative z-10 flex min-h-5 items-center justify-start bg-ot-surface px-[10px] pb-[9px] pt-2 text-[0.625rem] uppercase tracking-[0.12em]">
         <span className="text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] group-hover:text-ot-red motion-reduce:transition-none">
@@ -56,8 +56,8 @@ const ResultCard = memo(function ResultCard({ card }: ResultCardProps) {
         <CardImage
           src={getCardImageUrl(card)}
           alt={title}
-          oracleText={card.oracle_text}
-          manaCost={card.mana_cost}
+          oracleText={card.oracle_text ?? undefined}
+          manaCost={card.mana_cost ?? undefined}
           className="block aspect-[63/88] w-full rounded-[4.8%/3.5%] border-0 bg-[#d8d2c8] object-cover"
         />
       </span>

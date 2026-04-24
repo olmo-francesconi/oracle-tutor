@@ -4,40 +4,40 @@ export const CardFaceSchema = z.object({
   oracle_id: z.string(),
   face_ix: z.number(),
   name: z.string(),
-  mana_cost: z.string().optional(),
-  type_line: z.string().optional(),
-  oracle_text: z.string().optional(),
-  power: z.string().optional(),
-  toughness: z.string().optional(),
-  colors: z.array(z.string()).optional(),
-  image_uris: z.record(z.string(), z.string()).optional(),
+  mana_cost: z.string().nullish(),
+  type_line: z.string().nullish(),
+  oracle_text: z.string().nullish(),
+  power: z.string().nullish(),
+  toughness: z.string().nullish(),
+  colors: z.array(z.string()).nullish(),
+  image_uris: z.record(z.string(), z.string()).nullish(),
 })
 
 export const CardSchema = z.object({
   oracle_id: z.string(),
   scryfall_id: z.string(),
   name: z.string(),
-  layout: z.string().optional(),
-  cmc: z.number().optional(),
-  mana_cost: z.string().optional(),
-  type_line: z.string().optional(),
-  oracle_text: z.string().optional(),
-  power: z.string().optional(),
-  toughness: z.string().optional(),
-  edhrec_rank: z.number().optional(),
-  rarity: z.string().optional(),
-  colors: z.array(z.string()).optional(),
-  legalities: z.record(z.string(), z.string()).optional(),
-  border_color: z.string().optional(),
-  set_code: z.string().optional(),
-  faces: z.array(CardFaceSchema).optional(),
+  layout: z.string().nullish(),
+  cmc: z.number().nullish(),
+  mana_cost: z.string().nullish(),
+  type_line: z.string().nullish(),
+  oracle_text: z.string().nullish(),
+  power: z.string().nullish(),
+  toughness: z.string().nullish(),
+  edhrec_rank: z.number().nullish(),
+  rarity: z.string().nullish(),
+  colors: z.array(z.string()).nullish(),
+  legalities: z.record(z.string(), z.string()).nullish(),
+  border_color: z.string().nullish(),
+  set_code: z.string().nullish(),
+  faces: z.array(CardFaceSchema).nullish(),
 })
 
 export const SimilarCardSchema = CardSchema.extend({
   face_ix: z.number(),
   image_side: z.enum(['front', 'back']),
   similarity: z.number(),
-  card_name: z.string().optional(),
+  card_name: z.string().nullish(),
 })
 
 export const SimilarCardsPageSchema = z.object({
@@ -69,7 +69,7 @@ export const AdminAuthTokenResponseSchema = z.object({
 })
 
 export const SemanticModelSummarySchema = z.object({
-  id: z.number(),
+  id: z.string(),
   slug: z.string(),
   base_model_key: z.string().nullish(),
   base_model: z.string(),
@@ -86,11 +86,11 @@ export const SemanticModelSummarySchema = z.object({
 export const SemanticModelListSchema = z.array(SemanticModelSummarySchema)
 
 export const SemanticJobSummarySchema = z.object({
-  id: z.number(),
+  id: z.string(),
   job_type: z.string(),
   status: z.string(),
   requested_by: z.string(),
-  model_id: z.number().nullish(),
+  model_id: z.string().nullish(),
   dataset_id: z.string().nullish(),
   created_at: z.string(),
   started_at: z.string().nullish(),
@@ -108,8 +108,8 @@ export const SemanticJobListSchema = z.array(SemanticJobSummarySchema)
 
 export const SemanticPromoteAcceptedSchema = z.object({
   accepted: z.boolean(),
-  job_id: z.number(),
-  model_id: z.number(),
+  job_id: z.string(),
+  model_id: z.string(),
   status: z.string(),
 })
 

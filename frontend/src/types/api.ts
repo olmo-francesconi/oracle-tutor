@@ -2,13 +2,13 @@ export interface CardFace {
   oracle_id: string
   face_ix: number
   name: string
-  mana_cost?: string
-  type_line?: string
-  oracle_text?: string
-  power?: string
-  toughness?: string
-  colors?: string[]
-  image_uris?: Record<string, string>
+  mana_cost?: string | null
+  type_line?: string | null
+  oracle_text?: string | null
+  power?: string | null
+  toughness?: string | null
+  colors?: string[] | null
+  image_uris?: Record<string, string> | null
 }
 
 export interface Card {
@@ -16,27 +16,27 @@ export interface Card {
   oracle_id: string
   scryfall_id: string
   name: string
-  layout?: string
-  cmc?: number
-  mana_cost?: string
-  type_line?: string
-  oracle_text?: string
-  power?: string
-  toughness?: string
-  edhrec_rank?: number
-  rarity?: string
-  colors?: string[]
-  legalities?: Record<string, string>
-  border_color?: string
-  set_code?: string
-  faces?: CardFace[]
+  layout?: string | null
+  cmc?: number | null
+  mana_cost?: string | null
+  type_line?: string | null
+  oracle_text?: string | null
+  power?: string | null
+  toughness?: string | null
+  edhrec_rank?: number | null
+  rarity?: string | null
+  colors?: string[] | null
+  legalities?: Record<string, string> | null
+  border_color?: string | null
+  set_code?: string | null
+  faces?: CardFace[] | null
 }
 
 export interface SimilarCard extends Card {
   face_ix: number
   image_side: 'front' | 'back'
   similarity: number
-  card_name?: string
+  card_name?: string | null
 }
 
 export interface SimilarCardsPage {
@@ -78,7 +78,7 @@ export interface AdminAuthTokenResponse {
 }
 
 export interface SemanticModelSummary {
-  id: number
+  id: string
   slug: string
   base_model_key?: string | null
   base_model: string
@@ -93,11 +93,11 @@ export interface SemanticModelSummary {
 }
 
 export interface SemanticJobSummary {
-  id: number
+  id: string
   job_type: 'train' | 'promote' | 'dataset' | string
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | string
   requested_by: string
-  model_id?: number | null
+  model_id?: string | null
   dataset_id?: string | null
   created_at: string
   started_at?: string | null
@@ -125,8 +125,8 @@ export interface SemanticTrainJobCreate {
 
 export interface SemanticPromoteAccepted {
   accepted: boolean
-  job_id: number
-  model_id: number
+  job_id: string
+  model_id: string
   status: string
 }
 
