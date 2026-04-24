@@ -7,7 +7,7 @@ type Props = {
   loading: boolean
   submitting: boolean
   activePromoteJob: SemanticJobSummary | null
-  onPromote: (modelId: number) => void
+  onPromote: (modelId: string) => void
 }
 
 export function ModelTable({ models, loading, submitting, activePromoteJob, onPromote }: Props) {

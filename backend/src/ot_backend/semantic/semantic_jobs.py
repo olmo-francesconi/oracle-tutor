@@ -70,6 +70,20 @@ def create_dataset_job(
     dataset_slug: str,
     augmentation_mode: str,
 ) -> SemanticJob:
+    existing_slug = db.scalar(select(SemanticDataset.slug).where(SemanticDataset.slug == dataset_slug))
+    if existing_slug is not None:
+        raise ValueError(f"Dataset slug '{dataset_slug}' is already in use.")
+    in_flight_jobs = db.scalars(
+        select(SemanticJob).where(
+            SemanticJob.job_type == SEMANTIC_JOB_TYPE_DATASET,
+            SemanticJob.status.in_([SEMANTIC_JOB_STATUS_PENDING, SEMANTIC_JOB_STATUS_RUNNING]),
+        )
+    ).all()
+    for in_flight in in_flight_jobs:
+        if isinstance(in_flight.payload_json, dict) and in_flight.payload_json.get("dataset_slug") == dataset_slug:
+            raise ValueError(
+                f"Dataset slug '{dataset_slug}' is already being built by job {in_flight.id}."
+            )
     return _create_semantic_job(
         db,
         job_type=SEMANTIC_JOB_TYPE_DATASET,
@@ -100,6 +114,20 @@ def create_train_job(
 ) -> SemanticJob:
     if db.get(SemanticDataset, dataset_id) is None:
         raise KeyError(f"Semantic dataset {dataset_id} not found.")
+    existing_model_slug = db.scalar(select(SemanticModel.slug).where(SemanticModel.slug == model_slug))
+    if existing_model_slug is not None:
+        raise ValueError(f"Model slug '{model_slug}' is already in use.")
+    in_flight_jobs = db.scalars(
+        select(SemanticJob).where(
+            SemanticJob.job_type == SEMANTIC_JOB_TYPE_TRAIN,
+            SemanticJob.status.in_([SEMANTIC_JOB_STATUS_PENDING, SEMANTIC_JOB_STATUS_RUNNING]),
+        )
+    ).all()
+    for in_flight in in_flight_jobs:
+        if isinstance(in_flight.payload_json, dict) and in_flight.payload_json.get("model_slug") == model_slug:
+            raise ValueError(
+                f"Model slug '{model_slug}' is already being trained by job {in_flight.id}."
+            )
     return _create_semantic_job(
         db,
         job_type=SEMANTIC_JOB_TYPE_TRAIN,

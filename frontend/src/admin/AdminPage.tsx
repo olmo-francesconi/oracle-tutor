@@ -162,7 +162,7 @@ export function AdminPage({ onLogout }: AdminPageProps) {
   )
 
   const handlePromote = useCallback(
-    async (modelId: number) => {
+    async (modelId: string) => {
       setNotice(null)
       try {
         await promoteMutation.mutateAsync({

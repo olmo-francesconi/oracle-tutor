@@ -31,7 +31,7 @@ export function useQueuePromotion() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (vars: {
-      modelId: number
+      modelId: string
       payload: { requested_by: string; embed_batch_size: number }
     }) => queueSemanticPromotion(vars.modelId, vars.payload),
     onSuccess: () => {

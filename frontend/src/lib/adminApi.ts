@@ -121,7 +121,7 @@ export async function queueSemanticTrainJob(
 }
 
 export async function queueSemanticPromotion(
-  modelId: number,
+  modelId: string,
   payload: { requested_by: string; embed_batch_size: number },
   signal?: AbortSignal
 ): Promise<SemanticPromoteAccepted> {
