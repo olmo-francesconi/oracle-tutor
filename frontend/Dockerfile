@@ -24,7 +24,8 @@ FROM nginx:1.27-alpine AS runtime
 
 ENV PORT=8080 \
     API_PROXY_TARGET=http://api:8000 \
-    NGINX_RESOLVER=127.0.0.11
+    NGINX_RESOLVER=127.0.0.11 \
+    ADMIN_HOST=admin.oracletutor.org
 
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template

@@ -59,8 +59,10 @@ Core routes:
 
 Admin auth:
 
-- `POST /admin/auth/token` exchanges the configured admin password for an 8-hour bearer token. Password compare uses `hmac.compare_digest` (constant-time).
-- The frontend nginx proxy also rate-limits `POST /api/admin/auth/token` per source IP before the request reaches the API.
+- Every `/admin/*` route (including `POST /admin/auth/token`) first runs a **Cloudflare Access JWT check**. The dep reads `Cf-Access-Jwt-Assertion` (header) or `CF_Authorization` (cookie), fetches the Cloudflare JWKS at `https://<CF_ACCESS_TEAM_DOMAIN>/cdn-cgi/access/certs`, and verifies RS256 + audience (`CF_ACCESS_AUD`) + issuer. Invalid or missing token → `403`.
+- The check is **bypassed** only when both `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are unset *and* the API is not running in production (`OT_ENV=production` or any `RAILWAY_*` env var present). In production with those unset, every admin request returns `503 "Cloudflare Access is not configured"` — fail-closed.
+- `POST /admin/auth/token` exchanges the configured admin password for an 8-hour bearer token. Password compare uses `hmac.compare_digest` (constant-time). This runs *after* the Cloudflare check.
+- The frontend nginx proxy additionally rate-limits `POST /api/admin/auth/token` per source IP, and returns `404` for any `/admin/*` or `/api/admin/*` request whose `Host` header isn't the configured `ADMIN_HOST` — so the admin surface is invisible on the public hostname.
 - Failed admin login attempts are tracked per source IP in process memory.
 - After `ADMIN_LOGIN_MAX_FAILURES` consecutive failures from the same IP, that IP is locked out for `ADMIN_LOGIN_LOCKOUT_SECONDS`.
 - A successful login clears the failure counter for that IP.
@@ -178,6 +180,8 @@ All three can also be driven via the admin panel at `/admin`.
 - `ADMIN_JWT_SECRET`: HS256 signing secret for admin bearer tokens
 - `ADMIN_LOGIN_MAX_FAILURES`: consecutive failed admin logins per IP before lockout; defaults to `5`
 - `ADMIN_LOGIN_LOCKOUT_SECONDS`: lockout duration after hitting the failure threshold; defaults to `900`
+- `CF_ACCESS_TEAM_DOMAIN`: Cloudflare Access team domain (e.g. `yourteam.cloudflareaccess.com`); required together with `CF_ACCESS_AUD` in production — when unset in production, every `/admin/*` request returns `503`
+- `CF_ACCESS_AUD`: Cloudflare Access application AUD tag; paired with `CF_ACCESS_TEAM_DOMAIN` to enable JWT verification on `/admin/*`
 - `OT_CORS_ORIGINS`: optional comma-separated allowlist
 - `OT_SCHEMA_WAIT_TIMEOUT_SECONDS`: API startup wait budget for schema readiness
 - `OT_SCHEMA_WAIT_INTERVAL_SECONDS`: polling interval while waiting for schema readiness

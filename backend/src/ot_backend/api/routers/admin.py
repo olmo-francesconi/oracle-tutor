@@ -42,6 +42,7 @@ from ..admin_auth import (
     get_admin_client_ip,
     register_admin_login_failure,
     require_admin_token,
+    require_cloudflare_access,
     reset_admin_login_failures,
 )
 from ..schemas import (
@@ -67,7 +68,11 @@ from ..schemas import (
 
 logger = logging.getLogger("ot_backend.api")
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_cloudflare_access)],
+)
 
 
 # ---------------------------------------------------------------------------

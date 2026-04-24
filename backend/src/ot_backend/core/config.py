@@ -46,6 +46,16 @@ def admin_login_lockout_seconds() -> int:
     return max(1, int(os.getenv("ADMIN_LOGIN_LOCKOUT_SECONDS", "900")))
 
 
+def cloudflare_access_team_domain() -> str | None:
+    value = os.getenv("CF_ACCESS_TEAM_DOMAIN", "").strip()
+    return value or None
+
+
+def cloudflare_access_aud() -> str | None:
+    value = os.getenv("CF_ACCESS_AUD", "").strip()
+    return value or None
+
+
 def is_production_env() -> bool:
     env = ot_env()
     if env in ("prod", "production"):

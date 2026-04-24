@@ -220,16 +220,41 @@ Workers set `ENV OT_SERVICE_ROLE=worker` which sizes their DB pool defaults to `
 **API (runtime):**
 - `ADMIN_PASSWORD` — password accepted by `POST /admin/auth/token`
 - `ADMIN_JWT_SECRET` — HS256 signing secret for admin bearer tokens
+- `CF_ACCESS_TEAM_DOMAIN` — Cloudflare Access team domain (e.g. `yourteam.cloudflareaccess.com`)
+- `CF_ACCESS_AUD` — Cloudflare Access application AUD tag
 - `SEMANTIC_ARTIFACT_ENDPOINT` — S3-compatible endpoint for model artifacts
 - `SEMANTIC_ARTIFACT_ACCESS_KEY_ID` / `SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY` — S3 credentials
 - `SEMANTIC_ARTIFACT_BUCKET` — S3 bucket name
 
 **Frontend:**
 - `API_PROXY_TARGET` — internal URL of the API service
+- `ADMIN_HOST` — hostname that serves the admin panel (e.g. `admin.oracletutor.org`); nginx returns 404 for `/admin/*` and `/api/admin/*` on any other host
+
+### Admin panel security
+
+The admin panel (model/dataset/job management) is gated by **two independent layers** in production:
+
+1. **Host-based nginx routing.** The frontend nginx config only serves `/admin/*` and proxies `/api/admin/*` when the `Host` header matches `ADMIN_HOST`. On the public hostname these routes return 404 — no admin surface, no login form, nothing to probe.
+2. **Cloudflare Access JWT verification.** Put the admin subdomain behind a [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) application that restricts login to your email. Every request Cloudflare forwards carries a `Cf-Access-Jwt-Assertion` header signed by your team; the FastAPI backend verifies it (RS256 against the Cloudflare JWKS, audience + issuer checks) on every `/admin/*` route, including `POST /admin/auth/token`.
+
+In production (`OT_ENV=production` or any Railway env var present), if `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_AUD` is unset the backend **fails closed** — every admin request returns `503 "Cloudflare Access is not configured"`. Locally the check is skipped so `docker compose up` works with just `ADMIN_PASSWORD`.
+
+Setup outline:
+
+1. Point both `oracletutor.org` and `admin.oracletutor.org` at the same Railway frontend service (Cloudflare DNS, proxy enabled).
+2. In Cloudflare Zero Trust → Access → Applications, create a self-hosted app on `admin.oracletutor.org` with an "Allow" policy limited to your email.
+3. Copy the team domain (Settings → Custom Pages) and the application AUD tag (app → Overview) into the Railway API service env as `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`.
+4. Set `ADMIN_HOST=admin.oracletutor.org` on the Railway frontend service.
 
 ### ingest-worker cron schedule
 
 Set a **Railway Cron** on the `ingest-worker` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container runs the one-shot stale-aware worker once and exits.
+
+## Attribution
+
+Card data, images, and community tags come from [Scryfall](https://scryfall.com) under their [data terms](https://scryfall.com/docs/api). Oracle Tutor is an unofficial project and is not produced, endorsed, supported, or affiliated with Scryfall or Wizards of the Coast.
+
+Magic: The Gathering is © Wizards of the Coast LLC. All card names, text, and imagery are property of their respective owners. No challenge to copyright is intended.
 
 ## License
 

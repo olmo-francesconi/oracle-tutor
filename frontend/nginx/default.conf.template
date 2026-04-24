@@ -1,3 +1,8 @@
+map $host $is_admin_host {
+  default 0;
+  "${ADMIN_HOST}" 1;
+}
+
 server {
   listen ${PORT};
 
@@ -31,6 +36,7 @@ server {
   location ^~ /phpmyadmin { return 444; }
 
   location / {
+    if ($is_admin_host = 1) { return 302 /admin/; }
     set $block_bot 0;
     if ($is_bot) { set $block_bot "${block_bot}1"; }
     if ($bot_allowed_path = 0) { set $block_bot "${block_bot}1"; }
@@ -39,10 +45,12 @@ server {
   }
 
   location = /admin {
+    if ($is_admin_host = 0) { return 404; }
     return 301 /admin/;
   }
 
   location ^~ /admin/ {
+    if ($is_admin_host = 0) { return 404; }
     set $block_bot 0;
     if ($is_bot) { set $block_bot "${block_bot}1"; }
     if ($bot_allowed_path = 0) { set $block_bot "${block_bot}1"; }
@@ -65,6 +73,7 @@ server {
   }
 
   location = /api/admin/auth/token {
+    if ($is_admin_host = 0) { return 404; }
     if ($is_bot) { return 403; }
 
     limit_req zone=api_admin_login burst=5 nodelay;
@@ -192,6 +201,7 @@ server {
   }
 
   location ^~ /api/admin/ {
+    if ($is_admin_host = 0) { return 404; }
     if ($is_bot) { return 403; }
 
     set $upstream_target ${API_PROXY_TARGET};

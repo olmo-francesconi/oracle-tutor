@@ -186,6 +186,8 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 | `ADMIN_JWT_SECRET` | — | HS256 signing secret for admin bearer tokens |
 | `ADMIN_LOGIN_MAX_FAILURES` | `5` | Failed admin logins per IP before lockout |
 | `ADMIN_LOGIN_LOCKOUT_SECONDS` | `900` | Lockout duration after hitting the failure threshold |
+| `CF_ACCESS_TEAM_DOMAIN` | — | Cloudflare Access team domain (e.g. `yourteam.cloudflareaccess.com`); enables Access JWT verification on `/admin/*` when set together with `CF_ACCESS_AUD` |
+| `CF_ACCESS_AUD` | — | Cloudflare Access application AUD tag; required alongside `CF_ACCESS_TEAM_DOMAIN` |
 | `HF_HOME` | `data/huggingface` | Hugging Face cache directory |
 | `OT_LOG_TO_FILES` | — | Enable file logging |
 | `SEMANTIC_ARTIFACT_ENDPOINT` | — | S3-compatible endpoint URL for artifact storage |
@@ -230,6 +232,28 @@ npm run lint
 npm run test
 npm run build
 ```
+
+## Pre-push secret audit
+
+**Before any `git push` to a public remote, run a secret audit.** The repo is published on GitHub, so a single leaked credential in history is a rotation event — cheaper to catch before push than after.
+
+Minimum check before pushing:
+
+```bash
+# Scan the range you're about to push
+git diff origin/$(git rev-parse --abbrev-ref HEAD)...HEAD -- . ':(exclude)*.lock' ':(exclude)package-lock.json' \
+  | grep -iE '(password|secret|api[_-]?key|token|bearer|authorization|private[_-]?key|aws_|database_url)=' \
+  || echo "clean"
+
+# Scan for committed env files or credential-shaped filenames
+git diff --name-only origin/$(git rev-parse --abbrev-ref HEAD)...HEAD \
+  | grep -iE '(^|/)(\.env($|\..+)|credentials|secrets|.*\.pem$|.*\.key$)' \
+  || echo "clean"
+```
+
+If anything matches, stop and investigate before pushing. If a secret was ever committed (even in a past commit), rotate it *and* rewrite history with `git filter-repo` before the push — do not rely on "I'll just delete the next commit."
+
+Secrets that must never appear in code or committed files: `ADMIN_PASSWORD`, `ADMIN_JWT_SECRET`, `SEMANTIC_ARTIFACT_ACCESS_KEY_ID`, `SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY`, `DATABASE_URL` with real credentials, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`.
 
 ## Rules
 

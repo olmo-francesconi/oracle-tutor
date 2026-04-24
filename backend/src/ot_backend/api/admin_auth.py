@@ -8,17 +8,24 @@ from typing import Annotated, Any
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import PyJWKClient
 
 from ..core.config import (
     admin_jwt_secret,
     admin_login_lockout_seconds,
     admin_login_max_failures,
+    cloudflare_access_aud,
+    cloudflare_access_team_domain,
+    is_production_env,
 )
 
 _ADMIN_TOKEN_TTL_SECONDS = 8 * 60 * 60
 _ALGORITHM = "HS256"
+_CLOUDFLARE_ACCESS_ALGORITHMS = ["RS256"]
 _security = HTTPBearer(auto_error=False)
 _attempt_lock = Lock()
+_jwks_clients: dict[str, PyJWKClient] = {}
+_jwks_lock = Lock()
 
 
 @dataclass
@@ -127,3 +134,40 @@ def require_admin_token(
 
 
 AdminTokenDep = Annotated[None, Depends(require_admin_token)]
+
+
+def _get_jwks_client(team_domain: str) -> PyJWKClient:
+    with _jwks_lock:
+        client = _jwks_clients.get(team_domain)
+        if client is None:
+            client = PyJWKClient(f"https://{team_domain}/cdn-cgi/access/certs")
+            _jwks_clients[team_domain] = client
+        return client
+
+
+def require_cloudflare_access(request: Request) -> None:
+    team_domain = cloudflare_access_team_domain()
+    expected_aud = cloudflare_access_aud()
+    if not team_domain or not expected_aud:
+        if is_production_env():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Cloudflare Access is not configured. Set CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD.",
+            )
+        return
+
+    token = request.headers.get("cf-access-jwt-assertion") or request.cookies.get("CF_Authorization")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing Cloudflare Access token.")
+
+    try:
+        signing_key = _get_jwks_client(team_domain).get_signing_key_from_jwt(token)
+        jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=_CLOUDFLARE_ACCESS_ALGORITHMS,
+            audience=expected_aud,
+            issuer=f"https://{team_domain}",
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Cloudflare Access token.") from exc
