@@ -409,9 +409,9 @@ def test_train_worker_succeeds_when_follow_up_promote_enqueue_fails(monkeypatch)
         assert "promote_job_error" in train_job.result_json
 
 
-def test_train_worker_passes_skip_fine_tune_to_modal(monkeypatch) -> None:
+def test_train_worker_runs_skip_fine_tune_locally(monkeypatch) -> None:
     _reset_tables()
-    remote_calls: list[tuple[object, ...]] = []
+    local_calls: list[tuple[object, ...]] = []
     dataset_bytes = json.dumps({"version": 6, "metadata": {"semantic_data_version": 4}, "llm_query_examples": 0}).encode("utf-8")
     eval_queries_bytes = b'{"queries": []}'
     dataset_id = _create_dataset(slug="dataset-skip", augmentation_mode="none", source_semantic_data_version=4)
@@ -433,26 +433,38 @@ def test_train_worker_passes_skip_fine_tune_to_modal(monkeypatch) -> None:
         )
         job_id = job.id
 
+    registered_model_id: str | None = None
+
+    def fake_register_model_bundle_bytes(_db, **_kwargs):
+        nonlocal registered_model_id
+        registered_model_id = _create_model_with_bundle_artifact(
+            slug="candidate-skip",
+            bundle=b"bundle-bytes",
+            dataset_id=dataset_id,
+        )
+        return _db.get(SemanticModel, registered_model_id)
+
+    def fake_modal_client_configured() -> bool:
+        raise AssertionError("Modal must not be contacted when skip_fine_tune=True.")
+
     monkeypatch.setattr("ot_backend.semantic.train_worker.get_semantic_dataset_bytes", lambda _db, _dataset_id: dataset_bytes)
     monkeypatch.setattr("ot_backend.semantic.train_worker.default_eval_queries_bytes", lambda: eval_queries_bytes)
-    monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
+    monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", fake_modal_client_configured)
     monkeypatch.setattr(
         "ot_backend.semantic.train_worker._load_modal_train_module",
-        lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or b"bundle-bytes")),
+        lambda: SimpleNamespace(
+            train=SimpleNamespace(
+                local=lambda *args: local_calls.append(args) or b"bundle-bytes",
+                remote=lambda *_args: (_ for _ in ()).throw(AssertionError("should not run")),
+            )
+        ),
     )
-    monkeypatch.setattr(
-        "ot_backend.semantic.train_worker.register_model_bundle_bytes",
-        lambda _db, **_kwargs: SimpleNamespace(id="model-skip"),
-    )
-    monkeypatch.setattr(
-        "ot_backend.semantic.train_worker.semantic_model_artifact_keys",
-        lambda _db, _model_id: {"bundle_zip": "semantic-registry/models/model-skip/bundle.zip"},
-    )
+    monkeypatch.setattr("ot_backend.semantic.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
 
     exit_code = train_worker.main([])
 
     assert exit_code == 0
-    assert remote_calls == [
+    assert local_calls == [
         (
             dataset_bytes,
             eval_queries_bytes,

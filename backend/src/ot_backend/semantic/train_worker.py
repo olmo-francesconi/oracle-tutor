@@ -59,8 +59,8 @@ def _run_local_base_model_export(
 ) -> bytes:
     modal_train = _load_modal_train_module()
     train_fn = getattr(modal_train, "train", None)
-    if train_fn is None:
-        raise RuntimeError("Packaged training module does not expose a callable train().")
+    if train_fn is None or not hasattr(train_fn, "local"):
+        raise RuntimeError("Packaged training module does not expose a callable train.local().")
     logger.info("Running local base model export (skip_fine_tune=True).")
     return train_fn.local(
         dataset_bytes,
@@ -81,6 +81,7 @@ def _run_modal_training(
     epochs: int,
     batch_size: int,
     augmentation_mode: str,
+    skip_fine_tune: bool,
 ) -> bytes:
     if not modal_client_configured():
         raise RuntimeError("Modal client credentials are not configured. Expected MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.")
@@ -96,7 +97,7 @@ def _run_modal_training(
             epochs,
             batch_size,
             augmentation_mode,
-            False,
+            skip_fine_tune,
         )
     except Exception:
         logger.exception("Modal training failed.")
@@ -143,18 +144,25 @@ def _run_claimed_train_job(job_id: str) -> bool:
             dataset_bytes_for_training = get_semantic_dataset_bytes(db, payload.dataset_id)
 
         eval_queries_bytes = default_eval_queries_bytes()
-        train_kwargs = dict(
-            dataset_bytes=dataset_bytes_for_training,
-            eval_queries_bytes=eval_queries_bytes,
-            base_model=payload.base_model,
-            epochs=payload.epochs,
-            batch_size=payload.batch_size,
-            augmentation_mode=augmentation_mode,
-        )
         if payload.skip_fine_tune:
-            bundle_bytes = _run_local_base_model_export(**train_kwargs)
+            bundle_bytes = _run_local_base_model_export(
+                dataset_bytes=dataset_bytes_for_training,
+                eval_queries_bytes=eval_queries_bytes,
+                base_model=payload.base_model,
+                epochs=payload.epochs,
+                batch_size=payload.batch_size,
+                augmentation_mode=augmentation_mode,
+            )
         else:
-            bundle_bytes = _run_modal_training(**train_kwargs)
+            bundle_bytes = _run_modal_training(
+                dataset_bytes=dataset_bytes_for_training,
+                eval_queries_bytes=eval_queries_bytes,
+                base_model=payload.base_model,
+                epochs=payload.epochs,
+                batch_size=payload.batch_size,
+                augmentation_mode=augmentation_mode,
+                skip_fine_tune=False,
+            )
 
         with SessionLocal() as db:
             model = register_model_bundle_bytes(
