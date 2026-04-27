@@ -1,14 +1,21 @@
 import { FilterBar } from '../components/FilterBar'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
+import { SymbolText } from '../components/SymbolText'
 import { SearchErrorPanel } from '../components/errors/SearchErrorPanel'
-import type { CardMatch, FilterState } from '../types/api'
+import type { CardMatch, FilterState, SimilarCard } from '../types/api'
 import type { SearchShellState } from '../types/ui'
+
+type PinnedSummary = {
+  oracleText: string | null
+} | null
 
 type Props = {
   state: SearchShellState
   showFilters: boolean
   activeFilterCount: number
+  lastTextQuery?: string | null
+  pinnedSummary?: PinnedSummary
   onDraftChange: (value: string) => void
   onSubmit: (value?: string) => void
   onCardSelect: (card: CardMatch) => void
@@ -17,12 +24,17 @@ type Props = {
   onFiltersChange: (filters: FilterState) => void
   onClearFilters: () => void
   onLoadMore: () => void
+  onCardOpen: (card: SimilarCard) => void
+  onTitleClick?: () => void
+  onRestoreTextQuery?: () => void
 }
 
 export function ResultsView({
   state,
   showFilters,
   activeFilterCount,
+  lastTextQuery,
+  pinnedSummary,
   onDraftChange,
   onSubmit,
   onCardSelect,
@@ -31,6 +43,9 @@ export function ResultsView({
   onFiltersChange,
   onClearFilters,
   onLoadMore,
+  onCardOpen,
+  onTitleClick,
+  onRestoreTextQuery,
 }: Props) {
   return (
     <>
@@ -75,32 +90,65 @@ export function ResultsView({
               </svg>
               <span className="max-[720px]:hidden">Filters</span>
               {activeFilterCount > 0 && (
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center bg-ot-red font-display text-[0.5625rem] font-black text-white max-[720px]:hidden">
+                <span
+                  className={[
+                    'flex h-4 w-4 shrink-0 items-center justify-center font-display text-[0.5625rem] font-black max-[720px]:hidden',
+                    showFilters ? 'bg-ot-bg text-ot-ink' : 'bg-ot-ink text-ot-bg',
+                  ].join(' ')}
+                >
                   {activeFilterCount}
                 </span>
               )}
             </button>
           </header>
 
-          <section
-            className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-8 gap-y-[18px] border-b-2 border-ot-ink bg-ot-bg px-6 pb-[18px] pl-[38px] pr-6 pt-4 max-[720px]:grid-cols-1 max-[720px]:gap-[10px] max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
-            aria-label="Results summary"
-          >
-            <div className="grid max-w-[min(34rem,100%)] gap-1 max-[720px]:gap-0.5">
-              <p className="eyebrow">{state.pinnedCard ? 'Similar to' : 'Results'}</p>
-              <h2 className="m-0 font-display text-[clamp(2.2rem,4.4vw,3.35rem)] font-black uppercase leading-[0.9] tracking-[-0.02em]">
-                {state.submittedQuery}
-              </h2>
-            </div>
-            <div className="grid min-w-[13rem] justify-items-end gap-1.5 self-center max-[720px]:min-w-0 max-[720px]:justify-items-start">
-              {!state.isLoading ? (
-                <span className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted" aria-live="polite">
-                  {state.results.length}
-                  {state.hasMore || state.isLoadingMore ? '+' : ''} cards
-                </span>
-              ) : null}
-            </div>
-          </section>
+          {state.pinnedCard ? (
+            <section
+              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-x-10 gap-y-3 border-b-2 border-ot-ink bg-ot-bg px-6 pb-5 pl-[38px] pr-6 pt-4 max-[860px]:grid-cols-1 max-[860px]:gap-y-3 max-[720px]:px-4 max-[720px]:pb-4 max-[720px]:pl-6 max-[720px]:pt-[14px]"
+              aria-label="Results summary"
+            >
+              <div className="grid max-w-[min(34rem,100%)] content-start gap-1 max-[720px]:gap-0.5">
+                {lastTextQuery && onRestoreTextQuery ? (
+                  <button
+                    type="button"
+                    onClick={onRestoreTextQuery}
+                    className="m-0 inline-flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 pb-1 text-left lowercase tracking-[0.04em] text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:text-ot-red motion-reduce:transition-none"
+                    style={{ fontSize: '0.78rem' }}
+                  >
+                    <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="currentColor" aria-hidden="true">
+                      <path d="M13 8H3.5L7 11.5l-1 1L1 7.5 6 2.5l1 1L3.5 7H13z" />
+                    </svg>
+                    <span>back to "{lastTextQuery}"</span>
+                  </button>
+                ) : null}
+                <p className="eyebrow">Similar to</p>
+                {onTitleClick ? (
+                  <button
+                    type="button"
+                    onClick={onTitleClick}
+                    aria-label={`Open detail for ${state.submittedQuery ?? 'pinned card'}`}
+                    className="m-0 inline cursor-pointer border-0 bg-transparent p-0 text-left font-display text-[2.4rem] font-black uppercase leading-[0.9] tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:text-ot-red motion-reduce:transition-none"
+                  >
+                    {state.submittedQuery}
+                  </button>
+                ) : (
+                  <h2 className="m-0 font-display text-[2.4rem] font-black uppercase leading-[0.9] tracking-[-0.02em]">
+                    {state.submittedQuery}
+                  </h2>
+                )}
+              </div>
+
+              <div className="grid content-start self-stretch border-l-2 border-ot-ink pl-8 max-[860px]:border-l-0 max-[860px]:border-t-2 max-[860px]:pl-0 max-[860px]:pt-3">
+                {pinnedSummary?.oracleText ? (
+                  <div className="whitespace-pre-line text-[0.85rem] leading-[1.55] text-ot-ink">
+                    <SymbolText text={pinnedSummary.oracleText} />
+                  </div>
+                ) : pinnedSummary === null ? null : (
+                  <p className="m-0 text-[0.85rem] italic text-ot-muted">No oracle text on file.</p>
+                )}
+              </div>
+            </section>
+          ) : null}
 
           {showFilters && (
             <FilterBar filters={state.filters} onChange={onFiltersChange} onClear={onClearFilters} />
@@ -112,26 +160,28 @@ export function ResultsView({
           aria-label="Results state"
         >
           {state.isLoading ? (
-            <div className="grid gap-3" aria-hidden="true">
-              <div className="grid gap-1.5">
-                <span className="block h-3 w-28 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                <span className="block h-8 w-[min(24rem,78vw)] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-              </div>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-3 max-[720px]:grid-cols-[repeat(auto-fill,minmax(154px,1fr))]">
-                {Array.from({ length: 6 }, (_, index) => (
-                  <div key={index} className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-                    <span className="block h-8 animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_82%,var(--color-ot-bg))]" />
-                    <span className="block aspect-[63/88] animate-ot-loading-pulse bg-[color:color-mix(in_srgb,var(--color-ot-line)_72%,var(--color-ot-bg))]" />
-                  </div>
+            <div className="grid gap-4" aria-hidden="true">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 min-[1500px]:grid-cols-6">
+                {Array.from({ length: 10 }, (_, index) => (
+                  <span
+                    key={index}
+                    className="block aspect-[63/88] w-full animate-ot-loading-pulse rounded-xl bg-[color:color-mix(in_srgb,var(--color-ot-line)_72%,var(--color-ot-bg))]"
+                  />
                 ))}
               </div>
             </div>
           ) : null}
           {!state.isLoading && state.error ? <SearchErrorPanel message={state.error} /> : null}
           {!state.isLoading && !state.error && state.results.length === 0 ? (
-            <p className="m-0 text-xs uppercase tracking-[0.11em] text-ot-muted">
-              No cards matched {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
-            </p>
+            <div className="grid max-w-[28rem] gap-2">
+              <p className="eyebrow">No matches</p>
+              <p className="m-0 font-display text-[1.55rem] font-black uppercase leading-[0.95] tracking-[-0.02em] text-ot-ink">
+                Nothing landed for {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
+              </p>
+              <p className="m-0 text-[0.85rem] leading-[1.55] text-ot-muted">
+                Try fewer filters, or describe the effect in plain language ("untap when blocked", "exile from graveyard").
+              </p>
+            </div>
           ) : null}
           {state.results.length > 0 ? (
             <ResultsGrid
@@ -139,6 +189,7 @@ export function ResultsView({
               hasMore={state.hasMore}
               isLoadingMore={state.isLoadingMore}
               onLoadMore={onLoadMore}
+              onCardOpen={onCardOpen}
             />
           ) : null}
         </section>

@@ -9,7 +9,7 @@ type CardImageFallbackProps = {
 
 export function CardImageFallback({ alt, oracleText, manaCost, className }: CardImageFallbackProps) {
   return (
-    <div className={['grid h-full grid-rows-[auto_1fr] overflow-hidden bg-[#b7b7b2]', className ?? ''].join(' ')} style={{ borderRadius: 0 }} aria-hidden="true">
+    <div className={['grid h-full grid-rows-[auto_1fr] overflow-hidden bg-[#b7b7b2]', className ?? ''].join(' ')} aria-hidden="true">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-b-2 border-ot-ink bg-ot-bg p-2">
         <p className="m-0 min-w-0 truncate font-display text-[0.95rem] font-black uppercase leading-[0.94] tracking-[-0.02em] text-ot-ink">
           {alt || 'Card name unavailable'}

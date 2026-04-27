@@ -1,4 +1,3 @@
-import { DenseTextBackground } from '../components/background/DenseTextBackground'
 import { HomeEditorialText } from '../components/background/HomeEditorialText'
 import { SearchBox } from '../components/SearchBox/SearchBox'
 import type { CardMatch, OracleSamples } from '../types/api'
@@ -31,12 +30,6 @@ export function HomeView({
 }: Props) {
   return (
     <>
-      <DenseTextBackground
-        texts={oracleSamples.texts}
-        viewport={viewport}
-        isVisible={hasOracleBackground}
-        leftInset={LEFT_STRIPE_WIDTH_PX}
-      />
       <div className="relative z-10">
         <HomeEditorialText
           texts={oracleSamples.texts}
