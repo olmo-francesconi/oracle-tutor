@@ -584,27 +584,40 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
     tokenizer_paths: list[str] = []
     session_paths: list[str] = []
 
+    class FakeEncoding:
+        def __init__(self, ids, attention_mask, type_ids):
+            self.ids = ids
+            self.attention_mask = attention_mask
+            self.type_ids = type_ids
+
     class FakeTokenizer:
         @classmethod
-        def from_pretrained(cls, path: str, local_files_only: bool):
+        def from_file(cls, path: str):
             tokenizer_paths.append(path)
-            assert local_files_only is True
             return cls()
 
-        def __call__(self, texts, **_kwargs):
-            assert texts == ["Deal damage to any target."]
-            import numpy as np
+        def enable_truncation(self, max_length: int) -> None:
+            assert max_length == 512
 
-            return {
-                "input_ids": np.asarray([[101, 102]], dtype=np.int64),
-                "attention_mask": np.asarray([[1, 1]], dtype=np.int64),
-            }
+        def enable_padding(self, pad_id: int, pad_token: str) -> None:
+            assert pad_id == 0
+            assert pad_token == "[PAD]"
+
+        def token_to_id(self, token: str):
+            assert token == "[PAD]"
+            return 0
+
+        def encode_batch(self, texts):
+            assert texts == ["Deal damage to any target."]
+            return [FakeEncoding(ids=[101, 102], attention_mask=[1, 1], type_ids=[0, 0])]
 
     class FakeSessionOptions:
         def __init__(self) -> None:
             self.log_severity_level = 0
             self.intra_op_num_threads = 0
             self.inter_op_num_threads = 0
+            self.enable_cpu_mem_arena = True
+            self.enable_mem_pattern = True
 
     class FakeInferenceSession:
         def __init__(self, path: str, *, sess_options: FakeSessionOptions, providers: list[str]) -> None:
@@ -613,6 +626,8 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
             assert sess_options.log_severity_level == 3
             assert sess_options.intra_op_num_threads == 2
             assert sess_options.inter_op_num_threads == 3
+            assert sess_options.enable_cpu_mem_arena is False
+            assert sess_options.enable_mem_pattern is False
 
         def get_inputs(self):
             return [SimpleNamespace(name="input_ids"), SimpleNamespace(name="attention_mask")]
@@ -627,8 +642,8 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
         import_calls.append(module_name)
         if module_name == "onnxruntime":
             return SimpleNamespace(InferenceSession=FakeInferenceSession, SessionOptions=FakeSessionOptions)
-        if module_name == "transformers":
-            return SimpleNamespace(AutoTokenizer=FakeTokenizer)
+        if module_name == "tokenizers":
+            return SimpleNamespace(Tokenizer=FakeTokenizer)
         raise AssertionError(f"Unexpected import: {module_name}")
 
     monkeypatch.setenv("SEMANTIC_ACTIVE_MODEL_POLL_SECONDS", "0")
@@ -645,9 +660,11 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
     assert semantic_index.encode_query("Deal damage to any target.") == [0.7071067690849304, 0.7071067690849304]
     assert len(tokenizer_paths) == 1
     expected_digest_prefix = hashlib.sha256(bundle).hexdigest()[:12]
-    assert tokenizer_paths[0].endswith(f"semantic-model-{model_id}-{expected_digest_prefix}/models/onnx")
+    assert tokenizer_paths[0].endswith(
+        f"semantic-model-{model_id}-{expected_digest_prefix}/models/onnx/tokenizer.json"
+    )
     assert len(session_paths) == 1
     assert session_paths[0].endswith("onnx/model.onnx")
-    assert import_calls == ["onnxruntime", "transformers"]
+    assert import_calls == ["onnxruntime", "tokenizers"]
     index._index = None
     index._last_refresh_check = 0.0

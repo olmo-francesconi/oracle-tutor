@@ -1464,7 +1464,7 @@ api = [
     { name = "hypercorn" },
     { name = "numpy" },
     { name = "onnxruntime" },
-    { name = "transformers" },
+    { name = "tokenizers" },
 ]
 scryfall-sync = [
     { name = "ijson" },
@@ -1516,7 +1516,7 @@ requires-dist = [
     { name = "requests", marker = "extra == 'scryfall-sync'", specifier = ">=2.32.0" },
     { name = "sentence-transformers", extras = ["onnx"], marker = "extra == 'semantic-train'", specifier = ">=3.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
-    { name = "transformers", marker = "extra == 'api'", specifier = ">=4.48.0" },
+    { name = "tokenizers", marker = "extra == 'api'", specifier = ">=0.20.0" },
 ]
 provides-extras = ["api", "scryfall-sync", "semantic-train"]
 

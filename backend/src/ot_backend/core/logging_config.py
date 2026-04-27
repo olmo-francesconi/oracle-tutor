@@ -108,6 +108,10 @@ def log_performance(
             result_count = 1
             if isinstance(result, (list, tuple)):
                 result_count = len(result)
+            else:
+                items = getattr(result, "items", None)
+                if isinstance(items, (list, tuple)):
+                    result_count = len(items)
 
             parts = [f"Found {result_count} matches in {elapsed_ms:.2f} ms"]
             if query:

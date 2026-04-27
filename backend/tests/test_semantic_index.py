@@ -54,25 +54,38 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
     (model_root / "onnx").mkdir(parents=True)
     (model_root / "onnx" / "model.onnx").write_bytes(b"onnx")
     (pooling_dir / "config.json").write_text('{"pooling_mode_mean_tokens": true}', encoding="utf-8")
+    (model_root / "tokenizer.json").write_text("{}", encoding="utf-8")
 
     import_calls: list[str] = []
     tokenizer_paths: list[str] = []
     session_paths: list[str] = []
 
+    class FakeEncoding:
+        def __init__(self, ids: list[int], attention_mask: list[int], type_ids: list[int]) -> None:
+            self.ids = ids
+            self.attention_mask = attention_mask
+            self.type_ids = type_ids
+
     class FakeTokenizer:
         @classmethod
-        def from_pretrained(cls, path: str, local_files_only: bool) -> "FakeTokenizer":
+        def from_file(cls, path: str) -> "FakeTokenizer":
             tokenizer_paths.append(path)
-            assert local_files_only is True
             return cls()
 
-        def __call__(self, texts: list[str], **_: object) -> dict[str, np.ndarray]:
+        def enable_truncation(self, max_length: int) -> None:
+            assert max_length == 512
+
+        def enable_padding(self, pad_id: int, pad_token: str) -> None:
+            assert pad_id == 0
+            assert pad_token == "[PAD]"
+
+        def token_to_id(self, token: str) -> int | None:
+            assert token == "[PAD]"
+            return 0
+
+        def encode_batch(self, texts: list[str]) -> list[FakeEncoding]:
             assert texts == ["Deal damage to any target."]
-            return {
-                "input_ids": np.asarray([[101, 102, 0]], dtype=np.int64),
-                "attention_mask": np.asarray([[1, 1, 0]], dtype=np.int64),
-                "token_type_ids": np.asarray([[0, 0, 0]], dtype=np.int64),
-            }
+            return [FakeEncoding(ids=[101, 102, 0], attention_mask=[1, 1, 0], type_ids=[0, 0, 0])]
 
     class FakeSessionInput:
         def __init__(self, name: str) -> None:
@@ -83,6 +96,8 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
             self.log_severity_level = 0
             self.intra_op_num_threads = 0
             self.inter_op_num_threads = 0
+            self.enable_cpu_mem_arena = True
+            self.enable_mem_pattern = True
 
     class FakeInferenceSession:
         def __init__(self, path: str, *, sess_options: FakeSessionOptions, providers: list[str]) -> None:
@@ -91,6 +106,8 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
             assert sess_options.log_severity_level == 3
             assert sess_options.intra_op_num_threads == 2
             assert sess_options.inter_op_num_threads == 3
+            assert sess_options.enable_cpu_mem_arena is False
+            assert sess_options.enable_mem_pattern is False
 
         def get_inputs(self) -> list[FakeSessionInput]:
             return [FakeSessionInput("input_ids"), FakeSessionInput("attention_mask")]
@@ -109,8 +126,8 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
         import_calls.append(module_name)
         if module_name == "onnxruntime":
             return SimpleNamespace(InferenceSession=FakeInferenceSession, SessionOptions=FakeSessionOptions)
-        if module_name == "transformers":
-            return SimpleNamespace(AutoTokenizer=FakeTokenizer)
+        if module_name == "tokenizers":
+            return SimpleNamespace(Tokenizer=FakeTokenizer)
         raise AssertionError(f"Unexpected import: {module_name}")
 
     monkeypatch.setattr("ot_backend.semantic.index.get_active_semantic_model_id", lambda db: 1)
@@ -128,9 +145,9 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
 
     assert semantic_index is not None
     query_embedding = semantic_index.encode_query("Deal damage to any target.")
-    assert tokenizer_paths == [str(model_root)]
+    assert tokenizer_paths == [str(model_root / "tokenizer.json")]
     assert session_paths == [str(model_root / "onnx" / "model.onnx")]
-    assert import_calls == ["onnxruntime", "transformers"]
+    assert import_calls == ["onnxruntime", "tokenizers"]
     assert query_embedding == [0.7071067690849304, 0.7071067690849304]
     _reset_index_state()
 

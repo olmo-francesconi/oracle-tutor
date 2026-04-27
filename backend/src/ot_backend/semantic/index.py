@@ -13,8 +13,6 @@ from typing import cast as type_cast
 
 import numpy as np
 import numpy.typing as npt
-from sqlalchemy import and_, cast, or_
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from ..core.config import (
@@ -24,7 +22,8 @@ from ..core.config import (
     semantic_onnx_intra_op_threads,
 )
 from ..core.database import SessionLocal
-from ..core.models import Card, CardFace, SemanticModel, SemanticModelEmbedding
+from ..core.models import SemanticModel
+from .embedding_matrix import EmbeddingMatrix
 from .model_registry import get_active_semantic_model_id, materialize_semantic_model
 from .text_prep import normalize_oracle_text
 
@@ -51,16 +50,16 @@ def _load_onnx_dependencies() -> tuple[Any, Any, Any]:
     warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
     try:
         onnxruntime = import_module("onnxruntime")
-        transformers = import_module("transformers")
+        tokenizers = import_module("tokenizers")
     except Exception as exc:  # pragma: no cover - optional dependency guard
         raise RuntimeError(
-            "onnxruntime and transformers are required for semantic inference. "
+            "onnxruntime and tokenizers are required for semantic inference. "
             "Install the API dependencies before using this module."
         ) from exc
     return (
         getattr(onnxruntime, "InferenceSession"),
         getattr(onnxruntime, "SessionOptions"),
-        getattr(transformers, "AutoTokenizer"),
+        getattr(tokenizers, "Tokenizer"),
     )
 
 
@@ -70,6 +69,19 @@ def _pooling_config_path(model_root: Path) -> Path:
 
 def _resolve_onnx_model_path(model_root: Path) -> Path:
     return model_root / "onnx" / "model.onnx"
+
+
+def _read_max_seq_length(model_root: Path) -> int:
+    sbert_config = model_root / "sentence_bert_config.json"
+    if sbert_config.exists():
+        try:
+            cfg = type_cast(dict[str, Any], json.loads(sbert_config.read_text(encoding="utf-8")))
+            value = cfg.get("max_seq_length")
+            if isinstance(value, int) and value > 0:
+                return value
+        except (ValueError, OSError):
+            pass
+    return 512
 
 
 def _validate_pooling_strategy(model_root: Path) -> None:
@@ -121,16 +133,33 @@ class OnnxTextEncoder:
         onnx_model_path = _resolve_onnx_model_path(model_root)
         if not onnx_model_path.exists():
             raise RuntimeError(f"Semantic ONNX artifact not found at {onnx_model_path}")
+        tokenizer_path = model_root / "tokenizer.json"
+        if not tokenizer_path.exists():
+            raise RuntimeError(
+                f"Semantic bundle missing tokenizer.json at {tokenizer_path}; "
+                "re-export the model with a recent sentence-transformers version."
+            )
 
         _validate_pooling_strategy(model_root)
-        InferenceSession, SessionOptions, AutoTokenizer = _load_onnx_dependencies()
+        InferenceSession, SessionOptions, Tokenizer = _load_onnx_dependencies()
         sess_options = SessionOptions()
         sess_options.log_severity_level = _ORT_LOG_SEVERITY_ERRORS_ONLY
         sess_options.intra_op_num_threads = semantic_onnx_intra_op_threads()
         sess_options.inter_op_num_threads = semantic_onnx_inter_op_threads()
+        # Trade a tiny bit of latency for ~100-200 MB less resident memory:
+        # ORT's CPU arena keeps freed allocations around for reuse, which
+        # inflates RSS for an API that encodes one short query at a time.
+        sess_options.enable_cpu_mem_arena = False
+        sess_options.enable_mem_pattern = False
         configure_huggingface_env()
         logger.info("Loading ONNX model from %s", onnx_model_path)
-        self._tokenizer = AutoTokenizer.from_pretrained(str(model_root), local_files_only=True)
+        self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        max_length = _read_max_seq_length(model_root)
+        self._tokenizer.enable_truncation(max_length=max_length)
+        pad_id = self._tokenizer.token_to_id("[PAD]")
+        if pad_id is None:
+            pad_id = 0
+        self._tokenizer.enable_padding(pad_id=pad_id, pad_token="[PAD]")
         self._session = InferenceSession(
             str(onnx_model_path),
             sess_options=sess_options,
@@ -159,21 +188,21 @@ class OnnxTextEncoder:
             logger.debug("Encoding batch %d-%d / %d", start + 1, min(start + effective_batch, total), total)
             raw_batch = texts[start : start + effective_batch]
             batch = [normalize_oracle_text(text) for text in raw_batch] if normalize_inputs else list(raw_batch)
-            encoded = self._tokenizer(
-                batch,
-                padding=True,
-                truncation=True,
-                return_tensors="np",
-            )
-            session_inputs = {
-                key: value
-                for key, value in encoded.items()
-                if key in self._session_input_names
-            }
+            encoded = self._tokenizer.encode_batch(batch)
+            input_ids = np.asarray([enc.ids for enc in encoded], dtype=np.int64)
+            attention_mask = np.asarray([enc.attention_mask for enc in encoded], dtype=np.int64)
+            session_inputs: dict[str, np.ndarray] = {}
+            if "input_ids" in self._session_input_names:
+                session_inputs["input_ids"] = input_ids
+            if "attention_mask" in self._session_input_names:
+                session_inputs["attention_mask"] = attention_mask
+            if "token_type_ids" in self._session_input_names:
+                session_inputs["token_type_ids"] = np.asarray(
+                    [enc.type_ids for enc in encoded], dtype=np.int64
+                )
             outputs = self._session.run(None, session_inputs)
             token_embeddings = np.asarray(outputs[0], dtype=np.float32)
-            attention_mask = np.asarray(encoded["attention_mask"], dtype=np.float32)
-            pooled = _mean_pool(token_embeddings, attention_mask)
+            pooled = _mean_pool(token_embeddings, attention_mask.astype(np.float32))
             normalized_embeddings = _normalize_embeddings(pooled)
             vectors.extend([[float(value) for value in row] for row in normalized_embeddings])
         return vectors
@@ -186,13 +215,32 @@ class OnnxTextEncoder:
 
 class SemanticIndex:
     model: OnnxTextEncoder
+    _matrix: EmbeddingMatrix | None
+    _matrix_lock: threading.Lock
 
     def __init__(self, model_root: Path, *, model_id: str | None = None):
         self.model = OnnxTextEncoder(model_root=model_root)
         self.model_id = model_id
+        self._matrix = None
+        self._matrix_lock = threading.Lock()
 
     def encode_query(self, text: str) -> list[float]:
         return self.model.encode(text)
+
+    def warm(self) -> None:
+        """Eagerly load the embedding matrix using a fresh DB session."""
+        with SessionLocal() as db:
+            self._ensure_matrix(db)
+
+    def _ensure_matrix(self, db: Session) -> EmbeddingMatrix:
+        if self._matrix is not None:
+            return self._matrix
+        with self._matrix_lock:
+            if self._matrix is None:
+                if self.model_id is None:
+                    raise RuntimeError("SemanticIndex has no model_id; cannot load embedding matrix.")
+                self._matrix = EmbeddingMatrix.load(db, self.model_id)
+        return self._matrix
 
     def similar_to_face(
         self,
@@ -208,14 +256,15 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        seed = db.get(SemanticModelEmbedding, (self.model_id, *face_key))
-        if seed is None:
+        matrix = self._ensure_matrix(db)
+        seed_idx = matrix.key_to_idx.get(face_key)
+        if seed_idx is None:
             return []
-        return self._pgvector_query(
-            seed.embedding,
-            limit + 1,
-            db,
-            exclude=face_key,
+        return self._score(
+            matrix,
+            matrix.vectors[seed_idx],
+            limit,
+            exclude_idx=seed_idx,
             card_type=card_type,
             colors=colors,
             cmc_min=cmc_min,
@@ -240,10 +289,15 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        return self._pgvector_query(
-            self.encode_query(query),
+        matrix = self._ensure_matrix(db)
+        query_vec = np.asarray(self.encode_query(query), dtype=np.float32)
+        norm = float(np.linalg.norm(query_vec))
+        if norm > 0:
+            query_vec = query_vec / norm
+        return self._score(
+            matrix,
+            query_vec,
             limit,
-            db,
             card_type=card_type,
             colors=colors,
             cmc_min=cmc_min,
@@ -254,12 +308,13 @@ class SemanticIndex:
             match_mode=match_mode,
         )
 
-    def _pgvector_query(
-        self,
-        query_vec: Sequence[float],
+    @staticmethod
+    def _score(
+        matrix: EmbeddingMatrix,
+        query_vec: FloatArray,
         limit: int,
-        db: Session,
-        exclude: tuple[str, int] | None = None,
+        *,
+        exclude_idx: int | None = None,
         card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
@@ -269,67 +324,40 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        distance = SemanticModelEmbedding.embedding.cosine_distance(query_vec).label("distance")
-        query = (
-            db.query(SemanticModelEmbedding.oracle_id, SemanticModelEmbedding.face_ix, distance)
-            .filter(SemanticModelEmbedding.model_id == self.model_id)
+        if matrix.vectors.size == 0 or limit <= 0:
+            return []
+
+        mask = matrix.filter_mask(
+            card_type=card_type,
+            colors=colors,
+            cmc_min=cmc_min,
+            cmc_max=cmc_max,
+            format=format,
+            rarity=rarity,
+            color_feature=color_feature,
+            match_mode=match_mode,
         )
+        if exclude_idx is not None:
+            mask[exclude_idx] = False
 
-        has_filters = any(value is not None for value in (card_type, colors, cmc_min, cmc_max, format)) or bool(rarity)
-        if has_filters:
-            query = query.join(
-                CardFace,
-                and_(
-                    CardFace.oracle_id == SemanticModelEmbedding.oracle_id,
-                    CardFace.face_ix == SemanticModelEmbedding.face_ix,
-                ),
-            ).join(Card, Card.oracle_id == CardFace.oracle_id)
+        kept = np.flatnonzero(mask)
+        if kept.size == 0:
+            return []
 
-        if exclude is not None:
-            oracle_id_ex, face_ix_ex = exclude
-            query = query.filter(
-                ~and_(
-                    SemanticModelEmbedding.oracle_id == oracle_id_ex,
-                    SemanticModelEmbedding.face_ix == face_ix_ex,
-                )
-            )
+        scores = matrix.vectors[kept] @ query_vec  # (K,) cosine == dot for normalized vectors
+        n = min(limit, kept.size)
+        if n < kept.size:
+            partition = np.argpartition(-scores, n - 1)[:n]
+            ordered = partition[np.argsort(-scores[partition])]
+        else:
+            ordered = np.argsort(-scores)
 
-        if card_type:
-            # Array overlap against the GIN-indexed type_categories column.
-            query = query.filter(CardFace.type_categories.op("&&")(card_type))
-
-        if colors is not None:
-            color_values: list[str] = []
-            for ch in colors.upper():
-                if ch in {"W", "U", "B", "R", "G"} and ch not in color_values:
-                    color_values.append(ch)
-            if color_values:
-                color_source = cast(CardFace.colors, JSONB) if color_feature == "colors" else cast(Card.color_identity, JSONB)
-
-                if match_mode == "exact":
-                    query = query.filter(color_source.contains(color_values))
-                    query = query.filter(color_source.contained_by(color_values))
-                elif match_mode == "at_most":
-                    query = query.filter(color_source.contained_by(color_values))
-                else:
-                    query = query.filter(color_source.contains(color_values))
-
-        if cmc_min is not None:
-            query = query.filter(Card.cmc >= cmc_min)
-
-        if cmc_max is not None:
-            query = query.filter(Card.cmc <= cmc_max)
-
-        if format:
-            query = query.filter(
-                or_(*(Card.legalities.op("->>")(value).in_(["legal", "restricted"]) for value in format))
-            )
-
-        if rarity:
-            query = query.filter(Card.rarity.in_(rarity))
-
-        rows = query.order_by(distance).limit(limit).all()
-        return [((row.oracle_id, row.face_ix), round(1.0 - row.distance, 6)) for row in rows]
+        result_idx = kept[ordered]
+        result_scores = scores[ordered]
+        return [
+            (matrix.face_keys[int(i)], round(float(result_scores[k]), 6))
+            for k, i in enumerate(result_idx)
+        ]
 
 
 # ---------------------------------------------------------------------------
