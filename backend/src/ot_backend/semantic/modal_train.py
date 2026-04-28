@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import modal
+    import modal  # pyright: ignore[reportMissingImports]
 except ModuleNotFoundError:  # pragma: no cover - exercised in local test envs without modal installed
     class _DummyImage:
         @staticmethod
@@ -69,7 +69,7 @@ from .train_options import (
     parse_train_augmentation_mode,
 )
 
-image = (
+image: Any = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install(
         "sentence-transformers>=3.3.1",
@@ -81,8 +81,8 @@ image = (
     )
 )
 
-hf_cache = modal.Volume.from_name("oracle-tutor-hf-cache", create_if_missing=True)
-app = modal.App("oracle-tutor-train")
+hf_cache: Any = modal.Volume.from_name("oracle-tutor-hf-cache", create_if_missing=True)
+app: Any = modal.App("oracle-tutor-train")
 
 _LLM_SYSTEM_PROMPT_TEMPLATE = """\
 You are a search query generator for a Magic: The Gathering card database.
@@ -100,7 +100,7 @@ _LIST_PREFIX = re.compile(r"^[\s\-\*•\d\.\)]+")
 
 
 def _parse_face_key_rows(rows: list[list[object]] | list[tuple[object, object]]) -> list[tuple[str, int]]:
-    return [(str(oracle_id), int(face_ix)) for oracle_id, face_ix in rows]
+    return [(str(oracle_id), int(str(face_ix))) for oracle_id, face_ix in rows]
 
 
 def _parse_llm_queries(raw_text: str, *, max_queries: int) -> list[str]:
@@ -154,7 +154,7 @@ def _generate_llm_query_pairs(face_rows: list[dict[str, str]], *, llm_config: di
         return []
 
     try:
-        from vllm import LLM, SamplingParams
+        from vllm import LLM, SamplingParams  # pyright: ignore[reportMissingImports]
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("vLLM is required for llm_queries augmentation inside Modal.") from exc
 
@@ -209,8 +209,10 @@ def _build_dataset_state(
         raise ValueError(f"Unsupported training build payload version: {build_payload.get('version')!r}.")
 
     selected_augmentations = set(parse_train_augmentation_mode(augmentation_mode))
-    feature_flags = build_payload.get("features") if isinstance(build_payload.get("features"), dict) else {}
-    options = build_payload.get("options") if isinstance(build_payload.get("options"), dict) else {}
+    raw_features = build_payload.get("features")
+    feature_flags: dict[str, Any] = raw_features if isinstance(raw_features, dict) else {}
+    raw_options = build_payload.get("options")
+    options: dict[str, Any] = raw_options if isinstance(raw_options, dict) else {}
     face_rows = list(build_payload.get("faces") or [])
 
     face_texts: dict[tuple[str, int], str] = {}
@@ -224,7 +226,7 @@ def _build_dataset_state(
         normalized_faces.append(
             {
                 "oracle_id": face_key[0],
-                "face_ix": face_key[1],
+                "face_ix": str(face_key[1]),
                 "oracle_text": str(row.get("oracle_text") or ""),
                 "text": normalized_text,
             }
@@ -237,7 +239,8 @@ def _build_dataset_state(
     if feature_flags.get("tag_pairs") and TRAIN_AUGMENTATION_TAG_PAIRS in selected_augmentations:
         max_pairs_per_tag = int(options.get("max_tag_pairs_per_tag", 50))
         min_group_size = int(options.get("max_tag_pair_group_size", 5))
-        tag_to_face_ids = build_payload.get("tag_to_face_ids") if isinstance(build_payload.get("tag_to_face_ids"), dict) else {}
+        raw_tag_to_face_ids = build_payload.get("tag_to_face_ids")
+        tag_to_face_ids: dict[str, Any] = raw_tag_to_face_ids if isinstance(raw_tag_to_face_ids, dict) else {}
         for raw_face_ids in tag_to_face_ids.values():
             face_ids = _parse_face_key_rows(list(raw_face_ids))
             if len(face_ids) < min_group_size:
@@ -251,8 +254,10 @@ def _build_dataset_state(
     direct_text_pairs: list[tuple[str, str]] = []
     if feature_flags.get("tag_descriptions") and TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
         max_desc_pairs_per_tag = int(options.get("max_tag_desc_pairs_per_tag", 50))
-        tag_to_desc = build_payload.get("tag_to_desc") if isinstance(build_payload.get("tag_to_desc"), dict) else {}
-        tag_to_desc_faces = build_payload.get("tag_to_desc_faces") if isinstance(build_payload.get("tag_to_desc_faces"), dict) else {}
+        raw_tag_to_desc = build_payload.get("tag_to_desc")
+        tag_to_desc: dict[str, Any] = raw_tag_to_desc if isinstance(raw_tag_to_desc, dict) else {}
+        raw_tag_to_desc_faces = build_payload.get("tag_to_desc_faces")
+        tag_to_desc_faces: dict[str, Any] = raw_tag_to_desc_faces if isinstance(raw_tag_to_desc_faces, dict) else {}
         for tag_name, raw_face_ids in tag_to_desc_faces.items():
             anchor = str(tag_to_desc.get(tag_name) or "").strip()
             if not anchor:
@@ -347,7 +352,7 @@ def train(
 ) -> bytes:
     import numpy as np
     from sentence_transformers import InputExample, SentenceTransformer, losses
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader, Dataset
 
     os.environ["WANDB_MODE"] = "disabled"
     warnings.filterwarnings("ignore", category=FutureWarning, module="sentence_transformers")
@@ -365,7 +370,7 @@ def train(
     if not isinstance(eval_queries_payload, dict) or not isinstance(eval_queries_payload.get("queries"), list):
         raise ValueError("Eval queries payload must be a JSON object with a 'queries' list.")
 
-    class _Dataset:
+    class _Dataset(Dataset[InputExample]):
         def __init__(self) -> None:
             self._pairs = pair_ids
             self._direct = direct_text_pairs

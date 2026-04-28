@@ -120,11 +120,13 @@ def create_semantic_model(
 
 
 def list_semantic_models(db: Session) -> list[SemanticModel]:
-    return db.scalars(
-        select(SemanticModel)
-        .options(selectinload(SemanticModel.artifacts))
-        .order_by(SemanticModel.created_at.desc(), SemanticModel.id.desc())
-    ).all()
+    return list(
+        db.scalars(
+            select(SemanticModel)
+            .options(selectinload(SemanticModel.artifacts))
+            .order_by(SemanticModel.created_at.desc(), SemanticModel.id.desc())
+        ).all()
+    )
 
 
 def get_semantic_model(db: Session, model_id: str) -> SemanticModel | None:

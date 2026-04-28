@@ -82,11 +82,13 @@ def create_semantic_dataset(
 
 
 def list_semantic_datasets(db: Session) -> list[SemanticDataset]:
-    return db.scalars(
-        select(SemanticDataset)
-        .options(selectinload(SemanticDataset.artifacts))
-        .order_by(SemanticDataset.created_at.desc(), SemanticDataset.id.desc())
-    ).all()
+    return list(
+        db.scalars(
+            select(SemanticDataset)
+            .options(selectinload(SemanticDataset.artifacts))
+            .order_by(SemanticDataset.created_at.desc(), SemanticDataset.id.desc())
+        ).all()
+    )
 
 
 def get_semantic_dataset(db: Session, dataset_id: str) -> SemanticDataset | None:

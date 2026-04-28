@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
 from ..core.database import SessionLocal
@@ -56,7 +57,9 @@ def _utcnow_naive() -> datetime:
 
 
 def list_semantic_jobs(db: Session) -> list[SemanticJob]:
-    return db.scalars(select(SemanticJob).order_by(SemanticJob.created_at.desc(), SemanticJob.id.desc())).all()
+    return list(
+        db.scalars(select(SemanticJob).order_by(SemanticJob.created_at.desc(), SemanticJob.id.desc())).all()
+    )
 
 
 def get_semantic_job(db: Session, job_id: str) -> SemanticJob | None:
@@ -219,7 +222,7 @@ def claim_next_semantic_job(job_type: str, *, job_id: str | None = None) -> Sema
                     error_message=None,
                 )
             )
-            if result.rowcount != 1:
+            if cast(CursorResult[Any], result).rowcount != 1:
                 db.rollback()
                 current = db.get(SemanticJob, target_job_id)
                 if job_id is not None:
@@ -247,7 +250,7 @@ def touch_semantic_job_heartbeat(job_id: str) -> bool:
             .where(SemanticJob.status == SEMANTIC_JOB_STATUS_RUNNING)
             .values(heartbeat_at=_utcnow_naive())
         )
-        if result.rowcount != 1:
+        if cast(CursorResult[Any], result).rowcount != 1:
             db.rollback()
             return False
         db.commit()
@@ -351,7 +354,7 @@ def mark_semantic_job_succeeded(
                 error_message=None,
             )
         )
-        if result.rowcount != 1:
+        if cast(CursorResult[Any], result).rowcount != 1:
             db.rollback()
             raise RuntimeError(f"Semantic job {job_id} is not running.")
         db.commit()
@@ -385,7 +388,7 @@ def mark_semantic_job_failed(
                 finished_at=finished_at,
             )
         )
-        if result.rowcount != 1:
+        if cast(CursorResult[Any], result).rowcount != 1:
             db.rollback()
             current = db.get(SemanticJob, job_id)
             if current is None:

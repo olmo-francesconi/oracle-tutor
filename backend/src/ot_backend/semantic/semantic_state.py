@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..core.models import SystemMetadata, _utcnow_naive
@@ -40,11 +39,7 @@ def _parse_int(value: str | None) -> int:
 
 
 def _fetch_row(db: Session, key: str) -> SystemMetadata | None:
-    getter = getattr(db, "get", None)
-    if callable(getter):
-        return getter(SystemMetadata, key)
-    result = db.execute(select(SystemMetadata).where(SystemMetadata.key == key))
-    return result.scalar_one_or_none()
+    return db.get(SystemMetadata, key)
 
 
 def get_semantic_data_version(db: Session) -> int:

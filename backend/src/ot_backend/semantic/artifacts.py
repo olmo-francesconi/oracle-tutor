@@ -181,19 +181,23 @@ def upload_and_record_semantic_dataset_artifact(
 
 
 def list_semantic_model_artifacts(db: Session, model_id: str) -> list[SemanticModelArtifact]:
-    return db.scalars(
-        select(SemanticModelArtifact)
-        .where(SemanticModelArtifact.model_id == model_id)
-        .order_by(SemanticModelArtifact.created_at.asc(), SemanticModelArtifact.id.asc())
-    ).all()
+    return list(
+        db.scalars(
+            select(SemanticModelArtifact)
+            .where(SemanticModelArtifact.model_id == model_id)
+            .order_by(SemanticModelArtifact.created_at.asc(), SemanticModelArtifact.id.asc())
+        ).all()
+    )
 
 
 def list_semantic_dataset_artifacts(db: Session, dataset_id: str) -> list[SemanticDatasetArtifact]:
-    return db.scalars(
-        select(SemanticDatasetArtifact)
-        .where(SemanticDatasetArtifact.dataset_id == dataset_id)
-        .order_by(SemanticDatasetArtifact.created_at.asc(), SemanticDatasetArtifact.id.asc())
-    ).all()
+    return list(
+        db.scalars(
+            select(SemanticDatasetArtifact)
+            .where(SemanticDatasetArtifact.dataset_id == dataset_id)
+            .order_by(SemanticDatasetArtifact.created_at.asc(), SemanticDatasetArtifact.id.asc())
+        ).all()
+    )
 
 
 def get_semantic_model_artifact(

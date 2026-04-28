@@ -24,23 +24,25 @@ def _oracle_pool_refresh_seconds() -> float:
 
 
 def _sample_oracle_texts(db: Session) -> list[tuple[str | None]]:
-    return (
+    rows = (
         db.query(CardFace.oracle_text)
         .filter(CardFace.oracle_text.isnot(None), CardFace.oracle_text != "")
         .order_by(func.random())
         .limit(ORACLE_TEXT_POOL_LIMIT)
         .all()
     )
+    return [(row[0],) for row in rows]
 
 
 def _sample_keywords(db: Session) -> list[tuple[list[str] | None]]:
-    return (
+    rows = (
         db.query(CardRaw.keywords)
         .filter(CardRaw.keywords.isnot(None))
         .order_by(func.random())
         .limit(HOME_TERM_POOL_LIMIT)
         .all()
     )
+    return [(row[0],) for row in rows]
 
 
 def load_oracle_pools() -> tuple[list[str], list[str]]:
