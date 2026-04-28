@@ -1,0 +1,69 @@
+[project]
+name = "ot-backend"
+version = "2.0.0"
+description = "FastAPI service for MTG oracle search (uv-managed)."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14.0",
+  "boto3>=1.35.0",
+  "PyJWT>=2.9.0",
+  "sqlalchemy>=2.0.0",
+  "psycopg[binary]>=3.2.0",
+  "pgvector>=0.3",
+]
+
+[project.optional-dependencies]
+api = [
+  "fastapi>=0.115.0",
+  "hypercorn>=0.17.0",
+  "numpy>=1.26.0",
+  "onnxruntime>=1.20.0",
+  "tokenizers>=0.20.0",
+]
+scryfall-sync = [
+  "requests>=2.32.0",
+  "ijson>=3.3.0",
+]
+semantic-train = [
+  "accelerate>=1.1.0",
+  "datasets>=3.0.0",
+  "sentence-transformers[onnx]>=3.0",
+]
+
+[dependency-groups]
+test = [
+  "pytest>=8.0.0",
+  "pytest-timeout>=2.3.0",
+  "httpx>=0.27.0",
+  "fastapi>=0.115.0",
+  "requests>=2.32.0",
+  "ijson>=3.3.0",
+  "testcontainers[postgres]>=4.8.0",
+]
+dev = [
+  {include-group = "test"},
+  "ruff>=0.15.7",
+  "basedpyright>=1.38.3",
+  "modal>=0.73",
+]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/ot_backend/semantic/eval_queries.json" = "ot_backend/semantic/eval_queries.json"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/ot_backend/semantic/eval_queries.json"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # pycodestyle errors, pyflakes, isort
+ignore = ["E501"]          # line length handled by formatter
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,46 +1,54 @@
+import { resolve } from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
-import { readFileSync } from 'fs'
-import { fileURLToPath } from 'url'
-import { dirname, resolve } from 'path'
+import tailwindcss from '@tailwindcss/vite'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-const pkg = JSON.parse(
-  readFileSync(resolve(__dirname, 'package.json'), 'utf-8')
-)
-
-// https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  return {
-    plugins: [react()],
-    define: {
-      APP_VERSION: JSON.stringify(pkg.version),
+
+  const adminRedirectPlugin = {
+    name: 'oracle-tutor-admin-redirect',
+    configureServer(server: { middlewares: { use: (handler: (req: { url?: string }, res: { statusCode?: number; setHeader: (name: string, value: string) => void; end: () => void }, next: () => void) => void) => void } }) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/admin') {
+          res.statusCode = 301
+          res.setHeader('Location', '/admin/')
+          res.end()
+          return
+        }
+        next()
+      })
     },
+    configurePreviewServer(server: { middlewares: { use: (handler: (req: { url?: string }, res: { statusCode?: number; setHeader: (name: string, value: string) => void; end: () => void }, next: () => void) => void) => void } }) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/admin') {
+          res.statusCode = 301
+          res.setHeader('Location', '/admin/')
+          res.end()
+          return
+        }
+        next()
+      })
+    },
+  }
+
+  return {
+    plugins: [react(), tailwindcss(), adminRedirectPlugin],
     build: {
       rollupOptions: {
-        output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('react-dom') || id.includes('react/')) return 'react-vendor'
-              if (id.includes('react-router')) return 'router'
-              if (id.includes('@tanstack/react-query')) return 'query'
-              if (id.includes('framer-motion')) return 'framer-motion'
-              if (id.includes('@phosphor-icons')) return 'phosphor-icons'
-              if (id.includes('react-helmet-async')) return 'helmet'
-              if (id.includes('axios')) return 'axios'
-              // other node_modules → shared vendor chunk
-              return 'vendor'
-            }
-          },
+        input: {
+          public: resolve(__dirname, 'index.html'),
+          admin: resolve(__dirname, 'admin/index.html'),
         },
       },
     },
+    test: {
+      environment: 'jsdom',
+      setupFiles: './src/test/setup.ts',
+      clearMocks: true,
+      restoreMocks: true,
+    },
     server: {
-      // Allow local/dev hosts while keeping explicit production domain(s).
-      // Note: Vite uses `allowedHosts` to protect against DNS rebinding attacks.
       allowedHosts:
         mode === 'development'
           ? ['localhost', '127.0.0.1', '::1', 'host.docker.internal']

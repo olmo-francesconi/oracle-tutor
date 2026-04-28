@@ -1,38 +1,41 @@
-import { useState } from 'react'
-import { ImageBroken } from '@phosphor-icons/react'
-import { cn } from '../lib/cn'
+import { memo, useState } from 'react'
+import { CardImageFallback } from './errors/CardImageFallback'
 
-type CardImageProps = React.ImgHTMLAttributes<HTMLImageElement>
+type CardImageProps = {
+  src: string
+  alt: string
+  oracleText?: string
+  manaCost?: string
+  className?: string
+  onLoad?: () => void
+}
 
-export function CardImage({ src, alt, className, ...props }: CardImageProps) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null)
-  const hasError = !!src && failedSrc === src
+function CardImageComponent({ src, alt, oracleText, manaCost, className, onLoad }: CardImageProps) {
+  const [hasError, setHasError] = useState(false)
+  const [isLoaded, setIsLoaded] = useState(false)
 
-  if (hasError) {
-    return (
-      <div
-        className={cn(
-          'flex flex-col items-center justify-center border border-white/10 bg-[#1c1c1c] text-white/20 select-none',
-          className
-        )}
-        role="img"
-        aria-label={alt ? `Placeholder for ${alt}` : 'Image placeholder'}
-      >
-        <ImageBroken className="mb-2 h-8 w-8 opacity-50" />
-        <span className="px-4 text-center text-xs font-medium">
-          {alt || 'Image unavailable'}
-        </span>
-      </div>
-    )
+  if (!src || hasError) {
+    return <CardImageFallback alt={alt} oracleText={oracleText} manaCost={manaCost} className={className} />
   }
 
   return (
     <img
       src={src}
       alt={alt}
-      className={cn(className)}
-      onError={() => setFailedSrc(src ?? null)}
-      {...props}
+      className={[
+        className ?? '',
+        'transition-opacity duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
+        isLoaded ? 'opacity-100' : 'opacity-0',
+      ].join(' ')}
+      loading="lazy"
+      decoding="async"
+      onLoad={() => {
+        setIsLoaded(true)
+        onLoad?.()
+      }}
+      onError={() => setHasError(true)}
     />
   )
 }
+
+export const CardImage = memo(CardImageComponent)

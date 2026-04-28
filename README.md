@@ -1,172 +1,261 @@
 # Oracle Tutor
 
-A fast, fuzzy-search engine for Magic: The Gathering cards, powering a REST API.
+Fast semantic search for Magic: The Gathering cards — find cards by what they *do*, not just their name.
+
+Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data, serving a React SPA via a FastAPI backend.
 
 ## Features
 
--   **Fuzzy Name Matching**: Finds cards even with typos or partial names using TF-IDF and cosine similarity.
--   **Smart Ranking**: Incorporates EDHREC rank to prioritize popular cards in search results.
--   **REST API**: FastAPI-based backend to integrate search into other applications.
--   **Local Data**: Downloads and indexes the latest Scryfall Oracle data for offline speed.
+- **Semantic search** — query by oracle text meaning ("deals damage to all creatures", "gains life when you draw") using sentence-transformer embeddings stored in pgvector
+- **Similar cards** — find cards mechanically similar to any card in the database
+- **Name autocomplete** — fast card-name suggestions via TanStack Query debounced lookups
+- **Full card data** — 3-layer schema: raw Scryfall printings, oracle-deduplicated canonical cards, and per-face data with image URIs
+- **Community tags** — parallel Scryfall Tagger GraphQL integration for semantic categories (shocklands, cantrips, etc.)
+- **Daily sync** — Railway Cron `ingest-worker` pulls Scryfall bulk data and re-ingests changes automatically
+- **Model registry** — admin panel for managing semantic models, datasets, and training/promotion jobs
 
-## Installation
+## Tech stack
 
-1.  Clone the repository.
-2.  Navigate to the API directory:
-    ```bash
-    cd api
-    ```
-3.  Install `uv` (once):
-    ```bash
-    # macOS (Homebrew)
-    brew install uv
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.12+, FastAPI, Hypercorn, SQLAlchemy 2, psycopg 3, uv |
+| Database | PostgreSQL with pgvector, Alembic migrations |
+| Inference | ONNX Runtime (CPU), sentence-transformers (training only) |
+| Ingestion | ijson streaming, Scryfall bulk API, Tagger GraphQL |
+| Artifact storage | S3-compatible (MinIO locally, any S3 in production) |
+| Frontend | React 19, TypeScript, Vite 7, TailwindCSS 4, TanStack Query v5, zod |
+| Infra | Docker Compose (local), Railway (production), GitHub Actions (CI) |
 
-    # Or via the official installer (macOS/Linux)
-    # curl -LsSf https://astral.sh/uv/install.sh | sh
-    ```
-4.  Create a virtual environment and install dependencies (locked via `uv.lock`):
-    ```bash
-    uv sync --extra api --extra worker
-    ```
+## Local development
 
-## Quick Start
+### Prerequisites
+- Docker + Docker Compose (required — tests spin up a Postgres container via testcontainers)
+- `uv` (`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- Node 20+ (for frontend-only work)
 
-### 1. Initialize Data
-Before searching, you need to ingest the latest Scryfall Oracle bulk data into the database.
-
-```bash
-# From the api directory
-uv run python -m oracle_tutor_api.worker.main --strict --trigger-type manual
-```
-
-This stores bulk metadata/files under `api/data/` (optional) and ingests cards into Postgres.
-
-### 2. Run the API Server
-Start the HTTP API:
+### Start everything
 
 ```bash
-# From the api directory
-uv run hypercorn oracle_tutor_api.api.main:app --reload --bind 0.0.0.0:8000
+docker compose up --build
 ```
 
-**Endpoints:**
+This starts PostgreSQL (pgvector/pgvector:pg17), MinIO, the API (`:8000`), and the React frontend (`:5173`). Worker containers (`ingest-worker`, `dataset-worker`, `train-worker`, `promotion-worker`) are defined as separate services and are invoked on demand.
 
--   `GET /search?q=lotus&limit=5` - Fuzzy search for cards by name.
--   `GET /suggest-names?q=lotus&limit=5` - Search for card names only.
--   `GET /search-oracle?q=deals%203%20damage&limit=20&offset=0` - Semantic-ish oracle text search.
--   `GET /card/{card_id}` - Fetch a full card (including faces).
--   `GET /similar-cards/{card_id}` - Find similar cards by oracle text.
+If you want the app stack without kicking off ingestion, start only the long-running services:
 
-**Example:**
 ```bash
-curl "http://localhost:8000/search?q=black%20lotus&limit=5"
+docker compose up --build db minio minio-init api frontend
 ```
 
-### 3. Run the Web Frontend (Optional)
+### Backend (without Docker)
 
-A modern, interactive web frontend is available for easy searching:
+```bash
+cd backend
+uv sync --all-extras --group dev    # first time only (includes testcontainers)
+
+uv run ruff check src/ --fix        # lint
+uv run basedpyright src/            # type check
+uv run pytest -x -q                 # tests — requires Docker running; spawns a pgvector container
+```
+
+### Frontend (without Docker)
 
 ```bash
 cd frontend
-npm ci --legacy-peer-deps
-npm run dev
+npm install          # first time only
+npm run dev          # dev server at :5173 (proxies /api to backend)
+npm run lint
+npm run test
+npm run build
 ```
 
-Then open your browser to `http://localhost:5173`.
-
-The frontend features:
-- Real-time autocomplete suggestions as you type
-- Keyboard navigation (arrow keys, Enter, Escape)
-- Beautiful, responsive UI
-- See [frontend/README.md](frontend/README.md) for more details
-
-## Railway Deployment Checklist
-
-This repo is designed to deploy on Railway as **three services** (Frontend + API + Worker) plus **Railway Postgres**.
-
-### 1) Create resources
-
-- **Postgres**: add a Railway Postgres database to the project.
-- **API service**: build from [`api/Dockerfile`](api/Dockerfile).
-- **Worker service** (scheduled ingestion): build from [`api/Dockerfile.worker`](api/Dockerfile.worker).
-- **Frontend service**: build from [`frontend/Dockerfile`](frontend/Dockerfile) (nginx runtime serves `dist/` and proxies `/api`).
-
-### 2) Set environment variables
-
-Set these in Railway (do not rely on local defaults):
-
-- **API service**
-  - `DATABASE_URL` = Railway Postgres connection string
-  - `ORACLE_TUTOR_API_ENV=production`
-  - *(optional)* `ORACLE_TUTOR_API_CORS_ORIGINS=` leave unset for same-origin; if you ever need cross-origin, set a comma-separated allowlist.
-  - *(optional)* `ORACLE_TUTOR_LOG_TO_FILES=true` only if you want `/app/data/*.log` in addition to stdout.
-  - `PORT` is injected by Railway automatically; the Dockerfile listens on it.
-
-- **Worker service**
-  - `DATABASE_URL` = same Railway Postgres connection string
-  - `ORACLE_TUTOR_API_ENV=production`
-  - Configure a **Railway Cron** schedule for this service (recommended), e.g. `0 2 * * *` (UTC unless you set a timezone).
-  - The worker is a **one-shot command** (it runs the stale-aware update once and exits). The default container command is equivalent to:
-    - `python -m oracle_tutor_api.worker --strict --trigger-type cron`
-
-- **Frontend service**
-  - `API_PROXY_TARGET` = the API service internal URL (or your private service DNS if you use one)
-  - `PORT` is typically injected by Railway automatically (nginx listens on `${PORT}`).
-
-### 3) Confirm routing (same-origin)
-
-- Frontend should call the API as **`/api/...`** (same-origin).
-- Nginx in the frontend container rewrites `/api/<path>` → `/<path>` and proxies to `API_PROXY_TARGET`.
-
-### 4) Health checks / smoke tests
-
-- **API**: `GET /health` returns `{"status":"ok"}`.
-- **Frontend**: loads and can query suggestions (network call should be to `/api/suggest-names?...`).
-
-### 5) Operational gotchas (recommended defaults)
-
-- **Do not run the scheduler in the API service** on Railway (it can duplicate work across restarts/replicas). Keep scheduled ingestion in the Worker.
-- **DATABASE_URL is required on Railway**: the API treats Railway as production to avoid insecure defaults.
-
-## Daily Updates
-
-The card database can be kept in sync with Scryfall's latest data. When updates are available, the system will:
-1. Download the latest bulk data from Scryfall
-2. Diff-ingest changes into Postgres
-3. The API notices the DB version change and rebuilds its in-memory TF-IDF index (throttled polling)
-
-### Recommended: Railway Cron + one-shot worker
-
-On Railway, the recommended approach is:
-- **API service**: web process only (no scheduled ingestion in the web container)
-- **Worker service**: triggered by a **Railway Cron** schedule once per day
-
-The worker command runs the stale-aware update once and exits:
+### Run ingest-worker locally
 
 ```bash
-python -m oracle_tutor_api.worker --strict --trigger-type cron
+# From backend/
+uv run python -m ot_backend.ingest.main --strict --trigger-type manual
 ```
 
-### Local / self-hosted cron
+`ingest-worker` is a stale-aware one-shot worker. It compares remote Scryfall metadata, local bulk metadata, and DB metadata before deciding whether it needs to download and ingest anything.
 
-If you want to schedule updates yourself, run the same one-shot command via your system cron (or use docker-compose):
+When work is needed, it:
+- downloads the latest Oracle Cards bulk file
+- diff-ingests `cards_raw`, `cards`, and `card_faces` (including `type_categories` extracted from `type_line`)
+- refreshes community tags in parallel (configurable via `TAG_FETCH_CONCURRENCY`) unless `--skip-tags` is set
+
+Useful variants:
 
 ```bash
-# From the api directory
-python -m oracle_tutor_api.worker --strict --trigger-type cron
+# Force a full refresh even if metadata says the DB is current
+uv run python -m ot_backend.ingest.main --force --strict --trigger-type manual
+
+# Refresh Tagger data for every card
+uv run python -m ot_backend.ingest.main --refresh-tags --strict --trigger-type manual
+
+# Load card data only, skip Tagger sync
+uv run python -m ot_backend.ingest.main --skip-tags --strict --trigger-type manual
 ```
 
-Or with Docker (from repo root):
+### Train and promote a semantic model
+
+The model lifecycle runs through the admin panel + one-shot workers:
+
+1. Open `http://localhost:5173/admin`, authenticate with `ADMIN_PASSWORD`.
+2. **Queue dataset job** — picks augmentation mode, writes to `semantic_jobs`. The `dataset-worker` claims the job, builds the training dataset, uploads it as an artifact.
+3. **Queue train job** — picks base model + hyperparameters + dataset. The `train-worker` claims the job, runs training (locally for smoke runs, or Modal for full fine-tunes), packages an ONNX bundle, registers it in `semantic_models`.
+4. **Queue promote job** (or toggle "Queue promotion after register" on the train form) — the `promotion-worker` downloads the bundle, populates `semantic_model_embeddings`, flips `is_active`. The API picks up the new model on its next poll.
+
+Workers can also be invoked directly for local testing:
 
 ```bash
-docker compose run --rm worker
+uv run python -m ot_backend.semantic.dataset_worker --job-id <id>
+uv run python -m ot_backend.semantic.train_worker --job-id <id>
+uv run python -m ot_backend.semantic.promote_worker --job-id <id>
 ```
 
-## How It Works
+## Project structure
 
--   **Data Source**: Consumes Scryfall's `oracle_cards` bulk data.
--   **Search Algorithm**: Uses `scikit-learn` to build a TF-IDF matrix of card name n-grams. Queries are matched using cosine similarity against this matrix, with a boost factor for cards with higher EDHREC ranks.
+```
+backend/
+  src/ot_backend/
+    api/
+      main.py                App setup, lifespan (oracle pool rotation), middleware, meta routes
+      oracle_pool.py         Homepage oracle-text / keyword pool loader + periodic rotation
+      routers/               admin.py, search.py
+      schemas.py             Pydantic response schemas
+    core/                    Config, database, ORM models (source-of-truth schema), logging
+    semantic/
+      index.py               Runtime ONNX inference + pgvector search (HNSW-indexed)
+      model_registry.py      Model CRUD, materialization, bundle utilities
+      model_promotion.py     Single-entry `promote_semantic_model` orchestration
+      artifacts.py           S3 artifact storage
+      bundle_registration.py Bundle parsing and model registration
+      dataset_worker.py      One-shot worker: build dataset, upload artifacts
+      train_worker.py        One-shot worker: train (local or Modal), register bundle
+      promote_worker.py      One-shot worker: materialize + embed + activate
+      semantic_jobs.py       DB job records with FOR UPDATE SKIP LOCKED claim
+    ingest/                  Scryfall ingestion + parallel Tagger GraphQL sync
+  tests/                     Pytest suite — real Postgres via testcontainers
+  alembic/                   Single initial-schema migration
+frontend/
+  src/
+    public/                  SearchShell, HomeView, ResultsView + TanStack Query hooks
+    admin/                   Admin panel — AdminPage, forms, tables, adminQueries/adminMutations
+    components/              Shared UI + SearchBox autocomplete
+    lib/                     API client (zod-validated), filters, URL state, queryClient
+    types/                   TS types + zod schemas
+  nginx/                     Nginx config + proxy_params
+```
+
+## API endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Health check |
+| GET | `/version` | Schema + API version |
+| GET | `/oracle-samples` | Random sample oracle text and keyword pool for the UI |
+| GET | `/search?q=` | Name search |
+| GET | `/card/{oracle_id}` | Full card by oracle ID |
+| GET | `/similar-cards?oracle_id=` | Similar cards to a known oracle ID |
+| GET | `/similar-cards?q=` | Semantic free-text search with optional filters |
+| POST | `/admin/auth/token` | Exchange admin password for bearer token (timing-safe compare) |
+| GET/POST | `/admin/semantic-models` | List / register models |
+| POST | `/admin/semantic-models/{id}/promote` | Queue a promote job |
+| GET/POST | `/admin/semantic-datasets` | List datasets |
+| GET | `/admin/semantic-base-models`, `/admin/semantic-train-options` | Training form metadata |
+| GET | `/admin/semantic-jobs`, `/admin/semantic-jobs/{id}` | Jobs list + detail |
+| POST | `/admin/semantic-jobs/{dataset,train,promote}` | Queue jobs |
+
+Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature`, `match_mode`.
+
+```bash
+curl "http://localhost:8000/similar-cards?q=deals+3+damage+to+any+target&limit=10"
+```
+
+## Database schema
+
+```
+cards_raw              — 1:1 Scryfall bulk mirror, all printings, ~300k rows
+  └── cards            — oracle-deduplicated, one row per card identity, ~30k rows
+        ├── card_faces                   — (oracle_id, face_ix) composite PK
+        │                                  + type_categories text[] with GIN index
+        ├── card_taggings                — Scryfall Tagger community tags
+        └── card_relationships           — related-card graph (tokens, meld, combos)
+tags / tag_ancestor_map                  — tag definitions + hierarchy
+semantic_models                          — registered model versions
+  ├── semantic_model_artifacts           — S3 artifact records per model
+  └── semantic_model_embeddings          — pgvector(384) per (model, face) + HNSW index
+semantic_jobs                            — job history (dataset, train, promote)
+semantic_datasets                        — training dataset records
+  └── semantic_dataset_artifacts         — S3 artifact records per dataset
+system_metadata / ingestion_logs         — operational tracking
+```
+
+The schema is defined by the ORM models in `backend/src/ot_backend/core/models.py`. The single `alembic/versions/0001_initial_schema.py` uses `Base.metadata.create_all()` plus explicit DDL for the pgvector HNSW index on `semantic_model_embeddings.embedding` and the GIN index on `card_faces.type_categories`.
+
+## Railway deployment
+
+The repo is designed to deploy as **five Railway services** plus Railway Postgres (with pgvector) and an S3-compatible bucket.
+
+| Service | Dockerfile target | Purpose |
+|---|---|---|
+| API | `backend/Dockerfile` | Web process |
+| ingest-worker | `backend/Dockerfile.worker` (`ingest` stage) | Daily scryfall-sync cron |
+| dataset-worker | `backend/Dockerfile.worker` (`dataset` stage) | Build training datasets |
+| train-worker | `backend/Dockerfile.worker` (`train` stage) | Train + Modal orchestration + register bundle |
+| promotion-worker | `backend/Dockerfile.worker` (`promote` stage) | Embedding build + model activation |
+| Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
+
+Workers set `ENV OT_SERVICE_ROLE=worker` which sizes their DB pool defaults to `2+1` (vs `10+5` on the API).
+
+### Required environment variables
+
+**API + workers:**
+- `DATABASE_URL` — Railway Postgres connection string (injected automatically); Postgres must have pgvector
+- `OT_ENV=production`
+
+**train-worker + dataset-worker (Modal orchestration):**
+- `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` — credentials for remote Modal jobs
+
+**API (runtime):**
+- `ADMIN_PASSWORD` — password accepted by `POST /admin/auth/token`
+- `ADMIN_JWT_SECRET` — HS256 signing secret for admin bearer tokens
+- `CF_ACCESS_TEAM_DOMAIN` — Cloudflare Access team domain (e.g. `yourteam.cloudflareaccess.com`)
+- `CF_ACCESS_AUD` — Cloudflare Access application AUD tag
+- `SEMANTIC_ARTIFACT_ENDPOINT` — S3-compatible endpoint for model artifacts
+- `SEMANTIC_ARTIFACT_ACCESS_KEY_ID` / `SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY` — S3 credentials
+- `SEMANTIC_ARTIFACT_BUCKET` — S3 bucket name
+
+**Frontend:**
+- `API_PROXY_TARGET` — internal URL of the API service
+- `ADMIN_HOST` — hostname that serves the admin panel (e.g. `admin.oracletutor.org`); nginx returns 404 for `/admin/*` and `/api/admin/*` on any other host
+
+### Admin panel security
+
+The admin panel (model/dataset/job management) is gated by **two independent layers** in production:
+
+1. **Host-based nginx routing.** The frontend nginx config only serves `/admin/*` and proxies `/api/admin/*` when the `Host` header matches `ADMIN_HOST`. On the public hostname these routes return 404 — no admin surface, no login form, nothing to probe.
+2. **Cloudflare Access JWT verification.** Put the admin subdomain behind a [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) application that restricts login to your email. Every request Cloudflare forwards carries a `Cf-Access-Jwt-Assertion` header signed by your team; the FastAPI backend verifies it (RS256 against the Cloudflare JWKS, audience + issuer checks) on every `/admin/*` route, including `POST /admin/auth/token`.
+
+In production (`OT_ENV=production` or any Railway env var present), if `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_AUD` is unset the backend **fails closed** — every admin request returns `503 "Cloudflare Access is not configured"`. Locally the check is skipped so `docker compose up` works with just `ADMIN_PASSWORD`.
+
+Setup outline:
+
+1. Point both `oracletutor.org` and `admin.oracletutor.org` at the same Railway frontend service (Cloudflare DNS, proxy enabled).
+2. In Cloudflare Zero Trust → Access → Applications, create a self-hosted app on `admin.oracletutor.org` with an "Allow" policy limited to your email.
+3. Copy the team domain (Settings → Custom Pages) and the application AUD tag (app → Overview) into the Railway API service env as `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`.
+4. Set `ADMIN_HOST=admin.oracletutor.org` on the Railway frontend service.
+
+### ingest-worker cron schedule
+
+Set a **Railway Cron** on the `ingest-worker` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container runs the one-shot stale-aware worker once and exits.
+
+## Attribution
+
+Card data, images, and community tags come from [Scryfall](https://scryfall.com) under their [data terms](https://scryfall.com/docs/api). Oracle Tutor is an unofficial project and is not produced, endorsed, supported, or affiliated with Scryfall or Wizards of the Coast.
+
+Magic: The Gathering is © Wizards of the Coast LLC. All card names, text, and imagery are property of their respective owners. No challenge to copyright is intended.
 
 ## License
 
-This project is licensed under the terms of the [GNU General Public License v3.0](LICENSE).
+[GNU General Public License v3.0](LICENSE)
