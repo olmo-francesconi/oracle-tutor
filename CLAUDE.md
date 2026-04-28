@@ -143,10 +143,27 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 
 ## Branch conventions
 
-- `main` — production releases (protected)
-- `develop` — active development, PRs merge here first
-- `production` — alternative production channel
-- Feature branches: `feat/<name>`, fixes: `fix/<name>`
+Two long-lived branches only:
+
+- `develop` — default branch, full commit history. All work lands here.
+- `production` — Railway deploys from this branch. Each commit is a tagged release squashed from `develop`.
+
+Feature branches optional: `feat/<name>` / `fix/<name>`, merge into `develop`.
+
+### Release flow
+
+When `develop` is release-ready:
+
+```bash
+git checkout production
+git pull --ff-only origin production
+git merge --squash develop
+git commit -m "vX.Y.Z"
+git tag vX.Y.Z
+git push origin production --tags
+```
+
+Bump `backend/pyproject.toml` and `frontend/package.json` versions before the squash so the release commit reflects the new version. Tag must match the version in both files.
 
 ## Git commits
 
