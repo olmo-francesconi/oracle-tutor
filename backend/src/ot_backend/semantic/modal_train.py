@@ -13,6 +13,7 @@ import re
 import shutil
 import tempfile
 import warnings
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, override
@@ -46,6 +47,10 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in local test envs w
                 return fn
 
             return decorator
+
+        @contextmanager
+        def run(self, **_kwargs: object) -> Any:
+            yield
 
     class _DummyModal:
         Image = _DummyImage
@@ -311,7 +316,7 @@ def _build_dataset_state(
 
 
 @app.function(
-    gpu="T4",
+    gpu="L4",
     timeout=3600,
     image=image,
     volumes={"/root/.cache/huggingface": hf_cache},
@@ -339,7 +344,7 @@ def build_dataset(
 
 
 @app.function(
-    gpu="T4",
+    gpu="L4",
     timeout=3600,
     image=image,
     volumes={"/root/.cache/huggingface": hf_cache},

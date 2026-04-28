@@ -7,16 +7,13 @@ import random
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from ..core.database import SessionLocal
-from ..core.models import CardFace
 from .query_gen import generate_template_queries
-from .semantic_state import build_training_dataset_metadata
 from .text_prep import normalize_oracle_text
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 from .train_options import (
     DEFAULT_TRAIN_AUGMENTATION_KEYS,
     TRAIN_AUGMENTATION_LLM_QUERIES,
@@ -61,6 +58,10 @@ class TrainingDatasetState:
 
 
 def _face_text_records(db: Session) -> list[FaceTextRecord]:
+    from sqlalchemy import select
+
+    from ..core.models import CardFace
+
     records: list[FaceTextRecord] = []
     query = select(
         CardFace.oracle_id,
@@ -113,6 +114,8 @@ def build_training_dataset_state(
     self_pair_ids = [(face_key, face_key) for face_key, text in face_texts.items() if text.strip()]
 
     try:
+        from sqlalchemy import select
+
         from ..core.models import CardTagging, Tag
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("Tag models are unavailable in the current codebase state.") from exc
@@ -193,6 +196,8 @@ def build_training_dataset_build_payload(
     max_tag_pair_group_size: int = _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE,
     max_tag_desc_pairs_per_tag: int = _DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG,
 ) -> dict[str, Any]:
+    from .semantic_state import build_training_dataset_metadata
+
     selected_augmentations = tuple(
         parse_train_augmentation_mode(augmentation_mode)
         if augmentation_mode is not None
@@ -216,6 +221,8 @@ def build_training_dataset_build_payload(
         card_face_map[face.oracle_id].append(face_key)
 
     try:
+        from sqlalchemy import select
+
         from ..core.models import CardTagging, Tag
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("Tag models are unavailable in the current codebase state.") from exc
@@ -378,6 +385,9 @@ def prepare_and_save_dataset(
     max_tag_pair_group_size: int = _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE,
     max_tag_desc_pairs_per_tag: int = _DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG,
 ) -> TrainingDatasetState:
+    from ..core.database import SessionLocal
+    from .semantic_state import build_training_dataset_metadata
+
     db = SessionLocal()
     try:
         dataset_state = build_training_dataset_state(
@@ -397,6 +407,9 @@ def prepare_and_save_dataset(
 
 
 def export_training_dataset_bytes(*, augmentation_mode: str | None = None) -> bytes:
+    from ..core.database import SessionLocal
+    from .semantic_state import build_training_dataset_metadata
+
     db = SessionLocal()
     try:
         dataset_state = build_training_dataset_state(db, augmentation_mode=augmentation_mode)
@@ -407,6 +420,8 @@ def export_training_dataset_bytes(*, augmentation_mode: str | None = None) -> by
 
 
 def export_training_build_payload_bytes(*, augmentation_mode: str | None = None) -> bytes:
+    from ..core.database import SessionLocal
+
     db = SessionLocal()
     try:
         payload = build_training_dataset_build_payload(db, augmentation_mode=augmentation_mode)

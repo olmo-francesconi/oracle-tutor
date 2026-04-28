@@ -150,6 +150,10 @@ def modal_client_configured() -> bool:
     return bool(modal_token_id() and modal_token_secret())
 
 
+def modal_environment_name() -> str:
+    return os.getenv("MODAL_ENVIRONMENT", "oracle-tutor")
+
+
 def semantic_llm_model_name() -> str:
     return os.getenv("SEMANTIC_LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 

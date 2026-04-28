@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..core.config import (
     modal_client_configured,
+    modal_environment_name,
     semantic_job_heartbeat_seconds,
     semantic_job_stale_seconds,
     semantic_llm_max_faces,
@@ -60,6 +61,9 @@ def _run_modal_dataset_build(*, training_payload_bytes: bytes, augmentation_mode
     build_fn = getattr(modal_train, "build_dataset", None)
     if build_fn is None or not hasattr(build_fn, "remote"):
         raise RuntimeError("Packaged Modal training module does not expose a callable build_dataset.remote().")
+    app = getattr(modal_train, "app", None)
+    if app is None or not hasattr(app, "run"):
+        raise RuntimeError("Packaged Modal training module does not expose a Modal App.")
     if not modal_client_configured():
         raise RuntimeError("Modal client credentials are not configured. Expected MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.")
     llm_config = {
@@ -70,7 +74,8 @@ def _run_modal_dataset_build(*, training_payload_bytes: bytes, augmentation_mode
         "temperature": semantic_llm_temperature(),
         "max_tokens": semantic_llm_max_tokens(),
     }
-    return build_fn.remote(training_payload_bytes, augmentation_mode, llm_config)
+    with app.run(environment_name=modal_environment_name()):
+        return build_fn.remote(training_payload_bytes, augmentation_mode, llm_config)
 
 
 @contextmanager

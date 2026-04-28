@@ -10,6 +10,7 @@ from importlib import import_module
 
 from ..core.config import (
     modal_client_configured,
+    modal_environment_name,
     semantic_job_heartbeat_seconds,
     semantic_job_stale_seconds,
     semantic_train_max_jobs_per_run,
@@ -89,16 +90,20 @@ def _run_modal_training(
     train_fn = getattr(modal_train, "train", None)
     if train_fn is None or not hasattr(train_fn, "remote"):
         raise RuntimeError("Packaged Modal training module does not expose a callable train.remote().")
+    app = getattr(modal_train, "app", None)
+    if app is None or not hasattr(app, "run"):
+        raise RuntimeError("Packaged Modal training module does not expose a Modal App.")
     try:
-        return train_fn.remote(
-            dataset_bytes,
-            eval_queries_bytes,
-            base_model,
-            epochs,
-            batch_size,
-            augmentation_mode,
-            skip_fine_tune,
-        )
+        with app.run(environment_name=modal_environment_name()):
+            return train_fn.remote(
+                dataset_bytes,
+                eval_queries_bytes,
+                base_model,
+                epochs,
+                batch_size,
+                augmentation_mode,
+                skip_fine_tune,
+            )
     except Exception:
         logger.exception("Modal training failed.")
         raise
