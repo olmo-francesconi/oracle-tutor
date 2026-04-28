@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { getCardImageUrl } from '../lib/cards'
+import { getCardCornerRadiusClass, getCardImageUrl } from '../lib/cards'
 import type { SimilarCard } from '../types/api'
 import { CardImage } from './CardImage'
 
@@ -45,7 +45,7 @@ const ResultCard = memo(function ResultCard({ card, onOpen }: ResultCardProps) {
           alt={title}
           oracleText={card.oracle_text ?? undefined}
           manaCost={card.mana_cost ?? undefined}
-          className="block aspect-[63/88] w-full rounded-xl object-cover"
+          className={`block aspect-[63/88] w-full ${getCardCornerRadiusClass(card.set_code)} object-cover`}
           onLoad={() => setIsImageLoaded(true)}
         />
       </button>

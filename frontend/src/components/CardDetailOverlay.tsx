@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { getCardImageUrl } from '../lib/cards'
+import { getCardCornerRadiusClass, getCardImageUrl } from '../lib/cards'
 import type { Card } from '../types/api'
 import { useCardQuery } from '../public/useCardQuery'
 import { CardImage } from './CardImage'
@@ -197,7 +197,7 @@ function CardDetailContent({
               alt={displayName}
               oracleText={oracleText ?? undefined}
               manaCost={manaCost ?? undefined}
-              className="block aspect-[63/88] w-full rounded-xl object-cover shadow-[0_22px_40px_-26px_rgba(17,17,17,0.45)]"
+              className={`block aspect-[63/88] w-full ${getCardCornerRadiusClass(card.set_code)} object-cover shadow-[0_22px_40px_-26px_rgba(17,17,17,0.45)]`}
             />
           </div>
           {isFlippable ? (

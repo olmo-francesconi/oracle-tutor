@@ -26,6 +26,15 @@ export function getCardImageUrl(
   return `https://cards.scryfall.io/${size}/${side}/${id[0]}/${id[1]}/${id}.jpg`
 }
 
+// Alpha printings (set code "lea") have a visibly wider corner radius than
+// every later set; everything else uses the modern default.
+// Card images have an aspect ratio of 63:88, so to produce *circular* (not
+// elliptical) corners when scaling with width we set the vertical radius to
+// `R × 63/88` of height. 7% / 5.011% resolves to equal x/y pixel radii.
+export function getCardCornerRadiusClass(setCode?: string | null): string {
+  return setCode === 'lea' ? 'rounded-[7%_/_5.011%]' : 'rounded-xl'
+}
+
 export function getDisplayFace(card: Card | SimilarCard) {
   if (!Array.isArray(card.faces) || card.faces.length === 0) {
     return null

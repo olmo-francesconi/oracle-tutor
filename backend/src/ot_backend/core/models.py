@@ -163,6 +163,8 @@ class Card(Base):
             "edhrec_rank": self.edhrec_rank,
             "rarity": self.rarity,
             "legalities": self.legalities,
+            "set_code": self.raw_printing.set_code if self.raw_printing else None,
+            "border_color": self.raw_printing.border_color if self.raw_printing else None,
             "faces": [f.to_dict() for f in self.faces],
         }
 
