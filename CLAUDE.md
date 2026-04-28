@@ -176,6 +176,7 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 | `OT_CORS_ORIGINS` | — | Comma-separated allowed origins |
 | `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` | `5` | How often the API checks for a new active model |
 | `OT_ORACLE_POOL_REFRESH_SECONDS` | `600` | How often the API rotates the homepage oracle-text/keyword pools |
+| `OT_PUBLIC_URL` | — | Public origin (e.g. `https://oracletutor.org`); required for `/sitemap.xml` to emit canonical URLs, otherwise the route returns 404 |
 | `SEMANTIC_TEMP_DIR` | `$TMPDIR/mtg-search-semantic-models` | Local cache for materialized model bundles |
 | `SEMANTIC_ONNX_INTRA_OP_THREADS` | `1` | ONNX Runtime intra-op thread count |
 | `SEMANTIC_ONNX_INTER_OP_THREADS` | `1` | ONNX Runtime inter-op thread count |

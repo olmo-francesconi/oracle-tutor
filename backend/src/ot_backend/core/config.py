@@ -26,6 +26,11 @@ SEMANTIC_ADMIN_MAX_REQUEST_BYTES = int(os.getenv("SEMANTIC_ADMIN_MAX_REQUEST_BYT
 MAX_QUERY_LENGTH = int(os.getenv("OT_MAX_QUERY_LENGTH", "200"))
 
 
+def public_app_url() -> str | None:
+    raw = os.getenv("OT_PUBLIC_URL", "").strip().rstrip("/")
+    return raw or None
+
+
 def ot_env() -> str:
     return os.getenv("OT_ENV", "development").lower()
 

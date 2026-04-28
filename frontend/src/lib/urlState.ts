@@ -59,54 +59,71 @@ export function readSearchStateFromUrl(): SearchUrlState {
   }
 }
 
+function buildCanonicalSearch(
+  query: string | null,
+  filters: FilterState,
+  pinnedCard?: { oracle_id: string; face_ix: number } | null
+): { params: URLSearchParams; normalized: FilterState } {
+  const normalized = normalizeFilterState(filters)
+  // Build a fresh URLSearchParams in deterministic alphabetical key order so
+  // the same logical state always serializes identically. Caller decides what
+  // to do with prior unknown params: writeSearchStateToUrl drops them.
+  const entries: Array<[string, string]> = []
+
+  if (pinnedCard) {
+    entries.push([CARD_PARAM, pinnedCard.oracle_id])
+    if (pinnedCard.face_ix > 0) entries.push([FACE_PARAM, String(pinnedCard.face_ix)])
+  } else if (query) {
+    entries.push([QUERY_PARAM, query])
+  }
+
+  if (normalized.cmcMax !== undefined) entries.push([CMC_MAX_PARAM, String(normalized.cmcMax)])
+  if (normalized.cmcMin !== undefined) entries.push([CMC_MIN_PARAM, String(normalized.cmcMin)])
+  if (normalized.colorFeature) entries.push([COLOR_FEATURE_PARAM, normalized.colorFeature])
+  if (normalized.colors) entries.push([COLORS_PARAM, normalized.colors])
+
+  const encodedFormats = encodeFormatFilter(normalized.format)
+  if (encodedFormats) entries.push([FORMAT_PARAM, encodedFormats])
+
+  if (normalized.matchMode) entries.push([MATCH_MODE_PARAM, normalized.matchMode])
+
+  if (normalized.rarities?.length) {
+    const sortedRarities = [...normalized.rarities].sort()
+    entries.push([RARITIES_PARAM, sortedRarities.join(',')])
+  }
+
+  const encodedCardTypes = encodeCardTypeFilter(normalized.cardType)
+  if (encodedCardTypes) entries.push([CARD_TYPE_PARAM, encodedCardTypes])
+
+  entries.sort(([a], [b]) => a.localeCompare(b))
+
+  const params = new URLSearchParams()
+  for (const [key, value] of entries) params.append(key, value)
+  return { params, normalized }
+}
+
 export function writeSearchStateToUrl(
   query: string | null,
   filters: FilterState,
   pinnedCard?: { oracle_id: string; face_ix: number } | null
 ) {
   const url = new URL(window.location.href)
-  const params = new URLSearchParams(url.search)
-  const normalizedFilters = normalizeFilterState(filters)
-
-  if (pinnedCard) {
-    params.set(CARD_PARAM, pinnedCard.oracle_id)
-    if (pinnedCard.face_ix > 0) params.set(FACE_PARAM, String(pinnedCard.face_ix))
-    else params.delete(FACE_PARAM)
-    params.delete(QUERY_PARAM)
-  } else {
-    params.delete(CARD_PARAM)
-    params.delete(FACE_PARAM)
-    if (query) params.set(QUERY_PARAM, query)
-    else params.delete(QUERY_PARAM)
-  }
-
-  if (normalizedFilters.colors) params.set(COLORS_PARAM, normalizedFilters.colors)
-  else params.delete(COLORS_PARAM)
-
-  const encodedCardTypes = encodeCardTypeFilter(normalizedFilters.cardType)
-  if (encodedCardTypes) params.set(CARD_TYPE_PARAM, encodedCardTypes)
-  else params.delete(CARD_TYPE_PARAM)
-
-  const encodedFormats = encodeFormatFilter(normalizedFilters.format)
-  if (encodedFormats) params.set(FORMAT_PARAM, encodedFormats)
-  else params.delete(FORMAT_PARAM)
-
-  if (normalizedFilters.cmcMin !== undefined) params.set(CMC_MIN_PARAM, String(normalizedFilters.cmcMin))
-  else params.delete(CMC_MIN_PARAM)
-
-  if (normalizedFilters.cmcMax !== undefined) params.set(CMC_MAX_PARAM, String(normalizedFilters.cmcMax))
-  else params.delete(CMC_MAX_PARAM)
-
-  if (normalizedFilters.rarities?.length) params.set(RARITIES_PARAM, normalizedFilters.rarities.join(','))
-  else params.delete(RARITIES_PARAM)
-
-  if (normalizedFilters.matchMode) params.set(MATCH_MODE_PARAM, normalizedFilters.matchMode)
-  else params.delete(MATCH_MODE_PARAM)
-
-  if (normalizedFilters.colorFeature) params.set(COLOR_FEATURE_PARAM, normalizedFilters.colorFeature)
-  else params.delete(COLOR_FEATURE_PARAM)
-
+  const { params, normalized } = buildCanonicalSearch(query, filters, pinnedCard)
   const nextSearch = params.toString()
   const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}`
-  window.history.pushState({ query, filters: normalizedFilters }, '', nextUrl)
+  window.history.pushState({ query, filters: normalized }, '', nextUrl)
+}
+
+export function buildCanonicalUrl(
+  origin: string,
+  query: string | null,
+  pinnedCard?: { oracle_id: string; face_ix: number } | null
+): string {
+  const cleanOrigin = origin.replace(/\/+$/, '')
+  // The canonical URL strips filters: the same card or text query with
+  // different filters all canonicalize to the unfiltered URL to avoid
+  // duplicate-content fanout across filter permutations.
+  const canonicalState = buildCanonicalSearch(query, {}, pinnedCard)
+  const search = canonicalState.params.toString()
+  return `${cleanOrigin}/${search ? `?${search}` : ''}`
 }

@@ -30,6 +30,7 @@ from ._semantic_index import _get_semantic_index  # noqa: F401 — re-exported f
 from .oracle_pool import apply_oracle_pools, load_oracle_pools, rotate_oracle_pools
 from .routers.admin import router as admin_router
 from .routers.search import router as search_router
+from .routers.seo import router as seo_router
 
 logger = logging.getLogger("ot_backend.api")
 
@@ -165,6 +166,7 @@ if origins:
 
 app.include_router(admin_router)
 app.include_router(search_router)
+app.include_router(seo_router)
 
 
 @app.exception_handler(SQLTimeoutError)

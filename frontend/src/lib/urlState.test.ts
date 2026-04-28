@@ -53,7 +53,7 @@ describe('urlState', () => {
       rarities: ['common'],
     })
 
-    expect(window.location.search).toBe('?q=burn&colors=R&type=si&cmcMin=1&rarity=common')
+    expect(window.location.search).toBe('?cmcMin=1&colors=R&q=burn&rarity=common&type=si')
   })
 
   it('removes cleared query and default filters from the url', () => {

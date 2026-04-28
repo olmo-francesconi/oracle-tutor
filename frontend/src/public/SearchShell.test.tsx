@@ -212,7 +212,7 @@ describe('SearchShell integration', () => {
       { format: ['modern'] },
       expect.any(AbortSignal)
     )
-    expect(window.location.search).toBe('?q=value&format=m')
+    expect(window.location.search).toBe('?format=m&q=value')
   })
 
   it('clears filters and refetches without filters', async () => {

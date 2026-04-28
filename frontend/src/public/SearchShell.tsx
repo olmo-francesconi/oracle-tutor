@@ -12,6 +12,7 @@ import { ResultsView } from './ResultsView'
 
 const LEFT_STRIPE_WIDTH_PX = 6
 import { useCardQuery } from './useCardQuery'
+import { useDocumentHead } from './useDocumentHead'
 import { useOracleSamplesQuery } from './useOracleSamplesQuery'
 import { useSearchQuery } from './useSearchQuery'
 import { useSimilarQuery } from './useSimilarQuery'
@@ -231,6 +232,14 @@ export function SearchShell() {
   }, [activeQuery, oracleSamplesQuery])
 
   useUrlSync(ui, setUi)
+
+  useDocumentHead({
+    isHome,
+    submittedQuery: ui.submittedQuery,
+    pinnedCard: ui.pinnedCard,
+    pinnedCardData: cardQuery.data ?? null,
+    filters: ui.filters,
+  })
 
   return (
     <main

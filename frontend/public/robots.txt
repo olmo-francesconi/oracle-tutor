@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+
+# Filtered result pages explode duplicate content; canonical points at the
+# unfiltered query, so explicitly disallow filter-bearing URLs.
+Disallow: /*?*colors=
+Disallow: /*?*type=
+Disallow: /*?*format=
+Disallow: /*?*cmcMin=
+Disallow: /*?*cmcMax=
+Disallow: /*?*rarity=
+Disallow: /*?*match=
+Disallow: /*?*colorBy=
+
+Sitemap: https://oracletutor.org/sitemap.xml
