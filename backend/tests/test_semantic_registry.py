@@ -8,18 +8,28 @@ import numpy as np
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
-from ot_backend.core.models import Card, CardFace, CardRaw, SemanticJob, SemanticModel, SemanticModelArtifact, SemanticModelEmbedding, SystemMetadata
+from ot_backend.core.models import (
+    Card,
+    CardFace,
+    CardRaw,
+    SemanticJob,
+    SemanticModel,
+    SemanticModelArtifact,
+    SemanticModelEmbedding,
+    SystemMetadata,
+)
+from ot_backend.semantic import index
 from ot_backend.semantic.artifacts import (
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
     SEMANTIC_MODEL_ARTIFACT_KIND_EVAL_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_MANIFEST_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_TRAINING_DATASET,
 )
-from ot_backend.semantic import index
+from ot_backend.semantic.bundle_registration import register_model_bundle_bytes
 from ot_backend.semantic.model_promotion import (
     _populate_model_embeddings,
-    _store_model_embeddings,
     promote_semantic_model,
+    store_model_embeddings,
 )
 from ot_backend.semantic.model_registry import (
     SEMANTIC_MODEL_STATUS_ACTIVE,
@@ -28,7 +38,6 @@ from ot_backend.semantic.model_registry import (
     bundle_model_directory,
     materialize_semantic_model,
 )
-from ot_backend.semantic.bundle_registration import register_model_bundle_bytes
 from ot_backend.semantic.semantic_state import bump_semantic_data_version, get_active_model_data_version
 
 
@@ -337,7 +346,7 @@ def test_run_semantic_model_promotion_activates_candidate_and_stores_embeddings(
     monkeypatch.setattr(
         "ot_backend.semantic.model_promotion._populate_model_embeddings",
         lambda model_id, *_args, **_kwargs: (
-            _store_model_embeddings(
+            store_model_embeddings(
                 model_id,
                 [
                     ("o1", 0, [1.0] + [0.0] * 383),

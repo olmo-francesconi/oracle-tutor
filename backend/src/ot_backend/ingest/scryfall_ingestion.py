@@ -12,6 +12,7 @@ import ijson
 import requests
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from ..core.config import (
     CARDS_JSON,
@@ -78,7 +79,7 @@ def _log_batch_progress(*, stage: str, current: int, total: int, items_in_batch:
     logger.info("%s %s batch_items=%d", stage, _format_stage_progress(current=current, total=total), items_in_batch)
 
 
-def _delete_card_related_rows(session, oracle_ids: list[str]) -> None:
+def _delete_card_related_rows(session: Session, oracle_ids: list[str]) -> None:
     if not oracle_ids:
         return
 
@@ -219,7 +220,7 @@ def should_skip_card(card: dict[str, Any]) -> bool:
     return False
 
 
-def cleanup_unplayable_cards(session) -> dict[str, int]:
+def cleanup_unplayable_cards(session: Session) -> dict[str, int]:
     """
     Best-effort cleanup for unplayable records that may have been ingested previously.
 
@@ -233,15 +234,15 @@ def cleanup_unplayable_cards(session) -> dict[str, int]:
     stats = {"deleted_cards_by_layout": 0, "deleted_cards_by_type_line_card": 0}
 
     # Delete dependent rows explicitly before the parent delete.
-    ids_by_layout = session.scalars(select(Card.oracle_id).where(Card.layout.in_(SKIPPED_LAYOUTS))).all()
+    ids_by_layout = list(session.scalars(select(Card.oracle_id).where(Card.layout.in_(SKIPPED_LAYOUTS))).all())
     _delete_card_related_rows(session, ids_by_layout)
     res = session.execute(delete(Card).where(Card.oracle_id.in_(ids_by_layout)))
     stats["deleted_cards_by_layout"] = int(getattr(res, "rowcount", 0) or len(ids_by_layout))
 
     # Delete Theme Cards (type_line == "Card") (again: delete faces first for safety).
-    ids_by_face_card = session.scalars(
-        select(CardFace.oracle_id).where(CardFace.type_line == "Card").distinct()
-    ).all()
+    ids_by_face_card = list(
+        session.scalars(select(CardFace.oracle_id).where(CardFace.type_line == "Card").distinct()).all()
+    )
     _delete_card_related_rows(session, ids_by_face_card)
     res = session.execute(delete(Card).where(Card.oracle_id.in_(ids_by_face_card)))
     stats["deleted_cards_by_type_line_card"] = int(getattr(res, "rowcount", 0) or len(ids_by_face_card))
@@ -374,7 +375,7 @@ def prepare_card_face(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -
     }
 
 
-def ingest_batch(session, batch_cards: list[dict[str, Any]]) -> None:
+def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
     if not batch_cards:
         return
 

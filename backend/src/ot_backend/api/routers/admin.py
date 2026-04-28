@@ -13,7 +13,6 @@ from ...core.config import admin_jwt_secret, admin_password
 from ...core.database import get_db
 from ...core.models import SemanticDataset, SemanticModel
 from ...semantic.artifacts import (
-    SEMANTIC_DATASET_ARTIFACT_KIND_DATASET_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
     list_semantic_dataset_artifacts,
     list_semantic_model_artifacts,
@@ -83,13 +82,6 @@ router = APIRouter(
 def _bundle_artifact_summary(model: SemanticModel) -> tuple[str, int] | None:
     for artifact in model.artifacts:
         if artifact.artifact_kind == SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP:
-            return artifact.sha256, artifact.size_bytes
-    return None
-
-
-def _dataset_artifact_summary(dataset: SemanticDataset) -> tuple[str, int] | None:
-    for artifact in dataset.artifacts:
-        if artifact.artifact_kind == SEMANTIC_DATASET_ARTIFACT_KIND_DATASET_JSON:
             return artifact.sha256, artifact.size_bytes
     return None
 

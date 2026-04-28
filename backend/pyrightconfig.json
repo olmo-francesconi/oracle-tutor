@@ -9,6 +9,7 @@
     }
   ],
   "reportMissingModuleSource": "none",
+  "reportMissingTypeStubs": "none",
   "reportAny": "none",
   "reportExplicitAny": "none",
   "reportUnknownMemberType": "none",

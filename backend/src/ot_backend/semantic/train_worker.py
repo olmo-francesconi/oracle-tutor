@@ -4,9 +4,9 @@ import argparse
 import logging
 import sys
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib import import_module
-from typing import Iterator
 
 from ..core.config import (
     modal_client_configured,

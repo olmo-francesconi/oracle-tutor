@@ -173,7 +173,7 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
         def similar_to_face(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95)]
 
-    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"oracle_id": "o1", "face_ix": 0, "limit": 10})
     assert res.status_code == 200
@@ -210,7 +210,7 @@ def test_similar_cards_uses_shared_front_image_side_for_split_faces(client, monk
         def search_oracle(self, *_args, **_kwargs):
             return [(("o6", 1), 0.91)]
 
-    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "tap draw", "limit": 10})
     assert res.status_code == 200
@@ -224,7 +224,7 @@ def test_similar_cards_uses_back_image_side_for_double_faced_back_face(client, m
         def search_oracle(self, *_args, **_kwargs):
             return [(("o7", 1), 0.89)]
 
-    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "werewolf", "limit": 10})
     assert res.status_code == 200
@@ -238,7 +238,7 @@ def test_similar_cards_sets_has_more_when_more_results_exist(client, monkeypatch
         def search_oracle(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
 
-    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "shock", "limit": 1, "offset": 0})
     assert res.status_code == 200
@@ -251,7 +251,7 @@ def test_similar_cards_sets_has_more_false_on_last_page(client, monkeypatch):
         def search_oracle(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
 
-    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "shock", "limit": 1, "offset": 1})
     assert res.status_code == 200
@@ -289,7 +289,7 @@ def test_similar_cards_rejects_overlong_query(client, monkeypatch):
         def search_oracle(self, *_args, **_kwargs):
             return []
 
-    monkeypatch.setattr("ot_backend.api._semantic_index._get_semantic_index", lambda: FakeSemanticIndex())
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
     res = client.get("/similar-cards", params={"q": "x" * 201})
 

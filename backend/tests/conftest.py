@@ -46,8 +46,8 @@ os.environ.setdefault("OT_SCHEMA_WAIT_TIMEOUT_SECONDS", "0.5")
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-from ot_backend.api.main import app  # noqa: E402
 from ot_backend.api.admin_auth import clear_admin_login_attempts_for_tests  # noqa: E402
+from ot_backend.api.main import app  # noqa: E402
 from ot_backend.core.database import SessionLocal  # noqa: E402
 from ot_backend.core.db_init import init_db  # noqa: E402
 from ot_backend.core.models import (  # noqa: E402

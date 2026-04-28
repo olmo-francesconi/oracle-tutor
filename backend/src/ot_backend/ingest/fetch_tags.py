@@ -386,7 +386,7 @@ def _flush_card_batch(db: Session, batch: list[tuple[str, ExtractedCardEntities]
             ancestor_edges_set.add((edge["tag_id"], edge["ancestor_tag_id"]))
         for tagging in extracted["taggings"]:
             tag_id = tagging.get("tag_id")
-            if isinstance(tag_id, str) and tag_id:
+            if tag_id:
                 direct_tag_ids.add(tag_id)
             tagging_rows.append(
                 {
@@ -666,11 +666,11 @@ def _cards_needing_tag_fetch_query(refresh_tags: bool):
     return query
 
 
-def _cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str, str]]]:
+def cards_needing_tag_fetch(db: Session, refresh_tags: bool) -> Sequence[Row[tuple[str, str, str, str]]]:
     return db.execute(_cards_needing_tag_fetch_query(refresh_tags)).all()
 
 
-def _iter_cards_needing_tag_fetch(
+def _itercards_needing_tag_fetch(
     db: Session,
     refresh_tags: bool,
     *,
@@ -729,7 +729,7 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
     inserted_relationships = 0
     processed = 0
 
-    cards = list(_iter_cards_needing_tag_fetch(db, refresh_tags))
+    cards = list(_itercards_needing_tag_fetch(db, refresh_tags))
     rate_sem = threading.Semaphore(TAG_FETCH_CONCURRENCY)
 
     # Stall watchdog: if no card completes for 60 s, log a warning so the

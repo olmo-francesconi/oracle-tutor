@@ -8,13 +8,13 @@ from datetime import timedelta
 from pathlib import Path
 
 from alembic.config import Config
-from sqlalchemy import inspect, text
+from sqlalchemy import Connection, inspect, text
 
 from alembic import command
 
 from .config import DB_SCHEMA_VERSION, SCRYFALL_DATA_KEY
 from .database import engine
-from .models import _utcnow_naive
+from .models import utcnow_naive
 
 logger = logging.getLogger("ot_backend.db")
 
@@ -66,8 +66,8 @@ def _schema_lock() -> Iterator[None]:
         conn.close()
 
 
-def _set_migration_state(conn, *, state: str, target_version: str) -> None:
-    now = _utcnow_naive()
+def _set_migration_state(conn: Connection, *, state: str, target_version: str) -> None:
+    now = utcnow_naive()
     conn.execute(
         text(
             """
@@ -113,10 +113,10 @@ def get_migration_state() -> str:
 
 
 def wait_for_migration_ready(*, timeout_s: float, interval_s: float = 1.0) -> bool:
-    deadline = _utcnow_naive() + timedelta(seconds=max(0.0, timeout_s))
+    deadline = utcnow_naive() + timedelta(seconds=max(0.0, timeout_s))
     wait_seconds = max(interval_s, 0.1)
     logged_waiting = False
-    while _utcnow_naive() <= deadline:
+    while utcnow_naive() <= deadline:
         state = get_migration_state()
         if state == MIGRATION_STATE_READY:
             return True
@@ -138,8 +138,8 @@ def wait_for_migration_ready(*, timeout_s: float, interval_s: float = 1.0) -> bo
 # ---------------------------------------------------------------------------
 
 
-def _upsert_schema_version(conn, schema_version: str) -> None:
-    now = _utcnow_naive()
+def _upsert_schema_version(conn: Connection, schema_version: str) -> None:
+    now = utcnow_naive()
     existing_row = conn.execute(
         text("SELECT updated_at FROM system_metadata WHERE key = 'scryfall_data'")
     ).fetchone()

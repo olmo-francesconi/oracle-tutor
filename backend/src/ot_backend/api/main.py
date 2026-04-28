@@ -5,7 +5,7 @@ import importlib.metadata
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Final
+from typing import Final, override
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLTimeoutError
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ..core.config import (
@@ -26,7 +26,9 @@ from ..core.config import (
 )
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import setup_loggers
-from ._semantic_index import _get_semantic_index  # noqa: F401 — re-exported for test monkeypatching
+from ._semantic_index import (
+    get_semantic_index as get_semantic_index,  # noqa: F401 — re-exported for test monkeypatching
+)
 from .oracle_pool import apply_oracle_pools, load_oracle_pools, rotate_oracle_pools
 from .routers.admin import router as admin_router
 from .routers.search import router as search_router
@@ -49,7 +51,8 @@ API_VERSION: Final[str] = _get_api_version()
 
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    @override
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         if request.method in {"POST", "PUT", "PATCH"}:
             _path = request.scope.get("path", request.url.path)
             limit_bytes = (
@@ -115,7 +118,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info("Loading semantic model...")
     try:
         from . import _semantic_index as _sem_idx_mod
-        index = _sem_idx_mod._get_semantic_index()
+        index = _sem_idx_mod.get_semantic_index()
         if index is None:
             logger.warning("Semantic model unavailable — semantic endpoints will return 503")
         else:

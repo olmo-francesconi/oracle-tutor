@@ -15,30 +15,33 @@ import tempfile
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 try:
-    import modal  # pyright: ignore[reportMissingImports]
+    import modal
 except ModuleNotFoundError:  # pragma: no cover - exercised in local test envs without modal installed
     class _DummyImage:
         @staticmethod
         def debian_slim(*, python_version: str) -> "_DummyImage":
+            del python_version
             return _DummyImage()
 
         def pip_install(self, *packages: str) -> "_DummyImage":
+            del packages
             return self
 
     class _DummyVolume:
         @staticmethod
         def from_name(name: str, *, create_if_missing: bool) -> "_DummyVolume":
+            del name, create_if_missing
             return _DummyVolume()
 
     class _DummyApp:
         def __init__(self, _name: str) -> None:
             pass
 
-        def function(self, **_kwargs: object):
-            def decorator(fn):
+        def function(self, **_kwargs: object) -> Any:
+            def decorator(fn: Any) -> Any:
                 fn.remote = fn
                 return fn
 
@@ -379,6 +382,7 @@ def train(
         def __len__(self) -> int:
             return self._n + len(self._direct)
 
+        @override
         def __getitem__(self, i: int) -> InputExample:
             if i < self._n:
                 left_key, right_key = self._pairs[i]

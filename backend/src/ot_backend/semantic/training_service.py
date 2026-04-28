@@ -57,7 +57,7 @@ def _load_sentence_transformers() -> tuple[Any, Any, Any]:
     return getattr(st, "SentenceTransformer"), getattr(st, "InputExample"), getattr(st, "losses")
 
 
-def _load_sentence_transformer_class() -> Any:
+def load_sentence_transformer_class() -> Any:
     return _load_sentence_transformers()[0]
 
 
@@ -150,7 +150,7 @@ def train_sentence_transformer(
 
 
 def export_onnx_model(model_source: str, output_path: Path) -> None:
-    SentenceTransformer = _load_sentence_transformer_class()
+    SentenceTransformer = load_sentence_transformer_class()
     configure_huggingface_env()
     cache_dir = huggingface_cache_dir()
     logger.info(

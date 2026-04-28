@@ -5,9 +5,9 @@ from typing import Callable, Protocol, cast
 from sqlalchemy.orm import Session
 
 try:
-    from ..semantic.index import get_semantic_index as _get_semantic_index_fn
+    from ..semantic.index import get_semantic_index as get_semantic_index_fn
 except ImportError:
-    _get_semantic_index_fn = None  # type: ignore[assignment]
+    get_semantic_index_fn = None  # type: ignore[assignment]
 
 
 class SemanticIndexProtocol(Protocol):
@@ -46,8 +46,8 @@ class SemanticIndexProtocol(Protocol):
     ) -> list[tuple[tuple[str, int], float]]: ...
 
 
-def _get_semantic_index() -> SemanticIndexProtocol | None:
-    if _get_semantic_index_fn is None:
+def get_semantic_index() -> SemanticIndexProtocol | None:
+    if get_semantic_index_fn is None:
         return None
-    return cast(Callable[[], SemanticIndexProtocol | None], _get_semantic_index_fn)()
+    return cast(Callable[[], SemanticIndexProtocol | None], get_semantic_index_fn)()
 

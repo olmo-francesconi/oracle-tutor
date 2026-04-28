@@ -11,10 +11,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..core.config import semantic_temp_dir
 from ..core.database import SessionLocal
-from ..core.models import SemanticModel, SemanticModelEmbedding
+from ..core.models import SemanticModel, SemanticModelArtifact, SemanticModelEmbedding
 from .artifacts import (
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
-    SemanticModelArtifact,
     download_artifact_bytes,
     get_semantic_model_artifact,
     upload_and_record_semantic_model_artifact,

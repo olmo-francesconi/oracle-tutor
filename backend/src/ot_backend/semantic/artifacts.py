@@ -62,7 +62,7 @@ def download_artifact_bytes(*, object_key: str) -> bytes:
 
 
 def _record_artifact(
-    artifact,
+    artifact: SemanticModelArtifact | SemanticDatasetArtifact,
     *,
     object_key: str,
     content_bytes: bytes,

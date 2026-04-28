@@ -21,7 +21,7 @@ from .model_registry import (
 )
 from .semantic_state import get_semantic_data_version, record_active_model_data_version
 from .text_prep import normalize_oracle_text
-from .training_service import _load_sentence_transformer_class
+from .training_service import load_sentence_transformer_class
 
 logger = logging.getLogger("ot_backend.semantic.model_promotion")
 
@@ -180,7 +180,7 @@ def _store_model_embeddings_batches(
     return total
 
 
-def _store_model_embeddings(model_id: str, rows: list[tuple[str, int, list[float]]]) -> int:
+def store_model_embeddings(model_id: str, rows: list[tuple[str, int, list[float]]]) -> int:
     return _store_model_embeddings_batches(model_id, [rows])
 
 
@@ -216,7 +216,7 @@ def _store_precomputed_embeddings_from_archive(model_id: str, archive_path: Path
 
 
 def _compute_and_store_embeddings_from_pytorch_model(model_id: str, model_path: Path, *, batch_size: int) -> int:
-    SentenceTransformer = _load_sentence_transformer_class()
+    SentenceTransformer = load_sentence_transformer_class()
     logger.info("Computing semantic embeddings with PyTorch model at %s (batch_size=%d)", model_path, batch_size)
     model = SentenceTransformer(str(model_path), local_files_only=True)
 

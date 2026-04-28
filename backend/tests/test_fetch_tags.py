@@ -9,10 +9,10 @@ from ot_backend.core.db_init import init_db
 from ot_backend.core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
 from ot_backend.ingest.fetch_tags import (
     FetchOutcome,
-    _cards_needing_tag_fetch,
     _extract_card_entities,
     _flush_card_batch,
     _tagger_graphql_once,
+    cards_needing_tag_fetch,
 )
 
 SAMPLE_TAGGER_PAYLOAD = {
@@ -281,8 +281,8 @@ def test_cards_needing_tag_fetch_only_returns_cards_without_taggings() -> None:
         db.add(CardTagging(id="tagging-card-1", card_id="card-1", tag_id="tag-card-1", foreign_key="oracleId"))
         db.commit()
 
-        assert [card.oracle_id for card in _cards_needing_tag_fetch(db, refresh_tags=False)] == ["card-2"]
-        assert [card.oracle_id for card in _cards_needing_tag_fetch(db, refresh_tags=True)] == ["card-1", "card-2"]
+        assert [card.oracle_id for card in cards_needing_tag_fetch(db, refresh_tags=False)] == ["card-2"]
+        assert [card.oracle_id for card in cards_needing_tag_fetch(db, refresh_tags=True)] == ["card-1", "card-2"]
 
 
 def test_tagger_graphql_once_requests_session_reset_on_retryable_status() -> None:

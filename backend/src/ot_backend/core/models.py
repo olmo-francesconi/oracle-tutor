@@ -29,7 +29,7 @@ def _semantic_embedding_type():
     return Vector(SEMANTIC_EMBEDDING_DIMENSION)
 
 
-def _utcnow_naive() -> datetime.datetime:
+def utcnow_naive() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
 
@@ -47,7 +47,7 @@ class SystemMetadata(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     updated_at: Mapped[str] = mapped_column(String)
-    last_ingestion: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive)
+    last_ingestion: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive)
     version: Mapped[str | None] = mapped_column(String, default="0.0")
 
 
@@ -55,7 +55,7 @@ class IngestionLog(Base):
     __tablename__ = "ingestion_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    started_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive)
+    started_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive)
     completed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String)  # started/success/failed
     records_processed: Mapped[int] = mapped_column(Integer, default=0)
@@ -125,7 +125,7 @@ class CardRaw(Base):
     flavor_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     flavor_name: Mapped[str | None] = mapped_column(String, nullable=True)
     content_warning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    ingested_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive)
+    ingested_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive)
 
     card: Mapped["Card | None"] = relationship(back_populates="raw_printing")
 
@@ -306,7 +306,7 @@ class SemanticModel(Base):
     config_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     metrics_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
     activated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
     embeddings: Mapped[list["SemanticModelEmbedding"]] = relationship(
@@ -332,7 +332,7 @@ class SemanticDataset(Base):
     config_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     metrics_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
 
     artifacts: Mapped[list["SemanticDatasetArtifact"]] = relationship(
         back_populates="dataset",
@@ -356,7 +356,7 @@ class SemanticModelArtifact(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     content_type: Mapped[str] = mapped_column(String, nullable=False)
     metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
 
     model: Mapped["SemanticModel"] = relationship(back_populates="artifacts")
 
@@ -375,7 +375,7 @@ class SemanticDatasetArtifact(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     content_type: Mapped[str] = mapped_column(String, nullable=False)
     metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
 
     dataset: Mapped["SemanticDataset"] = relationship(back_populates="artifacts")
 
@@ -410,7 +410,7 @@ class SemanticJob(Base):
     payload_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     result_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
     started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     heartbeat_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)

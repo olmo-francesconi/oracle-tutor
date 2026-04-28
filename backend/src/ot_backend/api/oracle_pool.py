@@ -13,7 +13,7 @@ from ..core.models import CardFace, CardRaw
 from .routers.search import (
     HOME_TERM_POOL_LIMIT,
     ORACLE_TEXT_POOL_LIMIT,
-    _build_home_term_pool,
+    build_home_term_pool,
 )
 
 logger = logging.getLogger("ot_backend.api")
@@ -52,7 +52,7 @@ def load_oracle_pools() -> tuple[list[str], list[str]]:
         keyword_rows = _sample_keywords(db)
 
     oracle_text_pool = [row[0] for row in oracle_rows if row[0] and row[0].strip()]
-    home_term_pool = _build_home_term_pool(keyword_rows, oracle_rows)
+    home_term_pool = build_home_term_pool(keyword_rows, oracle_rows)
     return oracle_text_pool, home_term_pool
 
 

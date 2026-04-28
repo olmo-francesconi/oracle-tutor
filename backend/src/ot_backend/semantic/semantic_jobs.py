@@ -83,7 +83,7 @@ def create_dataset_job(
         )
     ).all()
     for in_flight in in_flight_jobs:
-        if isinstance(in_flight.payload_json, dict) and in_flight.payload_json.get("dataset_slug") == dataset_slug:
+        if in_flight.payload_json.get("dataset_slug") == dataset_slug:
             raise ValueError(
                 f"Dataset slug '{dataset_slug}' is already being built by job {in_flight.id}."
             )
@@ -127,7 +127,7 @@ def create_train_job(
         )
     ).all()
     for in_flight in in_flight_jobs:
-        if isinstance(in_flight.payload_json, dict) and in_flight.payload_json.get("model_slug") == model_slug:
+        if in_flight.payload_json.get("model_slug") == model_slug:
             raise ValueError(
                 f"Model slug '{model_slug}' is already being trained by job {in_flight.id}."
             )

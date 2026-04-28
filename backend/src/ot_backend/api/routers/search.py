@@ -73,7 +73,7 @@ def _extract_ability_words(text: str | None) -> list[str]:
     return [_normalize_home_term(match.group(1)) for match in ABILITY_WORD_PATTERN.finditer(text)]
 
 
-def _build_home_term_pool(keyword_rows: list[tuple[list[str] | None]], oracle_rows: list[tuple[str | None]]) -> list[str]:
+def build_home_term_pool(keyword_rows: list[tuple[list[str] | None]], oracle_rows: list[tuple[str | None]]) -> list[str]:
     deduped_terms: dict[str, str] = {}
 
     for keywords, in keyword_rows:
@@ -268,7 +268,7 @@ def get_similar_cards(
     card_type_list = _parse_code_filter(card_type, _CARD_TYPE_MAP, "card type")
     format_list = _parse_code_filter(format, _FORMAT_MAP, "format")
 
-    index = _sem_idx_mod._get_semantic_index()
+    index = _sem_idx_mod.get_semantic_index()
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
 
