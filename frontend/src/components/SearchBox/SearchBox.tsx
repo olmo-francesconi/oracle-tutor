@@ -38,7 +38,8 @@ export function SearchBox({
 
   const autocomplete = useCardAutocompleteQuery(value)
   const suggestions: CardMatch[] = autocomplete.data ?? []
-  const isLoading = autocomplete.isFetching
+  const hasSuggestions = suggestions.length > 0
+  const showPanel = isOpen && hasSuggestions
 
   // activeIndex is clamped at render time against the live suggestions list.
   // If the list shrinks under the hovered index it just snaps back to -1; any
@@ -120,7 +121,7 @@ export function SearchBox({
   const rootClassName = [
     'relative grid w-full min-w-0 gap-0',
     variant === 'topbar' ? 'h-full self-stretch bg-transparent' : '',
-    isOpen ? 'search-box-open' : '',
+    showPanel ? 'search-box-open' : '',
     className ?? '',
   ]
     .filter(Boolean)
@@ -130,7 +131,7 @@ export function SearchBox({
     <div
       ref={rootRef}
       className={rootClassName}
-      data-state={isOpen ? 'open' : 'closed'}
+      data-state={showPanel ? 'open' : 'closed'}
       onPointerDownCapture={() => {
         internalPointerActiveRef.current = true
       }}
@@ -148,7 +149,7 @@ export function SearchBox({
         variant={variant}
         activeIndex={effectiveActiveIndex}
         suggestionsId={SEARCH_SUGGESTIONS_ID}
-        suggestionsOpen={isOpen && suggestions.length > 0}
+        suggestionsOpen={showPanel}
         pendingInsert={pendingInsert}
         onChange={handleInputChange}
         onSubmit={handleSubmit}
@@ -186,13 +187,12 @@ export function SearchBox({
         onInsertHandled={() => setPendingInsert(null)}
       />
 
-      {isOpen ? (
+      {showPanel ? (
         <SearchSuggestions
           id={SEARCH_SUGGESTIONS_ID}
           variant={variant}
           items={suggestions}
           activeIndex={effectiveActiveIndex}
-          isLoading={isLoading}
           onSelect={handleSelect}
           onHover={setActiveIndex}
         />

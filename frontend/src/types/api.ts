@@ -47,12 +47,13 @@ export interface SimilarCardsPage {
 export interface CardMatch {
   id: string
   name: string
+  card_name?: string | null
   oracle_id: string | null
   scryfall_id: string | null
   face_ix: number
   image_side: 'front' | 'back'
-  similarity?: number
-  rank?: number
+  similarity?: number | null
+  rank?: number | null
 }
 
 export interface FilterState {

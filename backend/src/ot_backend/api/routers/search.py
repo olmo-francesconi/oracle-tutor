@@ -6,7 +6,7 @@ import re
 from typing import Final, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import tuple_
+from sqlalchemy import case, func, tuple_
 from sqlalchemy.orm import Session, joinedload
 
 from ...core.config import MAX_QUERY_LENGTH
@@ -192,13 +192,28 @@ def search_cards(
     if not q.strip():
         return []
 
-    q_like = f"%{q}%"
+    q_norm = q.strip()
+    q_lower = q_norm.lower()
+    q_like = f"%{q_norm}%"
+    q_prefix = f"{q_norm}%"
+    face_name_lower = func.lower(CardFace.name)
+    match_priority = case(
+        (face_name_lower == q_lower, 0),
+        (CardFace.name.ilike(q_prefix), 1),
+        else_=2,
+    )
     faces = (
         db.query(CardFace)
         .options(joinedload(CardFace.card))
         .join(Card, Card.oracle_id == CardFace.oracle_id)
-        .filter((CardFace.name.ilike(q_like)) | (Card.name.ilike(q_like)))
-        .order_by(Card.edhrec_rank.asc().nulls_last(), Card.name.asc(), CardFace.face_ix.asc(), CardFace.name.asc())
+        .filter(CardFace.name.ilike(q_like))
+        .order_by(
+            match_priority.asc(),
+            Card.edhrec_rank.asc().nulls_last(),
+            Card.name.asc(),
+            CardFace.face_ix.asc(),
+            CardFace.name.asc(),
+        )
         .offset(offset)
         .limit(limit)
         .all()
@@ -206,6 +221,7 @@ def search_cards(
     return [
         CardMatch(
             name=face.name,
+            card_name=face.card.name,
             oracle_id=face.card.oracle_id,
             scryfall_id=face.card.scryfall_id,
             face_ix=face.face_ix,

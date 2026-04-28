@@ -47,12 +47,13 @@ export const SimilarCardsPageSchema = z.object({
 
 export const CardMatchSchema = z.object({
   name: z.string(),
+  card_name: z.string().nullish(),
   oracle_id: z.string().nullable(),
   scryfall_id: z.string().nullable(),
   face_ix: z.number(),
   image_side: z.enum(['front', 'back']),
-  similarity: z.number().optional(),
-  rank: z.number().optional(),
+  similarity: z.number().nullish(),
+  rank: z.number().nullish(),
 })
 
 export const CardMatchListSchema = z.array(CardMatchSchema)

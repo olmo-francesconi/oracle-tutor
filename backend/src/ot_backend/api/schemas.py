@@ -18,6 +18,7 @@ from ..semantic.train_options import (
 
 class CardMatch(BaseModel):
     name: str
+    card_name: str | None = None
     similarity: float = 1.0
     rank: int | None = None
     oracle_id: str | None = None
