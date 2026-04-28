@@ -149,6 +149,7 @@ def test_search_returns_multiple_faces_for_multi_face_name_matches(client):
     assert res.json() == [
         {
             "name": "Aang, at the Crossroads",
+            "card_name": "Aang, at the Crossroads // Aang, Destined Savior",
             "similarity": 1.0,
             "rank": 8,
             "oracle_id": "o8",
@@ -158,6 +159,7 @@ def test_search_returns_multiple_faces_for_multi_face_name_matches(client):
         },
         {
             "name": "Aang, Destined Savior",
+            "card_name": "Aang, at the Crossroads // Aang, Destined Savior",
             "similarity": 1.0,
             "rank": 8,
             "oracle_id": "o8",

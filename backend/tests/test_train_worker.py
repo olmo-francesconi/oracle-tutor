@@ -2,8 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+
+
+def _fake_modal_module(**fns: object) -> SimpleNamespace:
+    @contextmanager
+    def _run(**_kwargs: object):
+        yield
+
+    return SimpleNamespace(app=SimpleNamespace(run=_run), **fns)
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
@@ -180,7 +189,7 @@ def test_dataset_worker_uses_modal_for_llm_augmentation(monkeypatch) -> None:
     monkeypatch.setattr("ot_backend.semantic.dataset_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
         "ot_backend.semantic.dataset_worker._load_modal_train_module",
-        lambda: SimpleNamespace(build_dataset=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or dataset_bytes)),
+        lambda: _fake_modal_module(build_dataset=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or dataset_bytes)),
     )
     monkeypatch.setattr(
         "ot_backend.semantic.dataset_worker.create_semantic_dataset",
@@ -258,7 +267,7 @@ def test_train_worker_drains_pending_train_job_and_records_result(monkeypatch) -
     monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
         "ot_backend.semantic.train_worker._load_modal_train_module",
-        lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or b"bundle-bytes")),
+        lambda: _fake_modal_module(train=SimpleNamespace(remote=lambda *args: remote_calls.append(args) or b"bundle-bytes")),
     )
     monkeypatch.setattr("ot_backend.semantic.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
     monkeypatch.setattr("ot_backend.semantic.train_worker.semantic_train_max_jobs_per_run", lambda: 5)
@@ -328,7 +337,7 @@ def test_train_worker_creates_follow_up_promote_job_when_requested(monkeypatch) 
     monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
         "ot_backend.semantic.train_worker._load_modal_train_module",
-        lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *_args: b"bundle-bytes")),
+        lambda: _fake_modal_module(train=SimpleNamespace(remote=lambda *_args: b"bundle-bytes")),
     )
     monkeypatch.setattr("ot_backend.semantic.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
 
@@ -388,7 +397,7 @@ def test_train_worker_succeeds_when_follow_up_promote_enqueue_fails(monkeypatch)
     monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: True)
     monkeypatch.setattr(
         "ot_backend.semantic.train_worker._load_modal_train_module",
-        lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *_args: b"bundle-bytes")),
+        lambda: _fake_modal_module(train=SimpleNamespace(remote=lambda *_args: b"bundle-bytes")),
     )
     monkeypatch.setattr("ot_backend.semantic.train_worker.register_model_bundle_bytes", fake_register_model_bundle_bytes)
     monkeypatch.setattr(
@@ -487,7 +496,7 @@ def test_run_modal_training_requires_modal_credentials(monkeypatch) -> None:
     monkeypatch.setattr("ot_backend.semantic.train_worker.modal_client_configured", lambda: False)
     monkeypatch.setattr(
         "ot_backend.semantic.train_worker._load_modal_train_module",
-        lambda: SimpleNamespace(train=SimpleNamespace(remote=lambda *_args: (_ for _ in ()).throw(AssertionError("should not run")))),
+        lambda: _fake_modal_module(train=SimpleNamespace(remote=lambda *_args: (_ for _ in ()).throw(AssertionError("should not run")))),
     )
 
     try:
