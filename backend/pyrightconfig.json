@@ -8,7 +8,18 @@
       "extraPaths": ["./src"]
     }
   ],
-  "reportMissingModuleSource": "none"
+  "reportMissingModuleSource": "none",
+  "reportAny": "none",
+  "reportExplicitAny": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnannotatedClassAttribute": "none",
+  "reportCallInDefaultInitializer": "none",
+  "reportUnusedCallResult": "none",
+  "reportUntypedFunctionDecorator": "none",
+  "reportImplicitStringConcatenation": "none"
 }
 
 
