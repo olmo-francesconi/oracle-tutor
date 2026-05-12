@@ -4,9 +4,6 @@ import {
   getAdminSemanticModels,
 } from '../lib/adminApi'
 
-// All admin queries share the leading key 'admin' so the Refresh button can
-// invalidate the entire board at once via invalidateQueries({ queryKey: ['admin'] }).
-
 export function useAdminModels() {
   return useQuery({
     queryKey: ['admin', 'models'],

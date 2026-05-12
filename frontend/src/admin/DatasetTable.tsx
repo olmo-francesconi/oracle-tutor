@@ -7,16 +7,23 @@ type Props = {
   loading: boolean
 }
 
+function DatasetTableEmpty() {
+  return (
+    <div className="grid max-w-[34rem] gap-2">
+      <p className="eyebrow">Empty</p>
+      <p className="m-0 font-display text-[1.55rem] font-black uppercase leading-[0.95] tracking-[-0.02em] text-ot-ink">
+        No datasets built.
+      </p>
+      <p className="m-0 text-[0.8rem] leading-[1.55] text-ot-muted">
+        Run <code className="rounded-none bg-ot-bg px-1 text-ot-ink">uv run python -m scripts.build_dataset</code> from <code className="rounded-none bg-ot-bg px-1 text-ot-ink">backend/</code> to build one.
+      </p>
+    </div>
+  )
+}
+
 export function DatasetTable({ datasets, loading }: Props) {
   return (
-    <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-      <div className="border-b-2 border-ot-ink px-5 py-4">
-        <p className="eyebrow">Datasets</p>
-        <h2 className="m-0 pt-2 font-display text-[2.1rem] font-black uppercase leading-[0.9] tracking-[-0.03em]">
-          Training datasets
-        </h2>
-      </div>
-
+    <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface" aria-label="Datasets">
       <div className="overflow-x-auto max-[900px]:hidden">
         <table className="min-w-full border-collapse">
           <thead>
@@ -37,8 +44,8 @@ export function DatasetTable({ datasets, loading }: Props) {
               </tr>
             ) : datasets.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                  No datasets built yet.
+                <td colSpan={4} className="px-5 py-8">
+                  <DatasetTableEmpty />
                 </td>
               </tr>
             ) : (
@@ -79,7 +86,9 @@ export function DatasetTable({ datasets, loading }: Props) {
         {loading ? (
           <div className="animate-ot-loading-pulse px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">Loading…</div>
         ) : datasets.length === 0 ? (
-          <div className="px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">No datasets built yet.</div>
+          <div className="px-5 py-8">
+            <DatasetTableEmpty />
+          </div>
         ) : (
           datasets.map((ds) => (
             <article key={ds.id} className="grid gap-3 border-b-2 border-ot-line px-5 py-4 last:border-b-0">

@@ -1,11 +1,21 @@
 type Props = { status: string }
 
 function statusTone(status: string) {
-  if (status === 'active' || status === 'succeeded' || status === 'ready') return 'bg-ot-ink text-ot-bg'
-  if (status === 'running' || status === 'embedding') return 'bg-ot-yellow text-ot-ink'
-  if (status === 'pending' || status === 'uploaded') return 'bg-ot-surface text-ot-ink'
-  if (status === 'failed') return 'bg-ot-red text-ot-bg'
-  return 'bg-ot-line text-ot-ink'
+  switch (status) {
+    case 'active':
+    case 'ready':
+      return 'bg-ot-ink text-ot-bg'
+    case 'embedding':
+      return 'bg-ot-yellow text-ot-ink'
+    case 'uploaded':
+      return 'bg-ot-surface text-ot-ink'
+    case 'archived':
+      return 'bg-ot-line text-ot-ink'
+    case 'failed':
+      return 'bg-ot-red text-ot-bg'
+    default:
+      return 'bg-ot-line text-ot-ink'
+  }
 }
 
 export function StatusBadge({ status }: Props) {

@@ -1,5 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
-import { useIsFetching, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { useAdminDatasets, useAdminModels } from './adminQueries'
 import { DatasetTable } from './DatasetTable'
 import { ModelTable } from './ModelTable'
@@ -18,7 +17,6 @@ function firstErrorMessage(errors: (Error | null | undefined)[]): string | null 
 }
 
 export function AdminPage({ onLogout }: AdminPageProps) {
-  const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('models')
 
   const modelsQuery = useAdminModels()
@@ -28,13 +26,7 @@ export function AdminPage({ onLogout }: AdminPageProps) {
   const datasets = useMemo(() => datasetsQuery.data ?? [], [datasetsQuery.data])
 
   const loading = modelsQuery.isLoading || datasetsQuery.isLoading
-  const refreshing = useIsFetching({ queryKey: ['admin'] }) > 0
-
   const error = firstErrorMessage([modelsQuery.error, datasetsQuery.error])
-
-  const handleRefresh = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['admin'] })
-  }, [queryClient])
 
   return (
     <main className="relative min-h-screen overflow-x-clip bg-ot-bg text-ot-ink">
@@ -50,7 +42,7 @@ export function AdminPage({ onLogout }: AdminPageProps) {
 
       <div className="relative z-20 mx-auto flex min-h-screen w-full max-w-[1560px] flex-col px-6 pb-10 pl-11 pt-6 max-[920px]:px-4 max-[920px]:pl-[30px]">
         <header className="grid gap-4 border-b-2 border-ot-ink pb-5 max-[920px]:gap-3">
-          <div className="flex items-start justify-between gap-4 max-[920px]:flex-col max-[920px]:items-stretch">
+          <div className="flex items-start justify-between gap-6 max-[920px]:flex-col max-[920px]:items-start max-[920px]:gap-3">
             <div className="grid gap-2">
               <p className="eyebrow">Semantic Registry / Admin</p>
               <h1 className="m-0 max-w-[11ch] font-display text-[clamp(3.8rem,9vw,7rem)] font-black uppercase leading-[0.84] tracking-[-0.04em]">
@@ -58,46 +50,29 @@ export function AdminPage({ onLogout }: AdminPageProps) {
               </h1>
             </div>
 
-            <div className="grid w-full max-w-[320px] min-w-0 gap-0 self-start border-2 border-ot-ink bg-ot-surface max-[920px]:max-w-none">
+            <nav
+              aria-label="Admin actions"
+              className="flex items-center gap-4 self-end text-[0.78rem] uppercase tracking-[0.12em] text-ot-muted max-[920px]:self-start"
+            >
               <a
                 href="/"
-                className="border-b-2 border-ot-ink px-4 py-3 font-display text-[1.1rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg"
+                className="font-display font-black tracking-[0.06em] text-ot-ink underline decoration-ot-ink/30 decoration-2 underline-offset-[6px] transition-colors duration-150 hover:text-ot-red hover:decoration-ot-red motion-reduce:transition-none"
               >
                 Return to search
               </a>
               {onLogout ? (
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="border-b-2 border-ot-ink px-4 py-3 text-left font-display text-[1.1rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-red hover:text-ot-bg"
-                >
-                  Sign out
-                </button>
+                <>
+                  <span aria-hidden="true" className="text-ot-muted">·</span>
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    className="cursor-pointer border-0 bg-transparent p-0 font-display font-black tracking-[0.06em] text-ot-ink underline decoration-ot-ink/30 decoration-2 underline-offset-[6px] transition-colors duration-150 hover:text-ot-red hover:decoration-ot-red motion-reduce:transition-none"
+                  >
+                    Sign out
+                  </button>
+                </>
               ) : null}
-              <button
-                type="button"
-                onClick={handleRefresh}
-                className="border-b-2 border-ot-ink px-4 py-3 text-left font-display text-[1.1rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg active:opacity-80"
-              >
-                {refreshing ? 'Refreshing…' : 'Refresh board'}
-              </button>
-              <div className="grid grid-cols-3">
-                <div className="overflow-hidden border-r-2 border-ot-ink px-2 py-2">
-                  <p className="eyebrow">Models</p>
-                  <p className="m-0 pt-1 font-display text-2xl font-black uppercase leading-none">{models.length}</p>
-                </div>
-                <div className="overflow-hidden border-r-2 border-ot-ink px-2 py-2">
-                  <p className="eyebrow">Datasets</p>
-                  <p className="m-0 pt-1 font-display text-2xl font-black uppercase leading-none">{datasets.length}</p>
-                </div>
-                <div className="overflow-hidden px-2 py-2">
-                  <p className="eyebrow">Pulse</p>
-                  <p className="m-0 pt-1 font-display text-base font-black uppercase leading-none">
-                    {refreshing ? 'syncing' : 'steady'}
-                  </p>
-                </div>
-              </div>
-            </div>
+            </nav>
           </div>
         </header>
 
@@ -108,19 +83,33 @@ export function AdminPage({ onLogout }: AdminPageProps) {
         ) : null}
 
         <div className="flex gap-0 border-b-2 border-ot-ink pt-6">
-          {(['models', 'datasets'] as Tab[]).map((t) => (
+          {(
+            [
+              { key: 'models', label: 'Models', count: models.length },
+              { key: 'datasets', label: 'Datasets', count: datasets.length },
+            ] as { key: Tab; label: string; count: number }[]
+          ).map(({ key, label, count }) => (
             <button
-              key={t}
+              key={key}
               type="button"
-              onClick={() => setTab(t)}
+              onClick={() => setTab(key)}
+              aria-pressed={tab === key}
               className={[
-                'px-5 py-3 font-display text-[0.98rem] font-black uppercase tracking-[-0.02em] transition-colors duration-150',
-                tab === t
-                  ? 'border-2 border-b-0 border-ot-ink bg-ot-surface'
+                'flex items-baseline gap-3 px-5 py-3 font-display text-[0.98rem] font-black uppercase tracking-[0.04em] transition-colors duration-150 motion-reduce:transition-none',
+                tab === key
+                  ? 'border-2 border-b-0 border-ot-ink bg-ot-surface text-ot-ink'
                   : 'border-2 border-transparent text-ot-muted hover:text-ot-ink',
               ].join(' ')}
             >
-              {t}
+              <span>{label}</span>
+              <span
+                className={[
+                  'text-[0.72rem] tracking-[0.08em]',
+                  tab === key ? 'text-ot-muted' : 'text-ot-muted/70',
+                ].join(' ')}
+              >
+                {loading ? '—' : count}
+              </span>
             </button>
           ))}
         </div>

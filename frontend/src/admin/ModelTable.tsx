@@ -7,16 +7,23 @@ type Props = {
   loading: boolean
 }
 
+function ModelTableEmpty() {
+  return (
+    <div className="grid max-w-[34rem] gap-2">
+      <p className="eyebrow">Empty</p>
+      <p className="m-0 font-display text-[1.55rem] font-black uppercase leading-[0.95] tracking-[-0.02em] text-ot-ink">
+        No models registered.
+      </p>
+      <p className="m-0 text-[0.8rem] leading-[1.55] text-ot-muted">
+        Run <code className="rounded-none bg-ot-bg px-1 text-ot-ink">uv run python -m scripts.promote_model</code> from <code className="rounded-none bg-ot-bg px-1 text-ot-ink">backend/</code> to register and activate one.
+      </p>
+    </div>
+  )
+}
+
 export function ModelTable({ models, loading }: Props) {
   return (
-    <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface">
-      <div className="border-b-2 border-ot-ink px-5 py-4">
-        <p className="eyebrow">Models</p>
-        <h2 className="m-0 pt-2 font-display text-[2.1rem] font-black uppercase leading-[0.9] tracking-[-0.03em]">
-          Available candidates
-        </h2>
-      </div>
-
+    <section className="grid gap-0 border-2 border-ot-ink bg-ot-surface" aria-label="Models">
       <div className="overflow-x-auto max-[900px]:hidden">
         <table className="min-w-full border-collapse">
           <thead>
@@ -37,8 +44,8 @@ export function ModelTable({ models, loading }: Props) {
               </tr>
             ) : models.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-                  No models registered yet.
+                <td colSpan={4} className="px-5 py-8">
+                  <ModelTableEmpty />
                 </td>
               </tr>
             ) : (
@@ -84,8 +91,8 @@ export function ModelTable({ models, loading }: Props) {
         {loading ? (
           <div className="animate-ot-loading-pulse px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">Loading…</div>
         ) : models.length === 0 ? (
-          <div className="px-5 py-8 text-[0.78rem] uppercase tracking-[0.08em] text-ot-muted">
-            No models registered yet.
+          <div className="px-5 py-8">
+            <ModelTableEmpty />
           </div>
         ) : (
           models.map((model) => (
