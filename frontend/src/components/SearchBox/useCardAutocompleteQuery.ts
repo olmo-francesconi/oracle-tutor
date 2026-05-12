@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { searchCards } from '../../lib/api'
-import { useApiReadyValue } from '../../lib/apiReadyContext'
 
 const DEBOUNCE_MS = 180
 const AUTOCOMPLETE_LIMIT = 6
@@ -18,17 +17,14 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 }
 
 export function useCardAutocompleteQuery(rawValue: string) {
-  const apiReady = useApiReadyValue()
   const trimmed = rawValue.trim()
   const debounced = useDebouncedValue(trimmed, DEBOUNCE_MS)
-  const enabled = apiReady && debounced.length >= 2
+  const enabled = debounced.length >= 2
 
   return useQuery({
     queryKey: ['card-autocomplete', debounced],
     queryFn: ({ signal }) => searchCards(debounced, AUTOCOMPLETE_LIMIT, 0, signal),
     enabled,
-    // Keep suggestions around for quick re-show; TanStack will dedupe identical
-    // keys across focus/blur cycles.
     staleTime: 60_000,
   })
 }

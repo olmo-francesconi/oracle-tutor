@@ -172,23 +172,12 @@
   }
 }
 
-@keyframes ot-mana-cycle {
+@keyframes ot-pulse-square {
   0%,
-  16% {
-    opacity: 1;
-  }
-  20%,
   100% {
-    opacity: 0;
+    opacity: 0.4;
   }
-}
-
-@keyframes ot-boot-fade-in {
-  from {
-    opacity: 0;
-  }
-
-  to {
+  50% {
     opacity: 1;
   }
 }

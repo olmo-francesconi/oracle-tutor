@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useApiReadyState } from '../lib/apiReadyContext'
 import { getApiDownMessage, getSearchErrorMessage, isApiDownError } from './searchShellState'
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
@@ -9,6 +10,7 @@ import { DenseTextBackground } from '../components/background/DenseTextBackgroun
 import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
 import { HomeView } from './HomeView'
 import { ResultsView } from './ResultsView'
+import { WaitingView } from './WaitingView'
 
 const LEFT_STRIPE_WIDTH_PX = 6
 import { useCardQuery } from './useCardQuery'
@@ -69,6 +71,8 @@ export function SearchShell() {
   const [detail, setDetail] = useState<DetailTarget | null>(null)
   const [lastTextQuery, setLastTextQuery] = useState<string | null>(null)
   const viewport = useViewport()
+  const apiReadyState = useApiReadyState()
+  const apiReady = apiReadyState.ready
 
   const oracleSamplesQuery = useOracleSamplesQuery()
   const cardQuery = useCardQuery(ui.pinnedCard?.oracle_id)
@@ -127,6 +131,7 @@ export function SearchShell() {
   }
 
   const isHome = ui.submittedQuery === null && ui.pinnedCard === null
+  const isSemanticWarming = !apiReady && !isHome
   const activeFilterCount = getActiveFilterCount(ui.filters)
   const hasOracleBackground = oracleSamples.texts.length > 0
 
@@ -245,7 +250,7 @@ export function SearchShell() {
     <main
       className={[
         'relative isolate min-h-screen bg-ot-bg',
-        isHome
+        isHome || isSemanticWarming
           ? 'grid place-items-center px-6 pb-16 pl-11 pt-12 max-[720px]:px-4 max-[720px]:pb-12 max-[720px]:pl-[30px] max-[720px]:pt-8'
           : '',
       ].join(' ')}
@@ -266,6 +271,8 @@ export function SearchShell() {
           onSubmit={handleSubmit}
           onCardSelect={handleCardSelect}
         />
+      ) : isSemanticWarming ? (
+        <WaitingView attempts={apiReadyState.attempts} error={apiReadyState.error} />
       ) : (
         <ResultsView
           state={shellState}
