@@ -76,9 +76,42 @@
     text-transform: uppercase;
   }
 
+  /* The editor uses flex layout, so it must stay position:relative for the
+     absolute placeholder to anchor here. */
+  .search-editor {
+    position: relative;
+  }
+
+  /* Placeholder for the empty contenteditable. The editor must remain
+     truly :empty (no DOM children) — any child (ZWSP, <br>, non-editable
+     span) breaks caret rendering in Chrome and Safari. The pseudo uses
+     absolute positioning so it stays completely out of the flex content
+     flow (float doesn't work on flex items, which is why the placeholder
+     was rendering on a separate line). The pseudo runs its own flex
+     centering and matches the editor's padding so its text aligns
+     horizontally with where typed text would start. */
   .search-editor:empty::before {
     content: attr(data-placeholder);
     color: var(--color-ot-muted);
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .search-editor[data-variant='topbar']:empty::before {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+
+  @media (max-width: 720px) {
+    .search-editor[data-variant='topbar']:empty::before {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
   }
 
   .search-box-open .search-editor {

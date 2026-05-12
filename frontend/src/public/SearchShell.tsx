@@ -88,7 +88,14 @@ export function SearchShell() {
   const resolvedPinnedName = ui.pinnedCard
     ? ui.pinnedCard.name || cardQuery.data?.name || ''
     : ''
-  const displayDraft = ui.pinnedCard && !ui.draftQuery ? resolvedPinnedName : ui.draftQuery
+  // Only fall back to the resolved pinned name when the pinnedCard has no
+  // name yet (URL-load case). Once the user has a named pinned card, an
+  // empty draftQuery means the user cleared the bar to start a new search,
+  // and the field must stay empty so they can type.
+  const displayDraft =
+    ui.pinnedCard && !ui.draftQuery && !ui.pinnedCard.name
+      ? resolvedPinnedName
+      : ui.draftQuery
   const displaySubmitted = ui.pinnedCard ? resolvedPinnedName : ui.submittedQuery
 
   const pinnedSummary = useMemo(() => {
