@@ -117,7 +117,7 @@ The `semantic/model_promotion.py`, `semantic/bundle_registration.py`, and `seman
 
 Scripts live at `backend/scripts/` and are run with `uv run` from the `backend/` directory (so they pick up the project venv).
 
-Each script accepts `--prod` to point at the Railway public DB connection string (read from `.env.prod`, gitignored), or defaults to the local docker-compose DB.
+Each script loads env vars from `backend/.env` by default. Pass `--prod` to load `backend/.env.prod` instead (gitignored, holds the Railway public DB URL + R2 credentials pointing at production).
 
 ```bash
 cd backend
@@ -148,7 +148,7 @@ The scripts call the same library functions the deleted workers did: `model_prom
 2. **Local env drift breaks shipping.**
    If your laptop's Python is broken, you can't promote. Mitigation: scripts run via the same Docker image you use in CI:
    ```bash
-   docker run --rm --env-file .env.prod -v $(pwd):/work -w /work/backend oraculartutor/worker \
+   docker run --rm --env-file backend/.env.prod -v $(pwd):/work -w /work/backend oraculartutor/worker \
      python -m scripts.promote_model --prod --model-id ...
    ```
    Treat the Docker image as the runtime, not your host Python.

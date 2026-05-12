@@ -4,8 +4,8 @@ import argparse
 import os
 from pathlib import Path
 
-# Repo root is three levels up from this file (backend/scripts/_common.py → backend/ → repo root).
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# backend/ is one level up from this file (backend/scripts/_common.py → backend/).
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def add_prod_flag(parser: argparse.ArgumentParser) -> None:
@@ -13,15 +13,11 @@ def add_prod_flag(parser: argparse.ArgumentParser) -> None:
         "--prod",
         action="store_true",
         default=False,
-        help="Load .env.prod from repo root before connecting (implies production env vars).",
+        help="Load backend/.env.prod instead of backend/.env (production env vars).",
     )
 
 
-def load_env(*, prod: bool) -> None:
-    """Load environment variables from .env.prod (if --prod) or do nothing."""
-    if not prod:
-        return
-    env_file = _REPO_ROOT / ".env.prod"
+def _load_env_file(env_file: Path) -> None:
     if not env_file.exists():
         return
     try:
@@ -39,6 +35,12 @@ def load_env(*, prod: bool) -> None:
         key = key.strip()
         value = value.strip().strip('"').strip("'")
         os.environ.setdefault(key, value)
+
+
+def load_env(*, prod: bool) -> None:
+    """Load env vars from backend/.env.prod (--prod) or backend/.env (default)."""
+    name = ".env.prod" if prod else ".env"
+    _load_env_file(_BACKEND_ROOT / name)
 
 
 def setup_logging() -> None:
