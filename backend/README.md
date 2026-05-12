@@ -1,6 +1,6 @@
 # Backend (`/backend`)
 
-FastAPI service for Oracle Tutor, plus one-shot workers (ingest / dataset / train / promote) and the offline semantic training pipeline driven through them.
+FastAPI service for Oracle Tutor, plus an ingest-worker cron service. Dataset generation, training, and promotion are now operator-run local scripts under `backend/scripts/`.
 
 ## Local setup
 
@@ -77,16 +77,6 @@ Admin routes:
 - `GET /admin/semantic-models/{model_id}`
 - `GET /admin/semantic-models/{model_id}/artifacts`
 - `POST /admin/semantic-models/{model_id}/promote`
-- `GET /admin/semantic-datasets`
-- `GET /admin/semantic-datasets/{dataset_id}`
-- `GET /admin/semantic-datasets/{dataset_id}/artifacts`
-- `GET /admin/semantic-base-models`
-- `GET /admin/semantic-train-options`
-- `GET /admin/semantic-jobs`
-- `GET /admin/semantic-jobs/{job_id}`
-- `POST /admin/semantic-jobs/dataset`
-- `POST /admin/semantic-jobs/train`
-- `POST /admin/semantic-jobs/promote`
 
 ## `ingest-worker`
 
@@ -137,35 +127,38 @@ The worker is designed to run once and exit:
 python -m ot_backend.ingest.main --strict --trigger-type cron
 ```
 
-The `ingest` target in `backend/Dockerfile.worker` already uses that command as its container `CMD`.
+`backend/Dockerfile.worker.ingest` already uses that command as its container `CMD`.
 
-## `dataset-worker`, `train-worker`, `promotion-worker`
+## Local scripts (`backend/scripts/`)
 
-These are one-shot workers that claim jobs from the `semantic_jobs` table. Each worker acquires a row with `FOR UPDATE SKIP LOCKED`, processes it, marks it succeeded or failed, and exits.
+Dataset generation, training, and model promotion are now driven by operator-run local scripts instead of a job-queue system. These scripts replace the old `dataset-worker`, `train-worker`, and `promotion-worker` containers.
 
-Base commands:
+Available scripts:
+
+- `build_dataset.py` — builds and registers a training dataset from cards in the DB
+- `train_model.py` — fine-tunes (or base-model trains) via Modal, exports ONNX, bundles, and registers the model
+- `promote_model.py` — materializes the bundle and computes embeddings in a single transaction, then activates the model
+
+Typical workflow:
 
 ```bash
-uv run python -m ot_backend.semantic.dataset_worker
-uv run python -m ot_backend.semantic.train_worker
-uv run python -m ot_backend.semantic.promote_worker
+# Build a new dataset
+uv run python -m scripts.build_dataset --name v3-balanced
+
+# Train on that dataset (requires Modal credentials)
+uv run python -m scripts.train_model --dataset-id <id> --slug v3 --base-model all-MiniLM-L6-v2
+
+# Promote the trained model
+uv run python -m scripts.promote_model --model-id <id>
 ```
 
-Available flags (all three):
+All three scripts accept `--prod` to target the production Railway database (reads `.env.prod` from repo root if present).
 
-- `--job-id <id>`: run a specific job by ID instead of claiming the next pending one
+`train_model.py` also accepts `--skip-fine-tune` to skip Modal training and register a base model directly (no remote job).
 
-Workers process up to `SEMANTIC_MAX_JOBS_PER_RUN` / `SEMANTIC_TRAIN_MAX_JOBS_PER_RUN` / `SEMANTIC_PROMOTE_MAX_JOBS_PER_RUN` jobs in sequence. The `promotion-worker` uses a single `promote_semantic_model` entry point that atomically claims → computes embeddings → activates the model (the prior begin/run two-step was collapsed).
+## Model training via Modal
 
-## Semantic pipeline lifecycle
-
-Model training is driven through the admin API + workers. The usual flow:
-
-1. `POST /admin/semantic-jobs/dataset` → `dataset-worker` picks it up, builds the training dataset, uploads it as an artifact.
-2. `POST /admin/semantic-jobs/train` → `train-worker` picks it up, fine-tunes (or smoke-runs the base model when `skip_fine_tune=true`), exports ONNX, bundles, registers the model in `semantic_models`. Optionally enqueues a promote job via `promote_after_register`.
-3. `POST /admin/semantic-models/{id}/promote` or `POST /admin/semantic-jobs/promote` → `promotion-worker` materializes the bundle, populates `semantic_model_embeddings` in a single transaction (no zero-embeddings window), and flips `is_active`.
-
-All three can also be driven via the admin panel at `/admin`.
+`train_model.py` calls into `ot_backend.semantic.modal_train` via `modal.Function.lookup`, which provisions a Modal job and streams the training logs. The script waits for the job to complete, then writes the final model bundle and metadata to the DB. This replaces the prior "POST → worker picks up" async flow.
 
 ## Environment variables
 
@@ -199,10 +192,6 @@ All three can also be driven via the admin panel at `/admin`.
 - `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS`: how often the API polls for a new active model; defaults to `5`
 - `SEMANTIC_ONNX_INTRA_OP_THREADS`: ONNX Runtime intra-op threads; defaults to `1`
 - `SEMANTIC_ONNX_INTER_OP_THREADS`: ONNX Runtime inter-op threads; defaults to `1`
-- `SEMANTIC_JOB_HEARTBEAT_SECONDS`: heartbeat interval for running jobs; defaults to `600`
-- `SEMANTIC_JOB_STALE_SECONDS`: seconds before a running job is declared stale; defaults to `1200`
-- `SEMANTIC_PROMOTE_MAX_JOBS_PER_RUN`: max promote jobs per worker run; defaults to `50`
-- `SEMANTIC_TRAIN_MAX_JOBS_PER_RUN` / `SEMANTIC_MAX_JOBS_PER_RUN`: same for train / dataset workers
 
 ### Ingestion
 
@@ -222,11 +211,8 @@ From the repo root:
 docker compose up --build
 ```
 
-That stack starts `db`, `minio`, `api`, and `frontend`. Worker services (`ingest-worker`, `dataset-worker`, `train-worker`, `promotion-worker`) are defined in `docker-compose.yml` but not started by default — invoke them explicitly:
+That stack starts `db`, `minio`, `api`, and `frontend`. The `ingest-worker` service is defined under the `manual` profile in `docker-compose.yml` and is not started by default; invoke it explicitly:
 
 ```bash
 docker compose run --rm ingest-worker
-docker compose run --rm dataset-worker
-docker compose run --rm train-worker
-docker compose run --rm promotion-worker
 ```

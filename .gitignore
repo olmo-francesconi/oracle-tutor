@@ -30,8 +30,6 @@ MANIFEST
 # ignores any directory named "lib/").
 !frontend/src/lib/
 !frontend/src/lib/**
-!frontend-v2/src/lib/
-!frontend-v2/src/lib/**
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -230,7 +228,6 @@ yarn-debug.log*
 yarn-error.log*
 package-lock.json
 !frontend/package-lock.json
-!frontend-v2/package-lock.json
 
 # MacOS
 .DS_Store

@@ -1,7 +1,8 @@
 """Modal remote training module for Oracle Tutor.
 
-The train worker imports this module directly and dispatches `train.remote(...)`.
-All training inputs are passed as bytes so the Modal side stays DB-independent.
+`backend/scripts/train_model.py` imports this module and dispatches
+`train.remote(...)` (or `.local(...)` when fine-tuning is skipped). All
+training inputs are passed as bytes so the Modal side stays DB-independent.
 """
 
 from __future__ import annotations

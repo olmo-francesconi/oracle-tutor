@@ -1,24 +1,12 @@
 import type {
   AdminAuthTokenResponse,
-  SemanticBaseModelOption,
-  SemanticDatasetJobCreate,
   SemanticDatasetSummary,
-  SemanticJobDetail,
-  SemanticJobSummary,
   SemanticModelSummary,
-  SemanticPromoteAccepted,
-  SemanticTrainJobCreate,
-  SemanticTrainOptions,
 } from '../types/api'
 import {
   AdminAuthTokenResponseSchema,
-  SemanticBaseModelListSchema,
   SemanticDatasetListSchema,
-  SemanticJobDetailSchema,
-  SemanticJobListSchema,
   SemanticModelListSchema,
-  SemanticPromoteAcceptedSchema,
-  SemanticTrainOptionsSchema,
 } from '../types/schemas'
 import type { ZodType } from 'zod'
 import { assertOk, buildUrl } from './api'
@@ -74,17 +62,6 @@ async function getAdminJson<T>(path: string, schema: ZodType<T>, signal?: AbortS
   return assertAdminOk<T>(response, schema)
 }
 
-async function postJson<T>(path: string, schema: ZodType<T>, body: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(buildUrl(path), {
-    method: 'POST',
-    headers: withAdminHeaders(),
-    body: JSON.stringify(body),
-    signal,
-  })
-
-  return assertAdminOk<T>(response, schema)
-}
-
 export async function exchangeAdminPasswordForToken(password: string): Promise<AdminAuthTokenResponse> {
   const response = await fetch(buildUrl('/admin/auth/token'), {
     method: 'POST',
@@ -101,40 +78,6 @@ export async function getAdminSemanticModels(signal?: AbortSignal): Promise<Sema
   return getAdminJson('/admin/semantic-models', SemanticModelListSchema, signal)
 }
 
-export async function getAdminSemanticJobs(signal?: AbortSignal): Promise<SemanticJobSummary[]> {
-  return getAdminJson('/admin/semantic-jobs', SemanticJobListSchema, signal)
-}
-
-export async function getAdminSemanticBaseModels(signal?: AbortSignal): Promise<SemanticBaseModelOption[]> {
-  return getAdminJson('/admin/semantic-base-models', SemanticBaseModelListSchema, signal)
-}
-
-export async function getAdminSemanticTrainOptions(signal?: AbortSignal): Promise<SemanticTrainOptions> {
-  return getAdminJson('/admin/semantic-train-options', SemanticTrainOptionsSchema, signal)
-}
-
-export async function queueSemanticTrainJob(
-  payload: SemanticTrainJobCreate,
-  signal?: AbortSignal
-): Promise<SemanticJobDetail> {
-  return postJson('/admin/semantic-jobs/train', SemanticJobDetailSchema, payload, signal)
-}
-
-export async function queueSemanticPromotion(
-  modelId: string,
-  payload: { requested_by: string; embed_batch_size: number },
-  signal?: AbortSignal
-): Promise<SemanticPromoteAccepted> {
-  return postJson(`/admin/semantic-models/${modelId}/promote`, SemanticPromoteAcceptedSchema, payload, signal)
-}
-
 export async function getAdminSemanticDatasets(signal?: AbortSignal): Promise<SemanticDatasetSummary[]> {
   return getAdminJson('/admin/semantic-datasets', SemanticDatasetListSchema, signal)
-}
-
-export async function queueSemanticDatasetJob(
-  payload: SemanticDatasetJobCreate,
-  signal?: AbortSignal
-): Promise<SemanticJobDetail> {
-  return postJson('/admin/semantic-jobs/dataset', SemanticJobDetailSchema, payload, signal)
 }

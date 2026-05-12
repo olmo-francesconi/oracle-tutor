@@ -12,7 +12,6 @@ from ot_backend.core.models import (
     Card,
     CardFace,
     CardRaw,
-    SemanticJob,
     SemanticModel,
     SemanticModelArtifact,
     SemanticModelEmbedding,
@@ -83,7 +82,6 @@ def _make_model_bundle(tmp_path, *, include_pytorch: bool = True, include_embedd
 
 def _reset_registry_tables() -> None:
     with SessionLocal() as db:
-        db.query(SemanticJob).delete()
         db.query(SemanticModelEmbedding).delete()
         db.query(SemanticModelArtifact).delete()
         db.query(SemanticModel).delete()

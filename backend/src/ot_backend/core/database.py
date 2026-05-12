@@ -49,9 +49,9 @@ def _pool_defaults_for_role() -> tuple[int, int]:
     """Role-aware pool defaults.
 
     API serves concurrent requests and needs headroom for the pgvector query
-    that pins a connection per /similar-cards call. Workers are one-shot
-    containers that use 1-2 connections (job claim + DB writes); sizing them
-    like the API just wastes Postgres backends.
+    that pins a connection per /similar-cards call. The ingest worker is a
+    one-shot container that uses 1-2 connections; sizing it like the API
+    just wastes Postgres backends.
     """
     role = os.getenv("OT_SERVICE_ROLE", "api").strip().lower()
     if role == "worker":

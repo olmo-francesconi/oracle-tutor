@@ -317,7 +317,6 @@ class SemanticModel(Base):
         back_populates="model",
         cascade="all, delete-orphan",
     )
-    jobs: Mapped[list["SemanticJob"]] = relationship(back_populates="model")
     dataset: Mapped["SemanticDataset | None"] = relationship(back_populates="models")
 
 
@@ -338,7 +337,6 @@ class SemanticDataset(Base):
         back_populates="dataset",
         cascade="all, delete-orphan",
     )
-    jobs: Mapped[list["SemanticJob"]] = relationship(back_populates="dataset")
     models: Mapped[list["SemanticModel"]] = relationship(back_populates="dataset")
 
 
@@ -396,24 +394,3 @@ class SemanticModelEmbedding(Base):
     embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
 
     model: Mapped["SemanticModel"] = relationship(back_populates="embeddings")
-
-
-class SemanticJob(Base):
-    __tablename__ = "semantic_jobs"
-
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
-    job_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    requested_by: Mapped[str] = mapped_column(String, nullable=False)
-    model_id: Mapped[str | None] = mapped_column(ForeignKey("semantic_models.id", ondelete="SET NULL"), nullable=True, index=True)
-    dataset_id: Mapped[str | None] = mapped_column(ForeignKey("semantic_datasets.id", ondelete="SET NULL"), nullable=True, index=True)
-    payload_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
-    result_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
-    started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
-    heartbeat_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
-    finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
-
-    model: Mapped["SemanticModel | None"] = relationship(back_populates="jobs")
-    dataset: Mapped["SemanticDataset | None"] = relationship(back_populates="jobs")

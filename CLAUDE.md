@@ -26,26 +26,26 @@ backend/                FastAPI service + Pytest suite
       artifacts.py      S3 artifact upload/download
       bundle_registration.py Bundle parsing and model registration
       base_model_catalog.py  Base model listing and retrieval
-      semantic_jobs.py  DB job records: create, list, succeed/fail
     ingest/             One-shot Scryfall ingestion (scryfall_ingestion.py), parallel Tagger sync (fetch_tags.py)
+  scripts/              Local CLI tools: build_dataset.py, train_model.py, promote_model.py
   tests/                Pytest suite (real Postgres via testcontainers + pgvector)
   alembic/              Single initial-schema migration (versions/0001_initial_schema.py)
   Dockerfile            API image
-  Dockerfile.worker     Multi-target worker image (ingest, dataset, train, promote)
+  Dockerfile.worker.ingest     Ingest worker image (CMD baked: scryfall-sync cron)
 frontend/               React + Vite SPA
   src/
     public/             SearchShell, HomeView, ResultsView, useUrlSync
                          use{Oracle,Card,Search,Similar}Query (TanStack Query hooks)
-    admin/              AdminPage, DatasetForm, TrainForm, ModelTable, DatasetTable, JobList
-                         adminQueries.ts + adminMutations.ts
+    admin/              AdminPage (2-tab read-only explorer), ModelTable, DatasetTable
+                         adminQueries.ts (no mutations — admin is read-only)
     components/         UI components (SearchBox + useCardAutocompleteQuery, overlays, shared presentation)
     lib/                api.ts (zod-validated), adminApi.ts, filters.ts, urlState.ts,
                          queryClient.ts (shared TanStack QueryClient), testQueryClient.tsx
     types/              api.ts (TS types), schemas.ts (zod schemas)
   nginx/                Nginx config + shared proxy_params snippet
   Dockerfile            Multi-stage build (Vite dev + nginx runtime)
-.github/workflows/      ci.yml (frontend + workers), api-ci.yml (backend)
-docker-compose.yml      Local dev: db + minio + api + frontend + worker targets
+.github/workflows/      ci.yml (frontend + ingest worker), api-ci.yml (backend)
+docker-compose.yml      Local dev: db + minio + api + frontend (+ ingest-worker on the `manual` profile)
 ```
 
 ## Architecture
@@ -57,7 +57,7 @@ docker-compose.yml      Local dev: db + minio + api + frontend + worker targets
 
 Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationships`, `system_metadata`, `ingestion_logs`
 
-Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `semantic_model_embeddings`, `semantic_datasets`, `semantic_dataset_artifacts`, `semantic_jobs`
+Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `semantic_model_embeddings`, `semantic_datasets`, `semantic_dataset_artifacts`
 
 ### Semantic search
 - Embeddings stored per-model in `semantic_model_embeddings` (face granularity, filtered by `model_id`)
@@ -67,11 +67,10 @@ Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `
 - Model artifacts (ONNX bundle zip) stored in S3-compatible storage; materialized to `SEMANTIC_TEMP_DIR` on demand
 - Semantic endpoints return 503 if no active model exists in the registry
 
-### Job queue
-- Admin routes create a DB job record, then dispatch to one-shot worker containers triggered on demand
-- Workers (`promote_worker.py`, `dataset_worker.py`, `train_worker.py`) are one-shot containers on Railway
-- `claim_next_semantic_job` uses `FOR UPDATE SKIP LOCKED` so concurrent workers don't thrash on the same row
-- `promote_semantic_model` is the single end-to-end entry point (claim → embed → activate); replaced the prior begin/run two-step
+### Semantic operations
+- Dataset generation, training, and promotion are operator-run local CLI scripts in `backend/scripts/`
+- Scripts call library functions (`promote_semantic_model`, `register_model_bundle_bytes`, etc.) and write directly to the model/dataset tables
+- No DB-backed job queue — all work is synchronous, command-line driven
 
 ### API routes
 | Route | Method | Purpose |
@@ -85,27 +84,18 @@ Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `
 | `/similar-cards` | GET | Semantic search (params: `oracle_id` or `q`, `face_ix`, `limit`, `offset`, filters) |
 | `/admin/auth/token` | POST | Exchange admin password for bearer token (timing-safe compare) |
 | `/admin/semantic-models` | GET | List all registered semantic models |
-| `/admin/semantic-models` | POST | Register a new semantic model (bundle zip body) |
 | `/admin/semantic-models/{model_id}` | GET | Get semantic model detail |
 | `/admin/semantic-models/{model_id}/artifacts` | GET | List model artifacts |
-| `/admin/semantic-models/{model_id}/promote` | POST | Queue promotion job for a model |
-| `/admin/semantic-jobs` | GET | List all semantic jobs |
-| `/admin/semantic-jobs/{job_id}` | GET | Get job detail |
 | `/admin/semantic-datasets` | GET | List all datasets |
 | `/admin/semantic-datasets/{dataset_id}` | GET | Get dataset detail |
 | `/admin/semantic-datasets/{dataset_id}/artifacts` | GET | List dataset artifacts |
-| `/admin/semantic-base-models` | GET | List available base models |
-| `/admin/semantic-train-options` | GET | Get training option schemas |
-| `/admin/semantic-jobs/dataset` | POST | Create a dataset build job |
-| `/admin/semantic-jobs/train` | POST | Create a training job |
-| `/admin/semantic-jobs/promote` | POST | Create a promotion job |
 
 Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`). `card_type` filters via array overlap on the GIN-indexed `type_categories` column; `matchMode` / `colorFeature` / `rarities` are allowlist-validated in `lib/filters.ts` before hitting the URL.
 
 ### Key files
 - `api/main.py` — FastAPI app setup, lifespan, middleware, meta routes; includes routers; spawns `rotate_oracle_pools` background task
 - `api/oracle_pool.py` — `load_oracle_pools`, `rotate_oracle_pools` (homepage sample refresh every `OT_ORACLE_POOL_REFRESH_SECONDS`)
-- `api/routers/admin.py` — all `/admin/*` routes + semantic model/job serializers
+- `api/routers/admin.py` — read-only `/admin/*` routes (auth + models/datasets + artifacts) and their serializers
 - `api/routers/search.py` — `/search`, `/card/{oracle_id}`, `/similar-cards`, `/oracle-samples`
 - `core/models.py` — ORM models (source of truth for the schema); composite PKs for card_faces and embeddings; pgvector `Vector` type
 - `core/db_init.py` — runs `alembic upgrade head` on every startup; session-level `pg_advisory_lock` held across Alembic; migration state FSM
@@ -117,8 +107,12 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - `semantic/artifacts.py` — S3 artifact upload/download and recording
 - `semantic/bundle_registration.py` — bundle parsing and model registration
 - `semantic/base_model_catalog.py` — base model listing and retrieval
-- `semantic/semantic_jobs.py` — DB job records; `FOR UPDATE SKIP LOCKED` on claim
 - `semantic/semantic_state.py` — semantic data version tracking
+
+### Local scripts
+- `scripts/build_dataset.py` — CLI to build training datasets from Scryfall cards
+- `scripts/train_model.py` — CLI to train a fine-tuned embedding model
+- `scripts/promote_model.py` — CLI to materialize embeddings and activate a model
 - `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`; every response parsed through a zod schema
 - `frontend/src/lib/queryClient.ts` — shared `QueryClient` with a retry predicate that skips 4xx
 - `frontend/src/types/schemas.ts` — zod schemas for every API response shape
@@ -137,7 +131,6 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - `/search` is still name-based; semantic free-text search runs through `/similar-cards?q=...`
 - API startup queries the registry for the active semantic model; returns `503` from semantic endpoints until one is promoted
 - `ingest-worker` is a one-shot container; it can skip download/ingestion entirely when DB metadata already matches the latest Scryfall bulk timestamp
-- Tagger refresh runs in parallel (configurable via `TAG_FETCH_CONCURRENCY`, default 6); per-thread sessions prevent one 429 from invalidating all workers
 - Model bundles are stored in S3 (`SEMANTIC_ARTIFACT_BUCKET`) and cached locally in `SEMANTIC_TEMP_DIR`
 - Homepage oracle/keyword pools are loaded at lifespan start and refreshed every `OT_ORACLE_POOL_REFRESH_SECONDS`
 
@@ -197,8 +190,6 @@ Bump `backend/pyproject.toml` and `frontend/package.json` versions before the sq
 | `SEMANTIC_TEMP_DIR` | `$TMPDIR/mtg-search-semantic-models` | Local cache for materialized model bundles |
 | `SEMANTIC_ONNX_INTRA_OP_THREADS` | `1` | ONNX Runtime intra-op thread count |
 | `SEMANTIC_ONNX_INTER_OP_THREADS` | `1` | ONNX Runtime inter-op thread count |
-| `SEMANTIC_JOB_HEARTBEAT_SECONDS` | `600` | Promote worker heartbeat interval |
-| `SEMANTIC_JOB_STALE_SECONDS` | `1200` | Seconds before a running job is considered stale |
 | `TAG_FETCH_CONCURRENCY` | `6` | Parallel workers for Scryfall Tagger sync |
 | `ADMIN_PASSWORD` | — | Required for admin routes |
 | `ADMIN_JWT_SECRET` | — | HS256 signing secret for admin bearer tokens |
@@ -282,3 +273,66 @@ Secrets that must never appear in code or committed files: `ADMIN_PASSWORD`, `AD
 - `DATABASE_URL` is always required (production, local, and Alembic CLI). No sqlite fallback anywhere.
 - Source of truth for the schema is the ORM models in `core/models.py`; the single `0001_initial_schema.py` migration uses `Base.metadata.create_all()` plus explicit DDL for the HNSW and GIN indexes.
 - No dialect branching in app code — Postgres is the only supported database.
+
+# context-mode — MANDATORY routing rules
+
+You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.
+
+## BLOCKED commands — do NOT attempt these
+
+### curl / wget — BLOCKED
+Any Bash command containing `curl` or `wget` is intercepted and replaced with an error message. Do NOT retry.
+Instead use:
+- `ctx_fetch_and_index(url, source)` to fetch and index web pages
+- `ctx_execute(language: "javascript", code: "const r = await fetch(...)")` to run HTTP calls in sandbox
+
+### Inline HTTP — BLOCKED
+Any Bash command containing `fetch('http`, `requests.get(`, `requests.post(`, `http.get(`, or `http.request(` is intercepted and replaced with an error message. Do NOT retry with Bash.
+Instead use:
+- `ctx_execute(language, code)` to run HTTP calls in sandbox — only stdout enters context
+
+### WebFetch — BLOCKED
+WebFetch calls are denied entirely. The URL is extracted and you are told to use `ctx_fetch_and_index` instead.
+Instead use:
+- `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` to query the indexed content
+
+## REDIRECTED tools — use sandbox equivalents
+
+### Bash (>20 lines output)
+Bash is ONLY for: `git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip install`, and other short-output commands.
+For everything else, use:
+- `ctx_batch_execute(commands, queries)` — run multiple commands + search in ONE call
+- `ctx_execute(language: "shell", code: "...")` — run in sandbox, only stdout enters context
+
+### Read (for analysis)
+If you are reading a file to **Edit** it → Read is correct (Edit needs content in context).
+If you are reading to **analyze, explore, or summarize** → use `ctx_execute_file(path, language, code)` instead. Only your printed summary enters context. The raw file content stays in the sandbox.
+
+### Grep (large results)
+Grep results can flood context. Use `ctx_execute(language: "shell", code: "grep ...")` to run searches in sandbox. Only your printed summary enters context.
+
+## Tool selection hierarchy
+
+1. **GATHER**: `ctx_batch_execute(commands, queries)` — Primary tool. Runs all commands, auto-indexes output, returns search results. ONE call replaces 30+ individual calls.
+2. **FOLLOW-UP**: `ctx_search(queries: ["q1", "q2", ...])` — Query indexed content. Pass ALL questions as array in ONE call.
+3. **PROCESSING**: `ctx_execute(language, code)` | `ctx_execute_file(path, language, code)` — Sandbox execution. Only stdout enters context.
+4. **WEB**: `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` — Fetch, chunk, index, query. Raw HTML never enters context.
+5. **INDEX**: `ctx_index(content, source)` — Store content in FTS5 knowledge base for later search.
+
+## Subagent routing
+
+When spawning subagents (Agent/Task tool), the routing block is automatically injected into their prompt. Bash-type subagents are upgraded to general-purpose so they have access to MCP tools. You do NOT need to manually instruct subagents about context-mode.
+
+## Output constraints
+
+- Keep responses under 500 words.
+- Write artifacts (code, configs, PRDs) to FILES — never return them as inline text. Return only: file path + 1-line description.
+- When indexing content, use descriptive source labels so others can `ctx_search(source: "label")` later.
+
+## ctx commands
+
+| Command | Action |
+|---------|--------|
+| `ctx stats` | Call the `ctx_stats` MCP tool and display the full output verbatim |
+| `ctx doctor` | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist |
+| `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |

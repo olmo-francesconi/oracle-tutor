@@ -86,58 +86,6 @@ export const SemanticModelSummarySchema = z.object({
 
 export const SemanticModelListSchema = z.array(SemanticModelSummarySchema)
 
-export const SemanticJobSummarySchema = z.object({
-  id: z.string(),
-  job_type: z.string(),
-  status: z.string(),
-  requested_by: z.string(),
-  model_id: z.string().nullish(),
-  dataset_id: z.string().nullish(),
-  created_at: z.string(),
-  started_at: z.string().nullish(),
-  heartbeat_at: z.string().nullish(),
-  finished_at: z.string().nullish(),
-  error_message: z.string().nullish(),
-})
-
-export const SemanticJobDetailSchema = SemanticJobSummarySchema.extend({
-  payload_json: z.record(z.string(), z.unknown()),
-  result_json: z.record(z.string(), z.unknown()).nullish(),
-})
-
-export const SemanticJobListSchema = z.array(SemanticJobSummarySchema)
-
-export const SemanticPromoteAcceptedSchema = z.object({
-  accepted: z.boolean(),
-  job_id: z.string(),
-  model_id: z.string(),
-  status: z.string(),
-})
-
-export const SemanticBaseModelOptionSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  base_model: z.string(),
-  embedding_dim: z.number(),
-})
-
-export const SemanticBaseModelListSchema = z.array(SemanticBaseModelOptionSchema)
-
-export const SemanticTrainAugmentationOptionSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  description: z.string(),
-  default_enabled: z.boolean(),
-})
-
-export const SemanticTrainOptionsSchema = z.object({
-  epoch_min: z.number(),
-  epoch_max: z.number(),
-  batch_size_options: z.array(z.number()),
-  embed_batch_size_options: z.array(z.number()),
-  augmentation_options: z.array(SemanticTrainAugmentationOptionSchema),
-})
-
 export const SemanticDatasetSummarySchema = z.object({
   id: z.string(),
   slug: z.string(),

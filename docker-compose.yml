@@ -11,17 +11,6 @@ x-worker-env: &worker-env
   SEMANTIC_ARTIFACT_BUCKET: semantic-artifacts
   SEMANTIC_ARTIFACT_REGION: us-east-1
 
-x-llm-env: &llm-env
-  HF_HOME: /app/data/huggingface
-  MODAL_TOKEN_ID: ${MODAL_TOKEN_ID:-}
-  MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET:-}
-  SEMANTIC_LLM_MODEL: ${SEMANTIC_LLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
-  SEMANTIC_LLM_MAX_QUERIES_PER_FACE: ${SEMANTIC_LLM_MAX_QUERIES_PER_FACE:-3}
-  SEMANTIC_LLM_MAX_FACES: ${SEMANTIC_LLM_MAX_FACES:-2500}
-  SEMANTIC_LLM_MIN_TEMPLATE_COVERAGE: ${SEMANTIC_LLM_MIN_TEMPLATE_COVERAGE:-2}
-  SEMANTIC_LLM_TEMPERATURE: ${SEMANTIC_LLM_TEMPERATURE:-0.6}
-  SEMANTIC_LLM_MAX_TOKENS: ${SEMANTIC_LLM_MAX_TOKENS:-500}
-
 x-worker-depends: &worker-depends
   db:
     condition: service_healthy
@@ -109,8 +98,7 @@ services:
     profiles: ["manual"]
     build:
       context: ./backend
-      dockerfile: Dockerfile.worker
-      target: ingest
+      dockerfile: Dockerfile.worker.ingest
     volumes: *worker-volumes
     environment:
       <<: *worker-env
@@ -119,42 +107,6 @@ services:
       <<: *worker-depends
       api:
         condition: service_started
-    restart: "no"
-
-  dataset-worker:
-    profiles: ["manual"]
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-      target: dataset
-    volumes: *worker-volumes
-    environment:
-      <<: [*worker-env, *llm-env]
-    depends_on: *worker-depends
-    restart: "no"
-
-  train-worker:
-    profiles: ["manual"]
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-      target: train
-    volumes: *worker-volumes
-    environment:
-      <<: [*worker-env, *llm-env]
-    depends_on: *worker-depends
-    restart: "no"
-
-  promotion-worker:
-    profiles: ["manual"]
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-      target: promote
-    volumes: *worker-volumes
-    environment:
-      <<: *worker-env
-    depends_on: *worker-depends
     restart: "no"
 
   frontend:
