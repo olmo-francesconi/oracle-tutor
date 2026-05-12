@@ -171,3 +171,24 @@
     opacity: 0.85;
   }
 }
+
+@keyframes ot-mana-cycle {
+  0%,
+  16% {
+    opacity: 1;
+  }
+  20%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes ot-boot-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}

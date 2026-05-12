@@ -1,13 +1,15 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { searchOracleText } from '../lib/api'
 import type { FilterState } from '../types/api'
+import { useApiReadyValue } from '../lib/apiReadyContext'
 
 const RESULTS_PAGE_SIZE = 24
 
 export function useSearchQuery(query: string | null, filters: FilterState) {
+  const apiReady = useApiReadyValue()
   return useInfiniteQuery({
     queryKey: ['search', query, filters],
-    enabled: query !== null && query.length > 0,
+    enabled: apiReady && query !== null && query.length > 0,
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) =>
       searchOracleText(query!, pageParam, RESULTS_PAGE_SIZE, filters, signal),
