@@ -28,10 +28,19 @@ SEMANTIC_MODEL_STATUS_ACTIVE = "active"
 SEMANTIC_MODEL_STATUS_FAILED = "failed"
 SEMANTIC_MODEL_STATUS_ARCHIVED = "archived"
 _MODEL_ROOT_MARKER = ".model_root"
+# Sidecar metadata that every bundle must carry. Pytorch + onnx model directories
+# are checked separately below.
 _REQUIRED_BUNDLE_FILES = (
     "config.json",
     "metrics.json",
     "manifest.json",
+)
+# These are produced by the full training flow but are not load-bearing at runtime:
+# - embeddings.npz is an optimisation; promotion falls back to encoding from the
+#   bundled pytorch/onnx model when it's absent.
+# - training-dataset.json / eval.json are informational artifacts.
+# Listed here for documentation only — they are intentionally NOT required.
+_OPTIONAL_BUNDLE_FILES = (
     "embeddings/embeddings.npz",
     "training/training-dataset.json",
     "eval/eval.json",

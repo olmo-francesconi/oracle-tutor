@@ -1475,6 +1475,10 @@ semantic-train = [
     { name = "datasets" },
     { name = "sentence-transformers", extra = ["onnx"] },
 ]
+tui = [
+    { name = "httpx" },
+    { name = "rich" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1506,6 +1510,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "datasets", marker = "extra == 'semantic-train'", specifier = ">=3.0.0" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'tui'", specifier = ">=0.27.0" },
     { name = "hypercorn", marker = "extra == 'api'", specifier = ">=0.17.0" },
     { name = "ijson", marker = "extra == 'scryfall-sync'", specifier = ">=3.3.0" },
     { name = "numpy", marker = "extra == 'api'", specifier = ">=1.26.0" },
@@ -1514,11 +1519,12 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
     { name = "pyjwt", specifier = ">=2.9.0" },
     { name = "requests", marker = "extra == 'scryfall-sync'", specifier = ">=2.32.0" },
+    { name = "rich", marker = "extra == 'tui'", specifier = ">=13.7" },
     { name = "sentence-transformers", extras = ["onnx"], marker = "extra == 'semantic-train'", specifier = ">=3.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "tokenizers", marker = "extra == 'api'", specifier = ">=0.20.0" },
 ]
-provides-extras = ["api", "scryfall-sync", "semantic-train"]
+provides-extras = ["api", "scryfall-sync", "semantic-train", "tui"]
 
 [package.metadata.requires-dev]
 dev = [
