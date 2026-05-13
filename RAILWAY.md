@@ -100,9 +100,12 @@ The `semantic/model_promotion.py`, `semantic/bundle_registration.py`, and `seman
    ```
    PORT=8080
    API_PROXY_TARGET=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8000
-   NGINX_RESOLVER=fd12:3456:78::1
    ADMIN_HOST=admin.oracletutor.org
    ```
+   `NGINX_RESOLVER` is deliberately not set — the `Dockerfile` defaults it to
+   `127.0.0.11` (Docker DNS), which is what Railway's network expects. The
+   previously-documented IPv6 resolver (`fd12:3456:78::1`) is finicky and
+   should be avoided unless you have a reason.
    Build-time:
    ```
    VITE_API_URL=/api
