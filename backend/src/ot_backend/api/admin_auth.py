@@ -170,4 +170,21 @@ def require_cloudflare_access(request: Request) -> None:
             issuer=f"https://{team_domain}",
         )
     except jwt.PyJWTError as exc:
+        import logging
+        _lg = logging.getLogger("ot_backend.api.admin_auth")
+        # Decode without verification to surface the claims for diagnosis (audience,
+        # issuer, expiry). Do NOT log the full token — payload claims are enough.
+        try:
+            unverified = jwt.decode(token, options={"verify_signature": False})
+        except Exception:  # noqa: BLE001
+            unverified = {}
+        _lg.warning(
+            "CF Access JWT rejected: %s | reason=%s | token_aud=%r | token_iss=%r | expected_aud=%r | expected_iss=%r",
+            type(exc).__name__,
+            str(exc),
+            unverified.get("aud"),
+            unverified.get("iss"),
+            expected_aud,
+            f"https://{team_domain}",
+        )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Cloudflare Access token.") from exc
