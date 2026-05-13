@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -143,8 +143,8 @@ class Card(Base):
     name: Mapped[str] = mapped_column(String, index=True)
     layout: Mapped[str | None] = mapped_column(String, nullable=True)
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
-    color_identity: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    legalities: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    color_identity: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    legalities: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rarity: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -186,7 +186,7 @@ class CardFace(Base):
     toughness: Mapped[str | None] = mapped_column(String, nullable=True)
     loyalty: Mapped[str | None] = mapped_column(String, nullable=True)
     defense: Mapped[str | None] = mapped_column(String, nullable=True)
-    colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    colors: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # Normalized primary card types extracted from type_line. GIN-indexed
     # native ARRAY column for fast overlap filters.

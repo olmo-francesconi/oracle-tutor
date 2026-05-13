@@ -122,10 +122,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if index is None:
             logger.warning("Semantic model unavailable — semantic endpoints will return 503")
         else:
-            try:
-                index.warm()
-            except Exception as exc:
-                logger.warning("Semantic embedding matrix failed to pre-warm: %s", exc)
             logger.info("Semantic model ready. model_id=%s", index.model_id)
     except Exception as exc:
         logger.error("Semantic model failed to load: %s", exc, exc_info=True)

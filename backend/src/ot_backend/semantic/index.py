@@ -13,7 +13,10 @@ from typing import cast as type_cast
 
 import numpy as np
 import numpy.typing as npt
+from sqlalchemy import and_, cast, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
 from ..core.config import (
     configure_huggingface_env,
@@ -22,8 +25,7 @@ from ..core.config import (
     semantic_onnx_intra_op_threads,
 )
 from ..core.database import SessionLocal
-from ..core.models import SemanticModel
-from .embedding_matrix import EmbeddingMatrix
+from ..core.models import Card, CardFace, SemanticModel, SemanticModelEmbedding
 from .model_registry import get_active_semantic_model_id, materialize_semantic_model
 from .text_prep import normalize_oracle_text
 
@@ -36,6 +38,8 @@ _last_refresh_check: float = 0.0
 _index_lock = threading.Lock()
 _ORT_LOG_SEVERITY_ERRORS_ONLY = 3
 FloatArray = npt.NDArray[np.float32]
+
+_VALID_COLORS = frozenset({"W", "U", "B", "R", "G"})
 
 
 # ---------------------------------------------------------------------------
@@ -209,38 +213,84 @@ class OnnxTextEncoder:
 
 
 # ---------------------------------------------------------------------------
+# Filter helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_color_chars(colors: str) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for ch in colors:
+        up = ch.upper()
+        if up in _VALID_COLORS and up not in seen:
+            seen.add(up)
+            ordered.append(up)
+    return ordered
+
+
+def _apply_filters(
+    stmt: Select[Any],
+    *,
+    card_type: list[str] | None,
+    colors: str | None,
+    cmc_min: float | None,
+    cmc_max: float | None,
+    format: list[str] | None,
+    rarity: list[str] | None,
+    color_feature: str,
+    match_mode: str,
+):
+    if card_type:
+        stmt = stmt.where(CardFace.type_categories.overlap(card_type))
+
+    if colors:
+        wanted = _parse_color_chars(colors)
+        if wanted:
+            target = Card.color_identity if color_feature == "identity" else CardFace.colors
+            wanted_jsonb = cast(wanted, JSONB)
+            if match_mode == "exact":
+                stmt = stmt.where(
+                    target.op("@>")(wanted_jsonb),
+                    target.op("<@")(wanted_jsonb),
+                )
+            elif match_mode == "at_most":
+                stmt = stmt.where(target.op("<@")(wanted_jsonb))
+            else:  # at_least
+                stmt = stmt.where(target.op("@>")(wanted_jsonb))
+
+    if cmc_min is not None:
+        stmt = stmt.where(Card.cmc.is_not(None), Card.cmc >= cmc_min)
+    if cmc_max is not None:
+        stmt = stmt.where(Card.cmc.is_not(None), Card.cmc <= cmc_max)
+
+    if format:
+        clauses = [
+            Card.legalities.op("->>")(fmt).in_(["legal", "restricted"])
+            for fmt in format
+        ]
+        stmt = stmt.where(or_(*clauses))
+
+    if rarity:
+        stmt = stmt.where(Card.rarity.in_(rarity))
+
+    return stmt
+
+
+# ---------------------------------------------------------------------------
 # Index
 # ---------------------------------------------------------------------------
 
 
 class SemanticIndex:
     model: OnnxTextEncoder
-    _matrix: EmbeddingMatrix | None
-    _matrix_lock: threading.Lock
+    model_id: str | None
 
     def __init__(self, model_root: Path, *, model_id: str | None = None):
         self.model = OnnxTextEncoder(model_root=model_root)
         self.model_id = model_id
-        self._matrix = None
-        self._matrix_lock = threading.Lock()
 
     def encode_query(self, text: str) -> list[float]:
         return self.model.encode(text)
-
-    def warm(self) -> None:
-        """Eagerly load the embedding matrix using a fresh DB session."""
-        with SessionLocal() as db:
-            self._ensure_matrix(db)
-
-    def _ensure_matrix(self, db: Session) -> EmbeddingMatrix:
-        if self._matrix is not None:
-            return self._matrix
-        with self._matrix_lock:
-            if self._matrix is None:
-                if self.model_id is None:
-                    raise RuntimeError("SemanticIndex has no model_id; cannot load embedding matrix.")
-                self._matrix = EmbeddingMatrix.load(db, self.model_id)
-        return self._matrix
 
     def similar_to_face(
         self,
@@ -256,15 +306,22 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        matrix = self._ensure_matrix(db)
-        seed_idx = matrix.key_to_idx.get(face_key)
-        if seed_idx is None:
+        if self.model_id is None:
+            return []
+        seed = db.execute(
+            select(SemanticModelEmbedding.embedding).where(
+                SemanticModelEmbedding.model_id == self.model_id,
+                SemanticModelEmbedding.oracle_id == face_key[0],
+                SemanticModelEmbedding.face_ix == face_key[1],
+            )
+        ).scalar_one_or_none()
+        if seed is None:
             return []
         return self._score(
-            matrix,
-            matrix.vectors[seed_idx],
+            db,
+            seed,
             limit,
-            exclude_idx=seed_idx,
+            exclude=face_key,
             card_type=card_type,
             colors=colors,
             cmc_min=cmc_min,
@@ -289,13 +346,11 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        matrix = self._ensure_matrix(db)
-        query_vec = np.asarray(self.encode_query(query), dtype=np.float32)
-        norm = float(np.linalg.norm(query_vec))
-        if norm > 0:
-            query_vec = query_vec / norm
+        if self.model_id is None:
+            return []
+        query_vec = self.encode_query(query)
         return self._score(
-            matrix,
+            db,
             query_vec,
             limit,
             card_type=card_type,
@@ -308,13 +363,13 @@ class SemanticIndex:
             match_mode=match_mode,
         )
 
-    @staticmethod
     def _score(
-        matrix: EmbeddingMatrix,
-        query_vec: FloatArray,
+        self,
+        db: Session,
+        query_vec: Sequence[float],
         limit: int,
         *,
-        exclude_idx: int | None = None,
+        exclude: tuple[str, int] | None = None,
         card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
@@ -324,10 +379,38 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[tuple[tuple[str, int], float]]:
-        if matrix.vectors.size == 0 or limit <= 0:
+        if self.model_id is None or limit <= 0:
             return []
 
-        mask = matrix.filter_mask(
+        distance = SemanticModelEmbedding.embedding.cosine_distance(query_vec)
+
+        stmt = (
+            select(
+                SemanticModelEmbedding.oracle_id,
+                SemanticModelEmbedding.face_ix,
+                (1.0 - distance).label("score"),
+            )
+            .join(
+                CardFace,
+                and_(
+                    CardFace.oracle_id == SemanticModelEmbedding.oracle_id,
+                    CardFace.face_ix == SemanticModelEmbedding.face_ix,
+                ),
+            )
+            .join(Card, Card.oracle_id == SemanticModelEmbedding.oracle_id)
+            .where(SemanticModelEmbedding.model_id == self.model_id)
+        )
+
+        if exclude is not None:
+            stmt = stmt.where(
+                or_(
+                    SemanticModelEmbedding.oracle_id != exclude[0],
+                    SemanticModelEmbedding.face_ix != exclude[1],
+                )
+            )
+
+        stmt = _apply_filters(
+            stmt,
             card_type=card_type,
             colors=colors,
             cmc_min=cmc_min,
@@ -337,26 +420,13 @@ class SemanticIndex:
             color_feature=color_feature,
             match_mode=match_mode,
         )
-        if exclude_idx is not None:
-            mask[exclude_idx] = False
 
-        kept = np.flatnonzero(mask)
-        if kept.size == 0:
-            return []
+        stmt = stmt.order_by(distance).limit(limit)
 
-        scores = matrix.vectors[kept] @ query_vec  # (K,) cosine == dot for normalized vectors
-        n = min(limit, kept.size)
-        if n < kept.size:
-            partition = np.argpartition(-scores, n - 1)[:n]
-            ordered = partition[np.argsort(-scores[partition])]
-        else:
-            ordered = np.argsort(-scores)
-
-        result_idx = kept[ordered]
-        result_scores = scores[ordered]
+        rows = db.execute(stmt).all()
         return [
-            (matrix.face_keys[int(i)], round(float(result_scores[k]), 6))
-            for k, i in enumerate(result_idx)
+            ((row.oracle_id, row.face_ix), round(float(row.score), 6))
+            for row in rows
         ]
 
 
