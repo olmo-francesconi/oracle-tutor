@@ -1541,8 +1541,21 @@ def _import_model_from_s3(model_id: str, files: dict[str, _S3Object]) -> bool:
         )
         return False
 
-    config = manifest.get("config") if isinstance(manifest.get("config"), dict) else None
+    raw_config = manifest.get("config")
+    config: dict[str, object] = {str(k): v for k, v in raw_config.items()} if isinstance(raw_config, dict) else {}
     metrics = manifest.get("metrics") if isinstance(manifest.get("metrics"), dict) else None
+
+    # Mirror what bundle_registration does at upload time: keep the source
+    # semantic_data_version inside config_json so the promotion staleness check
+    # (model_promotion._get_model_source_data_version) can find it.
+    source_version = manifest.get("source_semantic_data_version")
+    if isinstance(source_version, int):
+        config["semantic_data_version"] = source_version
+    elif isinstance(source_version, str) and source_version.isdigit():
+        config["semantic_data_version"] = int(source_version)
+    dataset_metadata = manifest.get("dataset_metadata")
+    if isinstance(dataset_metadata, dict) and dataset_metadata:
+        config["dataset_metadata"] = dataset_metadata
 
     now = datetime.now(UTC).replace(tzinfo=None)
     base_slug = f"restored-{model_id[:8]}"

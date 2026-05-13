@@ -262,3 +262,73 @@ def test_backfill_skips_models_without_bundle(fake_s3) -> None:
 
     assert report.models_upgraded == 0
     assert report.models_skipped == 1
+
+
+# ---------------------------------------------------------------------------
+# Restore-from-manifest path
+#
+# When the TUI rehydrates a SemanticModel from a v2 manifest, the row's
+# config_json must carry `semantic_data_version` (and `dataset_metadata`) so
+# promotion's staleness check (model_promotion._get_model_source_data_version)
+# accepts it. Without this the operator gets a "no source semantic data
+# version recorded" error on the very first promote of a restored model.
+# ---------------------------------------------------------------------------
+
+
+def test_restore_from_manifest_populates_staleness_fields(monkeypatch) -> None:
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.db_init import init_db
+    from ot_backend.core.models import SemanticModel, SemanticModelArtifact
+    from ot_backend.semantic.model_promotion import _get_model_source_data_version
+    from ot_backend.tui.app import _S3Object, _import_model_from_s3
+
+    manifest_payload = json.dumps(
+        {
+            "version": SEMANTIC_MANIFEST_VERSION,
+            "base_model": "all-MiniLM-L6-v2",
+            "embedding_dim": 384,
+            "config": {"epochs": 3},
+            "metrics": {"loss": 0.1},
+            "source_semantic_data_version": 11,
+            "dataset_metadata": {"semantic_data_version": 11, "augmentation_mode": "none"},
+        }
+    ).encode("utf-8")
+
+    monkeypatch.setattr(
+        "ot_backend.tui.app.download_artifact_bytes",
+        lambda *, object_key: manifest_payload,
+        raising=False,
+    )
+    # _load_manifest in tui/app.py imports download_artifact_bytes locally; patch the source module too.
+    monkeypatch.setattr(
+        "ot_backend.semantic.artifacts.download_artifact_bytes",
+        lambda *, object_key: manifest_payload,
+    )
+
+    init_db()
+    with SessionLocal() as db:
+        db.query(SemanticModelArtifact).delete()
+        db.query(SemanticModel).delete()
+        db.commit()
+
+    model_id = "restored-test-1"
+    manifest_key = f"semantic-registry/models/{model_id}/manifest.json"
+    files = {
+        "manifest.json": _S3Object(key=manifest_key, size=len(manifest_payload)),
+        "bundle.zip": _S3Object(key=f"semantic-registry/models/{model_id}/bundle.zip", size=1024),
+    }
+
+    assert _import_model_from_s3(model_id, files) is True
+
+    with SessionLocal() as db:
+        model = db.get(SemanticModel, model_id)
+        assert model is not None
+        assert model.config_json is not None
+        assert model.config_json.get("semantic_data_version") == 11
+        assert model.config_json.get("dataset_metadata", {}).get("semantic_data_version") == 11
+        # Promotion's staleness check finds the version through the same getter.
+        assert _get_model_source_data_version(model) == 11
+
+        db.query(SemanticModelArtifact).delete()
+        db.query(SemanticModel).delete()
+        db.commit()
