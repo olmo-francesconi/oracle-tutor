@@ -60,10 +60,12 @@ def create_semantic_dataset(
         content_type="application/json",
         metadata_json=dataset_metadata or None,
     )
+    dataset_metrics = semantic_dataset_summary_metrics(dataset_bytes)
     manifest_bytes = build_semantic_dataset_manifest(
         dataset_metadata=dataset_metadata,
         augmentation_mode=augmentation_mode,
         source_semantic_data_version=resolved_source_version,
+        dataset_metrics=dataset_metrics,
     )
     upload_and_record_semantic_dataset_artifact(
         db,

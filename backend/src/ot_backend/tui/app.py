@@ -349,7 +349,7 @@ def _load_datasets() -> list[dict[str, object]]:
                 "metrics_json": d.metrics_json,
                 "error_message": d.error_message,
                 "artifacts": [
-                    {"kind": a.artifact_kind, "object_key": a.object_key, "sha256": a.sha256[:12], "size_bytes": a.size_bytes}
+                    {"kind": a.artifact_kind, "object_key": a.object_key, "sha256": (a.sha256 or "")[:12], "size_bytes": a.size_bytes}
                     for a in d.artifacts
                 ],
             }
@@ -451,7 +451,7 @@ def _load_models() -> tuple[list[dict[str, object]], str | None]:
                     "metrics_json": m.metrics_json,
                     "error_message": m.error_message,
                     "artifacts": [
-                        {"kind": a.artifact_kind, "object_key": a.object_key, "sha256": a.sha256[:12], "size_bytes": a.size_bytes}
+                        {"kind": a.artifact_kind, "object_key": a.object_key, "sha256": (a.sha256 or "")[:12], "size_bytes": a.size_bytes}
                         for a in m.artifacts
                     ],
                 }
@@ -1345,10 +1345,16 @@ def promote_screen(ctx: AppContext) -> str | None:
 
 
 @dataclass
+class _S3Object:
+    key: str
+    size: int
+
+
+@dataclass
 class _StorageAudit:
     bucket: str
-    s3_datasets: dict[str, dict[str, str]]
-    s3_models: dict[str, dict[str, str]]
+    s3_datasets: dict[str, dict[str, _S3Object]]
+    s3_models: dict[str, dict[str, _S3Object]]
     db_dataset_ids: set[str]
     db_model_ids: set[str]
     dataset_s3_only: set[str]
@@ -1368,7 +1374,7 @@ def _audit_storage() -> _StorageAudit:
     client = artifact_bucket_client()
     bucket = artifact_bucket_name()
 
-    s3_by_kind: dict[str, dict[str, dict[str, str]]] = {"datasets": {}, "models": {}}
+    s3_by_kind: dict[str, dict[str, dict[str, _S3Object]]] = {"datasets": {}, "models": {}}
     paginator = client.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix="semantic-registry/"):
         for obj in page.get("Contents", []):
@@ -1379,7 +1385,9 @@ def _audit_storage() -> _StorageAudit:
             _prefix, kind, uuid_part, filename = parts
             if kind not in s3_by_kind:
                 continue
-            s3_by_kind[kind].setdefault(uuid_part, {})[filename] = key
+            s3_by_kind[kind].setdefault(uuid_part, {})[filename] = _S3Object(
+                key=key, size=int(obj.get("Size", 0))
+            )
 
     with SessionLocal() as db:
         db_dataset_ids = {row for row in db.scalars(select(SemanticDataset.id)).all()}
@@ -1416,41 +1424,49 @@ _CONTENT_TYPE_BY_FILENAME = {
 }
 
 
-def _import_dataset_from_s3(dataset_id: str, files: dict[str, str]) -> bool:
-    import hashlib
+class _ManifestMissingFieldsError(Exception):
+    """Raised when an S3 manifest is missing fields needed for sync."""
+
+
+def _load_manifest(object_key: str) -> dict[str, object]:
+    from ot_backend.semantic.artifacts import download_artifact_bytes
+
+    raw = download_artifact_bytes(object_key=object_key)
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise _ManifestMissingFieldsError(f"Manifest at {object_key} is not a JSON object.")
+    return payload
+
+
+def _import_dataset_from_s3(dataset_id: str, files: dict[str, _S3Object]) -> bool:
+    """Restore a SemanticDataset row using only manifest.json — no dataset.json download."""
     from datetime import UTC, datetime
 
     from ot_backend.core.database import SessionLocal
     from ot_backend.core.models import SemanticDataset, SemanticDatasetArtifact
-    from ot_backend.semantic.artifacts import download_artifact_bytes
-    from ot_backend.semantic.dataset_registry import semantic_dataset_summary_metrics
 
     lg = logging.getLogger("ot_backend.tui.storage")
 
-    augmentation_mode = "none"
+    if "manifest.json" not in files:
+        lg.warning("Dataset %s has no manifest.json in S3 — run the backfill first.", dataset_id)
+        return False
+
+    try:
+        manifest = _load_manifest(files["manifest.json"].key)
+    except (json.JSONDecodeError, _ManifestMissingFieldsError) as exc:
+        lg.warning("Dataset %s manifest unreadable (%s) — run the backfill.", dataset_id, exc)
+        return False
+
+    augmentation_mode = str(manifest.get("augmentation_mode") or "none")
     source_version: int | None = None
-    dataset_bytes_obj: bytes | None = None
-    file_bytes: dict[str, bytes] = {}
+    v = manifest.get("source_semantic_data_version")
+    if isinstance(v, int):
+        source_version = v
+    elif isinstance(v, str) and v.isdigit():
+        source_version = int(v)
 
-    if "training-dataset.json" in files:
-        dataset_bytes_obj = download_artifact_bytes(object_key=files["training-dataset.json"])
-        file_bytes["training-dataset.json"] = dataset_bytes_obj
+    metrics_json = manifest.get("dataset_metrics") if isinstance(manifest.get("dataset_metrics"), dict) else None
 
-    if "manifest.json" in files:
-        manifest_bytes = download_artifact_bytes(object_key=files["manifest.json"])
-        file_bytes["manifest.json"] = manifest_bytes
-        try:
-            manifest = json.loads(manifest_bytes.decode("utf-8"))
-            augmentation_mode = str(manifest.get("augmentation_mode") or "none")
-            v = manifest.get("source_semantic_data_version")
-            if isinstance(v, int):
-                source_version = v
-            elif isinstance(v, str) and v.isdigit():
-                source_version = int(v)
-        except Exception:  # noqa: BLE001
-            lg.warning("Could not parse manifest.json for dataset %s.", dataset_id)
-
-    metrics_json = semantic_dataset_summary_metrics(dataset_bytes_obj) if dataset_bytes_obj else None
     now = datetime.now(UTC).replace(tzinfo=None)
     base_slug = f"restored-{dataset_id[:8]}"
     slug = base_slug
@@ -1477,16 +1493,16 @@ def _import_dataset_from_s3(dataset_id: str, files: dict[str, str]) -> bool:
         db.flush()
 
         for filename, kind in _DATASET_FILENAME_TO_KIND.items():
-            if filename not in files:
+            entry = files.get(filename)
+            if entry is None:
                 continue
-            blob = file_bytes.get(filename) or download_artifact_bytes(object_key=files[filename])
             db.add(
                 SemanticDatasetArtifact(
                     dataset_id=dataset_id,
                     artifact_kind=kind,
-                    object_key=files[filename],
-                    sha256=hashlib.sha256(blob).hexdigest(),
-                    size_bytes=len(blob),
+                    object_key=entry.key,
+                    sha256=None,
+                    size_bytes=entry.size,
                     content_type=_CONTENT_TYPE_BY_FILENAME.get(filename, "application/octet-stream"),
                     metadata_json=None,
                     created_at=now,
@@ -1497,50 +1513,36 @@ def _import_dataset_from_s3(dataset_id: str, files: dict[str, str]) -> bool:
     return True
 
 
-def _import_model_from_s3(model_id: str, files: dict[str, str]) -> bool:
-    import hashlib
-    import io
-    import zipfile
+def _import_model_from_s3(model_id: str, files: dict[str, _S3Object]) -> bool:
+    """Restore a SemanticModel row using only manifest.json — no bundle download."""
     from datetime import UTC, datetime
 
     from ot_backend.core.database import SessionLocal
     from ot_backend.core.models import SemanticModel, SemanticModelArtifact
-    from ot_backend.semantic.artifacts import download_artifact_bytes
 
     lg = logging.getLogger("ot_backend.tui.storage")
-    file_bytes: dict[str, bytes] = {}
 
-    if "bundle.zip" not in files:
-        lg.warning("Model %s has no bundle.zip in S3 — skipping.", model_id)
+    if "manifest.json" not in files:
+        lg.warning("Model %s has no manifest.json in S3 — run the backfill first.", model_id)
         return False
 
-    bundle_bytes = download_artifact_bytes(object_key=files["bundle.zip"])
-    file_bytes["bundle.zip"] = bundle_bytes
-
-    config: dict[str, object] = {}
-    metrics: dict[str, object] = {}
     try:
-        with zipfile.ZipFile(io.BytesIO(bundle_bytes)) as archive:
-            try:
-                config = json.loads(archive.read("config.json").decode("utf-8"))
-            except KeyError:
-                lg.warning("Bundle for model %s has no config.json.", model_id)
-            try:
-                metrics = json.loads(archive.read("metrics.json").decode("utf-8"))
-            except KeyError:
-                pass
-    except zipfile.BadZipFile:
-        lg.error("Bundle for model %s is not a valid zip — skipping.", model_id)
+        manifest = _load_manifest(files["manifest.json"].key)
+    except (json.JSONDecodeError, _ManifestMissingFieldsError) as exc:
+        lg.warning("Model %s manifest unreadable (%s) — run the backfill.", model_id, exc)
         return False
 
-    base_model = str(config.get("base_model") or "unknown")
-    raw_dim = config.get("embedding_dim") or metrics.get("embedding_dim") or 384
-    if isinstance(raw_dim, (int, float)):
-        embedding_dim = int(raw_dim)
-    elif isinstance(raw_dim, str) and raw_dim.isdigit():
-        embedding_dim = int(raw_dim)
-    else:
-        embedding_dim = 384
+    base_model = manifest.get("base_model")
+    embedding_dim = manifest.get("embedding_dim")
+    if not isinstance(base_model, str) or not isinstance(embedding_dim, int):
+        lg.warning(
+            "Model %s manifest is missing base_model/embedding_dim — run the backfill.",
+            model_id,
+        )
+        return False
+
+    config = manifest.get("config") if isinstance(manifest.get("config"), dict) else None
+    metrics = manifest.get("metrics") if isinstance(manifest.get("metrics"), dict) else None
 
     now = datetime.now(UTC).replace(tzinfo=None)
     base_slug = f"restored-{model_id[:8]}"
@@ -1562,8 +1564,8 @@ def _import_model_from_s3(model_id: str, files: dict[str, str]) -> bool:
             is_active=False,
             embedding_dim=embedding_dim,
             dataset_id=None,
-            config_json=config or None,
-            metrics_json=metrics or None,
+            config_json=config,
+            metrics_json=metrics,
             error_message=None,
             created_at=now,
             activated_at=None,
@@ -1572,16 +1574,16 @@ def _import_model_from_s3(model_id: str, files: dict[str, str]) -> bool:
         db.flush()
 
         for filename, kind in _MODEL_FILENAME_TO_KIND.items():
-            if filename not in files:
+            entry = files.get(filename)
+            if entry is None:
                 continue
-            blob = file_bytes.get(filename) or download_artifact_bytes(object_key=files[filename])
             db.add(
                 SemanticModelArtifact(
                     model_id=model_id,
                     artifact_kind=kind,
-                    object_key=files[filename],
-                    sha256=hashlib.sha256(blob).hexdigest(),
-                    size_bytes=len(blob),
+                    object_key=entry.key,
+                    sha256=None,
+                    size_bytes=entry.size,
                     content_type=_CONTENT_TYPE_BY_FILENAME.get(filename, "application/octet-stream"),
                     metadata_json=None,
                     created_at=now,
@@ -1647,7 +1649,7 @@ def storage_screen(ctx: AppContext) -> str | None:
     while True:
         body = _render_audit_body(audit)
         s3_only_total = len(audit.dataset_s3_only) + len(audit.model_s3_only)
-        footer = f"  [S] sync {s3_only_total} S3-only → DB    [R] re-audit    [ESC] back"
+        footer = f"  [S] sync {s3_only_total} S3-only → DB    [B] backfill manifests    [R] re-audit    [ESC] back"
         ctx.draw(title="Storage audit", body=body, footer=footer)
         key = ctx.wait_key()
         if key == K.KEY_ESC:
@@ -1661,6 +1663,20 @@ def storage_screen(ctx: AppContext) -> str | None:
                 ctx.draw(title="Storage", body=Group(Text(f"Audit failed: {type(exc).__name__}: {exc}", style="red")), footer="  [ESC] back")
                 if ctx.wait_key() == K.KEY_ESC:
                     return "menu"
+        elif key == "b":
+            def _do_backfill() -> str:
+                from ot_backend.semantic.manifest_backfill import backfill_manifests
+
+                report = backfill_manifests()
+                return (
+                    f"models scanned={report.models_scanned} upgraded={report.models_upgraded} "
+                    f"skipped={report.models_skipped} failed={len(report.models_failed)}    "
+                    f"datasets scanned={report.datasets_scanned} upgraded={report.datasets_upgraded} "
+                    f"skipped={report.datasets_skipped} failed={len(report.datasets_failed)}"
+                )
+
+            result = _run_with_logs(ctx, label="backfill manifests", fn=_do_backfill, next_screen="storage")
+            return result
         elif key == "s":
             if s3_only_total == 0:
                 continue

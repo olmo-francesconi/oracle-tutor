@@ -35,7 +35,7 @@ def _read_bundle_entry(bundle_bytes: bytes, entry_name: str) -> bytes | None:
             return None
 
 
-def _load_bundle_sidecar_json(bundle_bytes: bytes, filename: str) -> dict[str, object] | None:
+def load_bundle_sidecar_json(bundle_bytes: bytes, filename: str) -> dict[str, object] | None:
     raw = _read_bundle_entry(bundle_bytes, filename)
     if raw is None:
         return None
@@ -77,7 +77,7 @@ def _read_npz_embedding_dim(raw_bytes: bytes) -> int:
     return int(embeddings.shape[1])
 
 
-def _load_bundle_embedding_dim(bundle_bytes: bytes) -> int | None:
+def load_bundle_embedding_dim(bundle_bytes: bytes) -> int | None:
     embeddings_bytes = _read_bundle_entry(bundle_bytes, "embeddings/embeddings.npz")
     if embeddings_bytes is None:
         return None
@@ -109,7 +109,7 @@ def validate_registered_bundle_dimensions(
     bundle_bytes: bytes,
     expected_embedding_dim: int,
 ) -> None:
-    bundle_embedding_dim = _load_bundle_embedding_dim(bundle_bytes)
+    bundle_embedding_dim = load_bundle_embedding_dim(bundle_bytes)
     if bundle_embedding_dim is not None and bundle_embedding_dim != expected_embedding_dim:
         raise ValueError(
             "Semantic model bundle embedding dimension "
@@ -156,8 +156,8 @@ def register_model_bundle_bytes(
         expected_embedding_dim=embedding_dim,
     )
 
-    bundle_config = _load_bundle_sidecar_json(artifact_bundle_bytes, _BUNDLE_CONFIG_PATH) or {}
-    bundle_metrics = _load_bundle_sidecar_json(artifact_bundle_bytes, _BUNDLE_METRICS_PATH) or {}
+    bundle_config = load_bundle_sidecar_json(artifact_bundle_bytes, _BUNDLE_CONFIG_PATH) or {}
+    bundle_metrics = load_bundle_sidecar_json(artifact_bundle_bytes, _BUNDLE_METRICS_PATH) or {}
     resolved_dataset_bytes = dataset_bytes or _read_bundle_entry(artifact_bundle_bytes, _BUNDLE_TRAINING_DATASET_PATH)
     resolved_eval_bytes = eval_bytes or _read_bundle_entry(artifact_bundle_bytes, _BUNDLE_EVAL_PATH)
     dataset_metadata = (
@@ -212,6 +212,10 @@ def register_model_bundle_bytes(
 
     manifest_bytes = build_semantic_model_manifest(
         bundle_bytes=artifact_bundle_bytes,
+        base_model=base_model,
+        embedding_dim=embedding_dim,
+        bundle_config=merged_config or None,
+        bundle_metrics=merged_metrics or None,
         dataset_metadata=dataset_metadata,
         source_semantic_data_version=resolved_source_version,
     )

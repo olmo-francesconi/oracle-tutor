@@ -186,7 +186,8 @@ def materialize_semantic_model(
 
     base_dir = semantic_temp_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
-    extract_dir = base_dir / f"semantic-model-{model.id}-{bundle_artifact.sha256[:12]}"
+    cache_suffix = bundle_artifact.sha256[:12] if bundle_artifact.sha256 else "nosha"
+    extract_dir = base_dir / f"semantic-model-{model.id}-{cache_suffix}"
     marker_path = extract_dir / _MODEL_ROOT_MARKER
 
     if marker_path.exists():

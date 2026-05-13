@@ -56,7 +56,7 @@ router = APIRouter(
 # ---------------------------------------------------------------------------
 
 
-def _bundle_artifact_summary(model: SemanticModel) -> tuple[str, int] | None:
+def _bundle_artifact_summary(model: SemanticModel) -> tuple[str | None, int] | None:
     for artifact in model.artifacts:
         if artifact.artifact_kind == SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP:
             return artifact.sha256, artifact.size_bytes
@@ -77,7 +77,7 @@ def _semantic_model_shared_fields(model: SemanticModel) -> dict[str, Any]:
         "status": model.status,
         "is_active": model.is_active,
         "embedding_dim": model.embedding_dim,
-        "artifact_sha256": bundle[0] if bundle else "",
+        "artifact_sha256": (bundle[0] if bundle else None) or "",
         "artifact_size_bytes": bundle[1] if bundle else 0,
         "created_at": model.created_at,
         "activated_at": model.activated_at,
