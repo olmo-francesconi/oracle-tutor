@@ -17,6 +17,11 @@ def _build_database_url() -> str:
     # Allows tests and power users to bypass DB_* envs entirely.
     explicit = os.getenv("DATABASE_URL")
     if explicit:
+        # Railway and most Postgres providers hand back `postgresql://...` with
+        # no driver suffix. SQLAlchemy maps that to psycopg2, which we don't
+        # install (we ship psycopg v3 only). Force the psycopg-3 dialect.
+        if explicit.startswith("postgresql://"):
+            return "postgresql+psycopg://" + explicit[len("postgresql://"):]
         return explicit
 
     # Production should be configured via DATABASE_URL (Railway-friendly).

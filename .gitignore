@@ -149,6 +149,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Railway env files — keep templates tracked, ignore the filled copies.
+railway/*.env
+!railway/*.env.example
+
 # Spyder project settings
 .spyderproject
 .spyproject
