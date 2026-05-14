@@ -256,14 +256,15 @@ def _format_check_rows(results: Sequence[dict[str, object]], *, spinner_frame: s
 
 
 def boot_screen(ctx: AppContext) -> str | None:
-    from .checks import run_all_checks
+    from .checks import run_all_checks_streaming
 
     results: list[dict[str, object]] = []
     done = threading.Event()
 
     def worker() -> None:
-        out = asyncio.run(run_all_checks())
-        results.extend({"name": r.name, "status": r.status, "detail": r.detail, "latency_ms": r.latency_ms} for r in out)
+        def collect(r) -> None:
+            results.append({"name": r.name, "status": r.status, "detail": r.detail, "latency_ms": r.latency_ms})
+        asyncio.run(run_all_checks_streaming(collect))
         done.set()
 
     threading.Thread(target=worker, daemon=True).start()
@@ -991,6 +992,43 @@ def train_screen(ctx: AppContext) -> str | None:
             elif key and key.isdigit():
                 bs_str += key
 
+    # Step 6: post-export ONNX quantization (applies to both fine-tune and skip-fine-tune).
+    from ot_backend.semantic.train_options import (
+        DEFAULT_TRAIN_QUANTIZATION,
+        TRAIN_QUANTIZATION_INT8,
+        TRAIN_QUANTIZATION_NONE,
+        TRAIN_QUANTIZATION_OPTIONS,
+    )
+
+    quant_items: list[tuple[str, str]] = [
+        (TRAIN_QUANTIZATION_NONE, "none — fp32 ONNX weights (default, larger runtime image)"),
+        (TRAIN_QUANTIZATION_INT8, "int8 — dynamic int8 quantization (smaller weights, lower API RAM)"),
+    ]
+    quant_cursor = next(
+        (i for i, (k, _) in enumerate(quant_items) if k == DEFAULT_TRAIN_QUANTIZATION),
+        0,
+    )
+    while True:
+        body = render_menu(quant_items, quant_cursor, prompt="ONNX quantization")
+        ctx.draw(
+            title="Train model — quantization",
+            body=body,
+            footer="  [↑/↓] move    [ENTER] select    [ESC] cancel",
+        )
+        key = ctx.wait_key()
+        if key == K.KEY_UP:
+            quant_cursor = (quant_cursor - 1) % len(quant_items)
+        elif key == K.KEY_DOWN:
+            quant_cursor = (quant_cursor + 1) % len(quant_items)
+        elif key == K.KEY_ENTER:
+            quantization = quant_items[quant_cursor][0]
+            assert quantization in TRAIN_QUANTIZATION_OPTIONS
+            break
+        elif key == K.KEY_ESC:
+            return "menu"
+        elif key == K.KEY_CTRL_C:
+            return None
+
     dataset_label = f"{dataset.slug}  ({str(dataset.id)[:8]})" if dataset is not None else "(synthesised on the fly — face texts only, augmentation=none)"
     summary_rows: list[tuple[str, str]] = [
         ("dataset", dataset_label),
@@ -1001,6 +1039,7 @@ def train_screen(ctx: AppContext) -> str | None:
     if not skip:
         summary_rows.append(("epochs", str(epochs)))
         summary_rows.append(("batch size", str(batch_size)))
+    summary_rows.append(("quantization", quantization))
     body = render_confirm("Run train_model with these inputs?", summary_rows=summary_rows)
     ctx.draw(title="Train model — confirm", body=body, footer="  [Y] run    [N/ESC] cancel")
     while True:
@@ -1023,6 +1062,7 @@ def train_screen(ctx: AppContext) -> str | None:
             epochs=epochs,
             batch_size=batch_size,
             skip_fine_tune=skip,
+            quantization=quantization,
         ),
         next_screen="menu",
     )
@@ -1036,6 +1076,7 @@ def _do_train_model(
     epochs: int,
     batch_size: int,
     skip_fine_tune: bool,
+    quantization: str,
 ) -> str:
     from ot_backend.core.database import SessionLocal
     from ot_backend.semantic.base_model_catalog import get_semantic_base_model
@@ -1047,6 +1088,10 @@ def _do_train_model(
     lg = logging.getLogger("ot_backend.semantic.scripts.train_model")
     base = get_semantic_base_model(base_model_key)
 
+    from ot_backend.semantic.train_options import validate_train_quantization
+
+    quantization = validate_train_quantization(quantization)
+
     if skip_fine_tune:
         import importlib.util
 
@@ -1057,7 +1102,10 @@ def _do_train_model(
                 "    uv sync --extra tui --extra semantic-train"
             )
         # No dataset, no encoding, no eval. Just package the base model.
-        bundle_bytes = _skip_fine_tune_export_bundle(base_model=base.base_model)
+        bundle_bytes = _skip_fine_tune_export_bundle(
+            base_model=base.base_model,
+            quantization=quantization,
+        )
         augmentation_mode = "none"
         dataset_slug = None
         dataset_bytes: bytes | None = None
@@ -1075,7 +1123,15 @@ def _do_train_model(
             dataset_slug = dataset.slug
             dataset_bytes = get_semantic_dataset_bytes(db, dataset_id)
         eval_bytes = default_eval_queries_bytes()
-        bundle_bytes = _run_modal_training(dataset_bytes, eval_bytes, base.base_model, epochs, batch_size, augmentation_mode)
+        bundle_bytes = _run_modal_training(
+            dataset_bytes,
+            eval_bytes,
+            base.base_model,
+            epochs,
+            batch_size,
+            augmentation_mode,
+            quantization,
+        )
 
     config_json: dict[str, object] = {"base_model_key": base_model_key, "skip_fine_tune": skip_fine_tune}
     if dataset_slug is not None:
@@ -1099,7 +1155,7 @@ def _do_train_model(
     return f"id={model.id}  artifacts: " + ", ".join(f"{k}={v}" for k, v in artifact_keys.items())
 
 
-def _skip_fine_tune_export_bundle(*, base_model: str) -> bytes:
+def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> bytes:
     """Build a model bundle: pytorch + onnx + precomputed face embeddings.
 
     No fine-tuning, no augmentation, no eval. We still encode every card face
@@ -1107,6 +1163,7 @@ def _skip_fine_tune_export_bundle(*, base_model: str) -> bytes:
     then uses the precomputed archive instead of re-encoding.
     """
     import io
+    import shutil
     import tempfile
     import zipfile
     from datetime import UTC, datetime
@@ -1117,6 +1174,12 @@ def _skip_fine_tune_export_bundle(*, base_model: str) -> bytes:
 
     from ot_backend.core.database import SessionLocal
     from ot_backend.semantic.dataset_service import _face_text_records, _normalize_face_record
+    from ot_backend.semantic.train_options import (
+        TRAIN_QUANTIZATION_INT8,
+        validate_train_quantization,
+    )
+
+    quantization_mode = validate_train_quantization(quantization)
 
     lg = logging.getLogger("ot_backend.semantic.scripts.train_model")
 
@@ -1177,6 +1240,27 @@ def _skip_fine_tune_export_bundle(*, base_model: str) -> bytes:
         )
         onnx_model.save(str(onnx_dir))
 
+        if quantization_mode == TRAIN_QUANTIZATION_INT8:
+            from onnxruntime.quantization import QuantType, quantize_dynamic
+
+            onnx_path = onnx_dir / "onnx" / "model.onnx"
+            quantized_path = onnx_path.with_suffix(".quant.onnx")
+            lg.info("Applying int8 dynamic quantization to %s", onnx_path)
+            quantize_dynamic(
+                model_input=str(onnx_path),
+                model_output=str(quantized_path),
+                weight_type=QuantType.QInt8,
+            )
+            original_size = onnx_path.stat().st_size
+            quantized_size = quantized_path.stat().st_size
+            shutil.move(str(quantized_path), str(onnx_path))
+            lg.info(
+                "ONNX int8 quantization done. %.1f MB -> %.1f MB (%.0f%%).",
+                original_size / 1024 / 1024,
+                quantized_size / 1024 / 1024,
+                100 * quantized_size / original_size,
+            )
+
         lg.info("Writing precomputed embeddings.npz.")
         embeddings_dir = root / "embeddings"
         embeddings_dir.mkdir()
@@ -1195,6 +1279,7 @@ def _skip_fine_tune_export_bundle(*, base_model: str) -> bytes:
                     "skip_fine_tune": True,
                     "augmentation_mode": "none",
                     "embedding_dim": embedding_dim,
+                    "quantization": quantization_mode,
                 },
                 indent=2,
             ),
@@ -1234,6 +1319,7 @@ def _run_modal_training(
     epochs: int,
     batch_size: int,
     augmentation_mode: str,
+    quantization: str,
 ) -> bytes:
     from importlib import import_module
 
@@ -1243,7 +1329,16 @@ def _run_modal_training(
         raise RuntimeError("Modal credentials missing. Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.")
     modal_train = import_module("ot_backend.semantic.modal_train")
     with modal_train.app.run(environment_name=modal_environment_name()):
-        return modal_train.train.remote(dataset_bytes, eval_bytes, base_model, epochs, batch_size, augmentation_mode, False)
+        return modal_train.train.remote(
+            dataset_bytes,
+            eval_bytes,
+            base_model,
+            epochs,
+            batch_size,
+            augmentation_mode,
+            False,
+            quantization,
+        )
 
 
 # ---------------------------------------------------------------------------

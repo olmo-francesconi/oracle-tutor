@@ -92,29 +92,33 @@ async def check_storage() -> CheckResult:
 async def check_api() -> CheckResult:
     name = "API"
     start = time.perf_counter()
-    bases: list[str] = []
+    # (base, health_path) candidates in order of preference. Public deploys put
+    # the api behind nginx under /api/*, so we hit /api/health there. Local dev
+    # runs hypercorn directly at localhost:8000 where /health is at the root.
+    candidates: list[tuple[str, str]] = []
     public = os.getenv("OT_PUBLIC_URL", "").strip().rstrip("/")
     if public:
-        bases.append(public)
-    bases.append("http://localhost:8000")
+        candidates.append((public, "/api/health"))
+    candidates.append(("http://localhost:8000", "/health"))
     try:
         import httpx
 
         last_error: str = ""
         async with httpx.AsyncClient(timeout=2.0) as client:
-            for base in bases:
+            for base, path in candidates:
+                url = f"{base}{path}"
                 try:
-                    response = await client.get(f"{base}/health")
+                    response = await client.get(url)
                     if response.status_code == 200:
                         return CheckResult(
                             name=name,
                             status="ok",
-                            detail=f"{base}  (200)",
+                            detail=f"{url}  (200)",
                             latency_ms=int((time.perf_counter() - start) * 1000),
                         )
-                    last_error = f"{base}  ({response.status_code})"
+                    last_error = f"{url}  ({response.status_code})"
                 except Exception as exc:  # noqa: BLE001
-                    last_error = f"{base}  —  {type(exc).__name__}"
+                    last_error = f"{url}  —  {type(exc).__name__}"
         return CheckResult(name=name, status="skipped", detail=last_error or "no API reachable", latency_ms=int((time.perf_counter() - start) * 1000))
     except Exception as exc:  # noqa: BLE001
         return CheckResult(name=name, status="fail", detail=f"{type(exc).__name__}: {exc}", latency_ms=int((time.perf_counter() - start) * 1000))
@@ -168,3 +172,16 @@ async def check_cloudflare() -> CheckResult:
 
 async def run_all_checks() -> list[CheckResult]:
     return list(await asyncio.gather(check_db(), check_storage(), check_api(), check_modal(), check_cloudflare()))
+
+
+async def run_all_checks_streaming(on_result: Callable[[CheckResult], None]) -> None:
+    """Same as run_all_checks() but invokes `on_result(r)` as each check finishes.
+
+    Lets the TUI render partial results instead of waiting for the slowest probe.
+    The callback runs on whichever thread is driving the event loop; the boot
+    screen reads the shared list from a different thread, which is safe because
+    list.append is GIL-atomic and the callback never mutates earlier entries.
+    """
+    coros = [check_db(), check_storage(), check_api(), check_modal(), check_cloudflare()]
+    for coro in asyncio.as_completed(coros):
+        on_result(await coro)

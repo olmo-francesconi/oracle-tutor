@@ -47,7 +47,7 @@ _VALID_COLORS = frozenset({"W", "U", "B", "R", "G"})
 # ---------------------------------------------------------------------------
 
 
-def _load_onnx_dependencies() -> tuple[Any, Any, Any]:
+def _load_onnx_dependencies() -> tuple[Any, Any, Any, Any]:
     import os
 
     _ = os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
@@ -63,6 +63,7 @@ def _load_onnx_dependencies() -> tuple[Any, Any, Any]:
     return (
         getattr(onnxruntime, "InferenceSession"),
         getattr(onnxruntime, "SessionOptions"),
+        getattr(onnxruntime, "GraphOptimizationLevel"),
         getattr(tokenizers, "Tokenizer"),
     )
 
@@ -145,7 +146,7 @@ class OnnxTextEncoder:
             )
 
         _validate_pooling_strategy(model_root)
-        InferenceSession, SessionOptions, Tokenizer = _load_onnx_dependencies()
+        InferenceSession, SessionOptions, GraphOptimizationLevel, Tokenizer = _load_onnx_dependencies()
         sess_options = SessionOptions()
         sess_options.log_severity_level = _ORT_LOG_SEVERITY_ERRORS_ONLY
         sess_options.intra_op_num_threads = semantic_onnx_intra_op_threads()
@@ -155,6 +156,11 @@ class OnnxTextEncoder:
         # inflates RSS for an API that encodes one short query at a time.
         sess_options.enable_cpu_mem_arena = False
         sess_options.enable_mem_pattern = False
+        # ENABLE_ALL (the default) does aggressive op fusion that keeps both the
+        # original AND the fused weights resident — costs ~80 MB on a MiniLM
+        # bundle. BASIC does constant folding only, no duplicate buffer; first
+        # inference is ~10% slower, warm path is identical.
+        sess_options.graph_optimization_level = GraphOptimizationLevel.ORT_ENABLE_BASIC
         configure_huggingface_env()
         logger.info("Loading ONNX model from %s", onnx_model_path)
         self._tokenizer = Tokenizer.from_file(str(tokenizer_path))

@@ -54,6 +54,27 @@ DEFAULT_TRAIN_AUGMENTATION_KEYS = tuple(
 DEFAULT_TRAIN_AUGMENTATION_MODE = ",".join(DEFAULT_TRAIN_AUGMENTATION_KEYS)
 
 
+# Post-export ONNX weight quantization. Applied after the model is exported,
+# affecting only the runtime inference image — the precomputed embeddings in
+# the bundle are still float32 (computed from PyTorch). Works identically for
+# fine-tuned and skip-fine-tune flows since both paths share the export step.
+TRAIN_QUANTIZATION_NONE = "none"
+TRAIN_QUANTIZATION_INT8 = "int8"
+TRAIN_QUANTIZATION_OPTIONS = (TRAIN_QUANTIZATION_NONE, TRAIN_QUANTIZATION_INT8)
+DEFAULT_TRAIN_QUANTIZATION = TRAIN_QUANTIZATION_NONE
+
+
+def validate_train_quantization(value: str | None) -> str:
+    if value is None or value == "":
+        return DEFAULT_TRAIN_QUANTIZATION
+    normalized = value.strip().lower()
+    if normalized not in TRAIN_QUANTIZATION_OPTIONS:
+        raise ValueError(
+            f"Quantization must be one of: {', '.join(TRAIN_QUANTIZATION_OPTIONS)}."
+        )
+    return normalized
+
+
 def validate_train_batch_size(value: int) -> int:
     if value not in TRAIN_BATCH_SIZE_OPTIONS:
         raise ValueError(f"Batch size must be one of: {', '.join(str(item) for item in TRAIN_BATCH_SIZE_OPTIONS)}.")

@@ -24,12 +24,23 @@ _DEFAULT_BATCH_SIZE = 32
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from ot_backend.semantic.train_options import (
+        DEFAULT_TRAIN_QUANTIZATION,
+        TRAIN_QUANTIZATION_OPTIONS,
+    )
+
     parser = argparse.ArgumentParser(prog="python -m scripts.train_model")
     parser.add_argument("--dataset-id", required=True, help="UUID of the source semantic dataset.")
     parser.add_argument("--slug", required=True, help="Model slug (unique identifier).")
     parser.add_argument("--base-model", required=True, help="Base model key (e.g. mini-lm-l6-v2).")
     parser.add_argument("--epochs", type=int, default=_DEFAULT_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=_DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        "--quantization",
+        choices=TRAIN_QUANTIZATION_OPTIONS,
+        default=DEFAULT_TRAIN_QUANTIZATION,
+        help="Post-export ONNX weight quantization (applied to runtime model). Default: none.",
+    )
     parser.add_argument(
         "--skip-fine-tune",
         action="store_true",
@@ -48,6 +59,7 @@ def _run_local_base_model_export(
     epochs: int,
     batch_size: int,
     augmentation_mode: str,
+    quantization: str,
 ) -> bytes:
     from importlib import import_module
 
@@ -59,8 +71,17 @@ def _run_local_base_model_export(
     train_fn = getattr(modal_train, "train", None)
     if train_fn is None or not hasattr(train_fn, "local"):
         raise RuntimeError("Packaged training module does not expose a callable train.local().")
-    logger.info("Running local base model export (skip_fine_tune=True).")
-    return train_fn.local(dataset_bytes, eval_queries_bytes, base_model, epochs, batch_size, augmentation_mode, True)
+    logger.info("Running local base model export (skip_fine_tune=True, quantization=%s).", quantization)
+    return train_fn.local(
+        dataset_bytes,
+        eval_queries_bytes,
+        base_model,
+        epochs,
+        batch_size,
+        augmentation_mode,
+        True,
+        quantization,
+    )
 
 
 def _run_modal_training(
@@ -71,8 +92,10 @@ def _run_modal_training(
     epochs: int,
     batch_size: int,
     augmentation_mode: str,
+    quantization: str,
 ) -> bytes:
     from importlib import import_module
+
     from ot_backend.core.config import modal_client_configured, modal_environment_name
 
     if not modal_client_configured():
@@ -91,9 +114,24 @@ def _run_modal_training(
     if app is None or not hasattr(app, "run"):
         raise RuntimeError("Packaged Modal training module does not expose a Modal App.")
 
-    logger.info("Running Modal training. base_model=%s epochs=%d batch_size=%d", base_model, epochs, batch_size)
+    logger.info(
+        "Running Modal training. base_model=%s epochs=%d batch_size=%d quantization=%s",
+        base_model,
+        epochs,
+        batch_size,
+        quantization,
+    )
     with app.run(environment_name=modal_environment_name()):
-        return train_fn.remote(dataset_bytes, eval_queries_bytes, base_model, epochs, batch_size, augmentation_mode, False)
+        return train_fn.remote(
+            dataset_bytes,
+            eval_queries_bytes,
+            base_model,
+            epochs,
+            batch_size,
+            augmentation_mode,
+            False,
+            quantization,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
     from ot_backend.semantic.bundle_registration import register_model_bundle_bytes, semantic_model_artifact_keys
     from ot_backend.semantic.dataset_registry import get_semantic_dataset, get_semantic_dataset_bytes
     from ot_backend.semantic.eval_service import default_eval_queries_bytes
+    from ot_backend.semantic.train_options import validate_train_quantization
+
+    quantization = validate_train_quantization(args.quantization)
 
     base_model_spec = get_semantic_base_model(args.base_model)
 
@@ -128,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             epochs=args.epochs,
             batch_size=args.batch_size,
             augmentation_mode=augmentation_mode,
+            quantization=quantization,
         )
     else:
         bundle_bytes = _run_modal_training(
@@ -137,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             epochs=args.epochs,
             batch_size=args.batch_size,
             augmentation_mode=augmentation_mode,
+            quantization=quantization,
         )
 
     with SessionLocal() as db:
