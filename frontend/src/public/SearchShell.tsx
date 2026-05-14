@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useApiReadyState } from '../lib/apiReadyContext'
 import { useDelayedBoolean } from '../lib/useDelayedBoolean'
 import { getApiDownMessage, getSearchErrorMessage, isApiDownError } from './searchShellState'
@@ -19,6 +20,7 @@ const LEFT_STRIPE_WIDTH_PX = 6
 // has been continuous for 30s — otherwise the user sees an outage page for
 // a service that's just waking up.
 const API_DOWN_OVERLAY_DELAY_MS = 30_000
+const API_RECOVERY_POLL_MS = 500
 import { useCardQuery } from './useCardQuery'
 import { useDocumentHead } from './useDocumentHead'
 import { useOracleSamplesQuery } from './useOracleSamplesQuery'
@@ -77,6 +79,7 @@ export function SearchShell() {
   const [detail, setDetail] = useState<DetailTarget | null>(null)
   const [lastTextQuery, setLastTextQuery] = useState<string | null>(null)
   const viewport = useViewport()
+  const queryClient = useQueryClient()
   const apiReadyState = useApiReadyState()
   const apiReady = apiReadyState.ready
 
@@ -126,6 +129,41 @@ export function SearchShell() {
     return null
   }, [activeQuery, oracleSamplesQuery])
   const shouldShowApiDownOverlay = useDelayedBoolean(apiDownError !== null, API_DOWN_OVERLAY_DELAY_MS)
+
+  // While the API is failing, poll /api/ready in the background. As soon as
+  // it answers ready=true we invalidate the dormant queries so the oracle
+  // background and search-box autocomplete repopulate without a reload.
+  useEffect(() => {
+    if (apiDownError === null) return undefined
+    let cancelled = false
+    let timerId: ReturnType<typeof setTimeout> | null = null
+    const controller = new AbortController()
+
+    async function probe() {
+      if (cancelled) return
+      try {
+        const res = await fetch('/api/ready', { signal: controller.signal, cache: 'no-store' })
+        const body = (await res.json().catch(() => ({}))) as { ready?: boolean }
+        if (cancelled) return
+        if (res.ok && body.ready === true) {
+          void queryClient.invalidateQueries({ queryKey: ['oracle-samples'] })
+          void queryClient.invalidateQueries({ queryKey: ['card-autocomplete'] })
+          return
+        }
+      } catch {
+        // swallow — retry on next tick
+      }
+      if (!cancelled) timerId = setTimeout(probe, API_RECOVERY_POLL_MS)
+    }
+
+    void probe()
+
+    return () => {
+      cancelled = true
+      if (timerId !== null) clearTimeout(timerId)
+      controller.abort()
+    }
+  }, [apiDownError, queryClient])
 
   const searchErrorMessage =
     activeQuery.isError && !isApiDownError(activeQuery.error)
