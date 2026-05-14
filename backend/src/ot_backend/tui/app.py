@@ -305,6 +305,7 @@ _MENU_ITEMS: list[tuple[str, str]] = [
     ("train", "Train model"),
     ("promote", "Promote model"),
     ("storage", "Storage audit & sync"),
+    ("admin_ips", "Admin IP bans"),
     ("boot", "Re-run connection checks"),
     ("quit", "Quit"),
 ]
@@ -1930,6 +1931,176 @@ def _error_screen(ctx: AppContext, title: str, message: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _load_admin_ip_state() -> list[dict[str, object]]:
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.models import AdminIpState
+
+    with SessionLocal() as db:
+        rows = db.query(AdminIpState).order_by(AdminIpState.banned.desc(), AdminIpState.last_failure_at.desc()).all()
+        return [
+            {
+                "ip_address": r.ip_address,
+                "failures": r.failures,
+                "locked_until": r.locked_until.isoformat() if r.locked_until else None,
+                "banned": r.banned,
+                "banned_at": r.banned_at.isoformat() if r.banned_at else None,
+                "banned_reason": r.banned_reason or "",
+                "last_failure_at": r.last_failure_at.isoformat() if r.last_failure_at else None,
+            }
+            for r in rows
+        ]
+
+
+def _ban_admin_ip(ip_address: str, reason: str) -> None:
+    from datetime import UTC, datetime
+
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.models import AdminIpState
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with SessionLocal() as db:
+        state = db.get(AdminIpState, ip_address)
+        if state is None:
+            state = AdminIpState(ip_address=ip_address, failures=0, last_failure_at=now)
+            db.add(state)
+        state.banned = True
+        state.banned_at = now
+        state.banned_reason = reason or None
+        db.commit()
+
+
+def _unban_admin_ip(ip_address: str) -> None:
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.models import AdminIpState
+
+    with SessionLocal() as db:
+        state = db.get(AdminIpState, ip_address)
+        if state is None:
+            return
+        state.banned = False
+        state.banned_at = None
+        state.banned_reason = None
+        db.commit()
+
+
+def _delete_admin_ip(ip_address: str) -> None:
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.models import AdminIpState
+
+    with SessionLocal() as db:
+        state = db.get(AdminIpState, ip_address)
+        if state is None:
+            return
+        db.delete(state)
+        db.commit()
+
+
+def admin_ips_screen(ctx: AppContext) -> str | None:
+    try:
+        rows = _load_admin_ip_state()
+    except Exception as exc:  # noqa: BLE001
+        return _error_screen(ctx, "Admin IP bans", f"{type(exc).__name__}: {exc}")
+
+    cursor = 0
+    while True:
+        columns = ("IP", "Fails", "Banned", "Reason", "Locked until", "Last failure")
+        display_rows = [
+            (
+                str(r["ip_address"]),
+                str(r["failures"]),
+                "yes" if r["banned"] else "no",
+                str(r["banned_reason"] or "")[:32],
+                (str(r["locked_until"]) or "—")[:19],
+                (str(r["last_failure_at"]) or "—")[:19],
+            )
+            for r in rows
+        ]
+        body = render_row_table(
+            columns=columns,
+            rows=display_rows,
+            cursor=cursor if rows else 0,
+            empty_message="No admin IP state recorded.",
+        )
+        footer = "  [↑/↓] move    [A] add+ban    [B] ban    [U] unban    [D] delete row    [R] reload    [ESC] menu"
+        ctx.draw(title="Admin IP bans", body=body, footer=footer)
+        key = ctx.wait_key()
+
+        if key == K.KEY_ESC:
+            return "menu"
+        if key == K.KEY_CTRL_C or key == "q":
+            return None
+        if key == "r":
+            try:
+                rows = _load_admin_ip_state()
+            except Exception as exc:  # noqa: BLE001
+                return _error_screen(ctx, "Admin IP bans", f"{type(exc).__name__}: {exc}")
+            cursor = min(cursor, max(0, len(rows) - 1))
+            continue
+        if rows and key == K.KEY_UP:
+            cursor = (cursor - 1) % len(rows)
+            continue
+        if rows and key == K.KEY_DOWN:
+            cursor = (cursor + 1) % len(rows)
+            continue
+        if key == "a":
+            ip_res = _prompt_text(
+                ctx,
+                title="Admin IP bans — add",
+                label="IP address",
+                hint="exact match against X-Real-IP (or X-Forwarded-For first hop).",
+            )
+            if ip_res is None or ip_res[1] is not None or not ip_res[0].strip():
+                continue
+            reason_res = _prompt_text(
+                ctx,
+                title="Admin IP bans — add",
+                label="Reason (optional)",
+                allow_empty=True,
+            )
+            if reason_res is None:
+                continue
+            try:
+                _ban_admin_ip(ip_res[0].strip(), reason_res[0].strip() if reason_res[1] is None else "")
+                rows = _load_admin_ip_state()
+            except Exception as exc:  # noqa: BLE001
+                return _error_screen(ctx, "Admin IP bans", f"{type(exc).__name__}: {exc}")
+            cursor = 0
+            continue
+        if not rows:
+            continue
+        selected_ip = str(rows[cursor]["ip_address"])
+        if key == "b":
+            reason_res = _prompt_text(
+                ctx,
+                title=f"Ban {selected_ip}",
+                label="Reason (optional)",
+                allow_empty=True,
+            )
+            if reason_res is None:
+                continue
+            try:
+                _ban_admin_ip(selected_ip, reason_res[0].strip() if reason_res[1] is None else "")
+                rows = _load_admin_ip_state()
+            except Exception as exc:  # noqa: BLE001
+                return _error_screen(ctx, "Admin IP bans", f"{type(exc).__name__}: {exc}")
+            continue
+        if key == "u":
+            try:
+                _unban_admin_ip(selected_ip)
+                rows = _load_admin_ip_state()
+            except Exception as exc:  # noqa: BLE001
+                return _error_screen(ctx, "Admin IP bans", f"{type(exc).__name__}: {exc}")
+            continue
+        if key == "d":
+            try:
+                _delete_admin_ip(selected_ip)
+                rows = _load_admin_ip_state()
+            except Exception as exc:  # noqa: BLE001
+                return _error_screen(ctx, "Admin IP bans", f"{type(exc).__name__}: {exc}")
+            cursor = min(cursor, max(0, len(rows) - 1))
+            continue
+
+
 _SCREENS: dict[str, Callable[[AppContext], "str | None"]] = {
     "boot": boot_screen,
     "menu": menu_screen,
@@ -1939,6 +2110,7 @@ _SCREENS: dict[str, Callable[[AppContext], "str | None"]] = {
     "train": train_screen,
     "promote": promote_screen,
     "storage": storage_screen,
+    "admin_ips": admin_ips_screen,
 }
 
 

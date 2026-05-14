@@ -130,16 +130,20 @@ def _serialize_semantic_dataset_summary(dataset: SemanticDataset) -> SemanticDat
 
 
 @router.post("/auth/token", response_model=AdminAuthTokenResponse)
-def admin_auth_token(payload: AdminAuthTokenRequest, request: Request) -> AdminAuthTokenResponse:
+def admin_auth_token(
+    payload: AdminAuthTokenRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> AdminAuthTokenResponse:
     configured_password = admin_password()
     if not configured_password or not admin_jwt_secret():
         raise HTTPException(status_code=503, detail="Admin auth is not configured.")
     client_ip = get_admin_client_ip(request)
-    ensure_admin_ip_not_locked_out(client_ip)
+    ensure_admin_ip_not_locked_out(db, client_ip)
     if not hmac.compare_digest(payload.password.encode("utf-8"), configured_password.encode("utf-8")):
-        register_admin_login_failure(client_ip)
+        register_admin_login_failure(db, client_ip)
         raise HTTPException(status_code=401, detail="Invalid admin password.")
-    reset_admin_login_failures(client_ip)
+    reset_admin_login_failures(db, client_ip)
     return AdminAuthTokenResponse(
         access_token=create_admin_token(),
         expires_in=admin_token_ttl_seconds(),

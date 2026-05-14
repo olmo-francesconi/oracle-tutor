@@ -394,3 +394,55 @@ class SemanticModelEmbedding(Base):
     embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
 
     model: Mapped["SemanticModel"] = relationship(back_populates="embeddings")
+
+
+# ---------------------------------------------------------------------------
+# Admin IP state
+# ---------------------------------------------------------------------------
+
+class AdminIpState(Base):
+    # Tracks per-IP admin-login failures and permanent bans. Replaces an
+    # earlier in-process dict so lockouts survive container restarts and
+    # work across multiple workers if we ever scale out. A row exists only
+    # while the IP has unresolved failure state or a standing ban; a
+    # successful login deletes the row (unless banned=true).
+    __tablename__ = "admin_ip_state"
+
+    ip_address: Mapped[str] = mapped_column(String, primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    locked_until: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    banned_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    banned_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_failure_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive
+    )
+
+
+# ---------------------------------------------------------------------------
+# Semantic query log
+# ---------------------------------------------------------------------------
+
+class SemanticQueryLog(Base):
+    # One row per /similar-cards request. Best-effort write — logging failures
+    # do not bubble up to the response. Retention policy is operator-driven
+    # (e.g. `DELETE FROM semantic_query_log WHERE created_at < now() - interval '30 days'`).
+    #
+    # query_mode is "text" when the caller passed `q`, or "by-face" when they
+    # passed oracle_id + face_ix (find-similar-to-this-card flow).
+    __tablename__ = "semantic_query_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=utcnow_naive, index=True)
+    query_mode: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    client_ip: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    query_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    oracle_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    face_ix: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    limit_param: Mapped[int] = mapped_column(Integer, nullable=False)
+    offset_param: Mapped[int] = mapped_column(Integer, nullable=False)
+    filters_json: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    model_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    result_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)

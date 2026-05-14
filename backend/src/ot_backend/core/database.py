@@ -67,6 +67,14 @@ def _pool_defaults_for_role() -> tuple[int, int]:
 def _create_engine(database_url: str) -> Engine:
     pool_recycle_seconds = int(os.getenv("DB_POOL_RECYCLE", "3600"))
     default_pool_size, default_max_overflow = _pool_defaults_for_role()
+    connect_args: dict[str, str] = {}
+    # API requests must complete within a bounded budget; long-running queries
+    # are a DoS lever. Worker has no timeout because ingestion runs minute-long
+    # batch statements.
+    if os.getenv("OT_SERVICE_ROLE", "api").strip().lower() == "api":
+        timeout_ms = int(os.getenv("OT_DB_STATEMENT_TIMEOUT_MS", "5000"))
+        if timeout_ms > 0:
+            connect_args["options"] = f"-c statement_timeout={timeout_ms}"
     return create_engine(
         database_url,
         pool_pre_ping=True,
@@ -74,6 +82,7 @@ def _create_engine(database_url: str) -> Engine:
         pool_size=int(os.getenv("DB_POOL_SIZE", str(default_pool_size))),
         max_overflow=int(os.getenv("DB_POOL_MAX_OVERFLOW", str(default_max_overflow))),
         pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        connect_args=connect_args,
     )
 
 
