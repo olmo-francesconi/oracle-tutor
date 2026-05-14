@@ -68,6 +68,8 @@ def test_search_returns_multiple_faces_for_multi_face_name_matches(client):
 
 def test_similar_cards_includes_face_index(client, monkeypatch):
     class FakeSemanticIndex:
+        model_id = None
+
         def similar_to_face(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95)]
 
@@ -105,6 +107,8 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
 
 def test_similar_cards_uses_shared_front_image_side_for_split_faces(client, monkeypatch):
     class FakeSemanticIndex:
+        model_id = None
+
         def search_oracle(self, *_args, **_kwargs):
             return [(("o6", 1), 0.91)]
 
@@ -119,6 +123,8 @@ def test_similar_cards_uses_shared_front_image_side_for_split_faces(client, monk
 
 def test_similar_cards_uses_back_image_side_for_double_faced_back_face(client, monkeypatch):
     class FakeSemanticIndex:
+        model_id = None
+
         def search_oracle(self, *_args, **_kwargs):
             return [(("o7", 1), 0.89)]
 
@@ -133,6 +139,8 @@ def test_similar_cards_uses_back_image_side_for_double_faced_back_face(client, m
 
 def test_similar_cards_sets_has_more_when_more_results_exist(client, monkeypatch):
     class FakeSemanticIndex:
+        model_id = None
+
         def search_oracle(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
 
@@ -146,6 +154,8 @@ def test_similar_cards_sets_has_more_when_more_results_exist(client, monkeypatch
 
 def test_similar_cards_sets_has_more_false_on_last_page(client, monkeypatch):
     class FakeSemanticIndex:
+        model_id = None
+
         def search_oracle(self, *_args, **_kwargs):
             return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
 
@@ -184,6 +194,8 @@ def test_search_rejects_overlong_query(client):
 
 def test_similar_cards_rejects_overlong_query(client, monkeypatch):
     class FakeSemanticIndex:
+        model_id = None
+
         def search_oracle(self, *_args, **_kwargs):
             return []
 

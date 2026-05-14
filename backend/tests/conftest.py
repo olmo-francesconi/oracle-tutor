@@ -46,6 +46,8 @@ os.environ.setdefault("OT_SCHEMA_WAIT_TIMEOUT_SECONDS", "0.5")
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
+from sqlalchemy.exc import ProgrammingError  # noqa: E402
+
 from ot_backend.api.admin_auth import clear_admin_login_attempts_for_tests  # noqa: E402
 from ot_backend.api.main import app  # noqa: E402
 from ot_backend.core.database import SessionLocal  # noqa: E402
@@ -249,11 +251,22 @@ def client() -> Generator[TestClient, None, None]:
         yield c
 
 
+def _safe_clear_admin_login_attempts() -> None:
+    # Some tests don't request the `client` fixture (which runs init_db), so
+    # the admin_ip_state table may not exist when this autouse fixture fires.
+    # Treat that as "nothing to clear" rather than failing.
+    try:
+        with SessionLocal() as db:
+            clear_admin_login_attempts_for_tests(db)
+    except ProgrammingError:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def reset_admin_login_attempt_state() -> Generator[None, None, None]:
-    clear_admin_login_attempts_for_tests()
+    _safe_clear_admin_login_attempts()
     yield
-    clear_admin_login_attempts_for_tests()
+    _safe_clear_admin_login_attempts()
 
 
 @pytest.fixture(autouse=True)
