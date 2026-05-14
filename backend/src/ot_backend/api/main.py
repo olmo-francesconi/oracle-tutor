@@ -23,6 +23,7 @@ from ..core.config import (
     SEMANTIC_ADMIN_MAX_REQUEST_BYTES,
     allowed_hosts,
     cors_origins,
+    is_production_env,
 )
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import setup_loggers
@@ -149,7 +150,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             pass
 
 
-app = FastAPI(lifespan=lifespan, title="oracle-tutor api", version=API_VERSION)
+_docs_disabled = is_production_env()
+app = FastAPI(
+    lifespan=lifespan,
+    title="oracle-tutor api",
+    version=API_VERSION,
+    docs_url=None if _docs_disabled else "/docs",
+    redoc_url=None if _docs_disabled else "/redoc",
+    openapi_url=None if _docs_disabled else "/openapi.json",
+)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
 app.add_middleware(RequestSizeLimitMiddleware)
 
