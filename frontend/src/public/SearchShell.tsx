@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useApiReadyState } from '../lib/apiReadyContext'
+import { useDelayedBoolean } from '../lib/useDelayedBoolean'
 import { getApiDownMessage, getSearchErrorMessage, isApiDownError } from './searchShellState'
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
@@ -13,6 +14,11 @@ import { ResultsView } from './ResultsView'
 import { WaitingView } from './WaitingView'
 
 const LEFT_STRIPE_WIDTH_PX = 6
+// Cold-start API wake-ups can take 10-20s on Railway scale-from-zero. Don't
+// hijack the page with the "Oracle Tutor offline" overlay until the failure
+// has been continuous for 30s — otherwise the user sees an outage page for
+// a service that's just waking up.
+const API_DOWN_OVERLAY_DELAY_MS = 30_000
 import { useCardQuery } from './useCardQuery'
 import { useDocumentHead } from './useDocumentHead'
 import { useOracleSamplesQuery } from './useOracleSamplesQuery'
@@ -119,6 +125,7 @@ export function SearchShell() {
     }
     return null
   }, [activeQuery, oracleSamplesQuery])
+  const shouldShowApiDownOverlay = useDelayedBoolean(apiDownError !== null, API_DOWN_OVERLAY_DELAY_MS)
 
   const searchErrorMessage =
     activeQuery.isError && !isApiDownError(activeQuery.error)
@@ -306,7 +313,7 @@ export function SearchShell() {
         onClose={handleDetailClose}
         onFindSimilar={handleDetailFindSimilar}
       />
-      {apiDownError ? (
+      {shouldShowApiDownOverlay && apiDownError ? (
         <ApiDownOverlay
           message={getApiDownMessage(apiDownError)}
           isRetrying={activeQuery.isFetching || oracleSamplesQuery.isFetching}

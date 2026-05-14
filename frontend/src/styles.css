@@ -76,6 +76,38 @@
     text-transform: uppercase;
   }
 
+  /* Editorial ellipsis for the SearchBox "warming up" notice. Three dots
+     fade in sequentially on a slow cycle; reduced-motion collapses to a
+     static "…". */
+  .ot-booting-dots span {
+    display: inline-block;
+    opacity: 0.25;
+    animation: ot-booting-dot 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    font-variant-numeric: tabular-nums;
+  }
+  .ot-booting-dots span:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+  .ot-booting-dots span:nth-child(3) {
+    animation-delay: 0.36s;
+  }
+  @keyframes ot-booting-dot {
+    0%,
+    60%,
+    100% {
+      opacity: 0.25;
+    }
+    30% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ot-booting-dots span {
+      animation: none;
+      opacity: 1;
+    }
+  }
+
   /* The editor uses flex layout, so it must stay position:relative for the
      absolute placeholder to anchor here. */
   .search-editor {
