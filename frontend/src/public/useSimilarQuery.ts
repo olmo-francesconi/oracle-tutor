@@ -2,13 +2,15 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { getSimilarCards } from '../lib/api'
 import type { FilterState } from '../types/api'
 import type { PinnedCard } from '../types/ui'
+import { useApiReadyValue } from '../lib/apiReadyContext'
 
 const RESULTS_PAGE_SIZE = 24
 
 export function useSimilarQuery(pinnedCard: PinnedCard | null, filters: FilterState) {
+  const apiReady = useApiReadyValue()
   return useInfiniteQuery({
     queryKey: ['similar', pinnedCard?.oracle_id, pinnedCard?.face_ix, filters],
-    enabled: pinnedCard !== null,
+    enabled: apiReady && pinnedCard !== null,
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) =>
       getSimilarCards(

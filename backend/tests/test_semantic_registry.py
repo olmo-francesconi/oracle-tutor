@@ -12,7 +12,6 @@ from ot_backend.core.models import (
     Card,
     CardFace,
     CardRaw,
-    SemanticJob,
     SemanticModel,
     SemanticModelArtifact,
     SemanticModelEmbedding,
@@ -83,7 +82,6 @@ def _make_model_bundle(tmp_path, *, include_pytorch: bool = True, include_embedd
 
 def _reset_registry_tables() -> None:
     with SessionLocal() as db:
-        db.query(SemanticJob).delete()
         db.query(SemanticModelEmbedding).delete()
         db.query(SemanticModelArtifact).delete()
         db.query(SemanticModel).delete()
@@ -650,7 +648,11 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
     def fake_import_module(module_name: str):
         import_calls.append(module_name)
         if module_name == "onnxruntime":
-            return SimpleNamespace(InferenceSession=FakeInferenceSession, SessionOptions=FakeSessionOptions)
+            return SimpleNamespace(
+                InferenceSession=FakeInferenceSession,
+                SessionOptions=FakeSessionOptions,
+                GraphOptimizationLevel=SimpleNamespace(ORT_ENABLE_BASIC="ORT_ENABLE_BASIC"),
+            )
         if module_name == "tokenizers":
             return SimpleNamespace(Tokenizer=FakeTokenizer)
         raise AssertionError(f"Unexpected import: {module_name}")

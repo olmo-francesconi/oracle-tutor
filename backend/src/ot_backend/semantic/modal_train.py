@@ -1,7 +1,8 @@
 """Modal remote training module for Oracle Tutor.
 
-The train worker imports this module directly and dispatches `train.remote(...)`.
-All training inputs are passed as bytes so the Modal side stays DB-independent.
+`backend/scripts/train_model.py` imports this module and dispatches
+`train.remote(...)` (or `.local(...)` when fine-tuning is skipped). All
+training inputs are passed as bytes so the Modal side stays DB-independent.
 """
 
 from __future__ import annotations
@@ -70,11 +71,14 @@ from .dataset_service import TrainingDatasetState, load_training_dataset_bytes, 
 from .query_gen import generate_template_queries
 from .text_prep import EMPTY_ORACLE_TOKEN
 from .train_options import (
+    DEFAULT_TRAIN_QUANTIZATION,
     TRAIN_AUGMENTATION_LLM_QUERIES,
     TRAIN_AUGMENTATION_TAG_DESCRIPTIONS,
     TRAIN_AUGMENTATION_TAG_PAIRS,
     TRAIN_AUGMENTATION_TEMPLATE_QUERIES,
+    TRAIN_QUANTIZATION_INT8,
     parse_train_augmentation_mode,
+    validate_train_quantization,
 )
 
 image: Any = (
@@ -357,6 +361,7 @@ def train(
     batch_size: int,
     augmentation_mode: str,
     skip_fine_tune: bool = False,
+    quantization: str = DEFAULT_TRAIN_QUANTIZATION,
 ) -> bytes:
     import numpy as np
     from sentence_transformers import InputExample, SentenceTransformer, losses
@@ -442,6 +447,26 @@ def train(
         )
         onnx_model.save(str(models_onnx))
         print("ONNX model exported.")
+
+        quantization_mode = validate_train_quantization(quantization)
+        if quantization_mode == TRAIN_QUANTIZATION_INT8:
+            from onnxruntime.quantization import QuantType, quantize_dynamic
+
+            onnx_path = models_onnx / "onnx" / "model.onnx"
+            quantized_path = onnx_path.with_suffix(".quant.onnx")
+            print(f"Applying int8 dynamic quantization → {onnx_path} (in place after rewrite).")
+            quantize_dynamic(
+                model_input=str(onnx_path),
+                model_output=str(quantized_path),
+                weight_type=QuantType.QInt8,
+            )
+            original_size = onnx_path.stat().st_size
+            quantized_size = quantized_path.stat().st_size
+            shutil.move(str(quantized_path), str(onnx_path))
+            print(
+                f"ONNX quantization done. {original_size / 1024 / 1024:.1f} MB → "
+                f"{quantized_size / 1024 / 1024:.1f} MB ({100 * quantized_size / original_size:.0f}%)."
+            )
 
         shutil.copytree(str(pytorch_path), str(artifact_root / "models" / "pytorch"))
 

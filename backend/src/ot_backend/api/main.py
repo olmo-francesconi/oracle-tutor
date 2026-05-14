@@ -23,6 +23,7 @@ from ..core.config import (
     SEMANTIC_ADMIN_MAX_REQUEST_BYTES,
     allowed_hosts,
     cors_origins,
+    is_production_env,
 )
 from ..core.db_init import INIT_MODE_API, init_db, wait_for_migration_ready
 from ..core.logging_config import setup_loggers
@@ -122,10 +123,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if index is None:
             logger.warning("Semantic model unavailable — semantic endpoints will return 503")
         else:
-            try:
-                index.warm()
-            except Exception as exc:
-                logger.warning("Semantic embedding matrix failed to pre-warm: %s", exc)
             logger.info("Semantic model ready. model_id=%s", index.model_id)
     except Exception as exc:
         logger.error("Semantic model failed to load: %s", exc, exc_info=True)
@@ -153,7 +150,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             pass
 
 
-app = FastAPI(lifespan=lifespan, title="oracle-tutor api", version=API_VERSION)
+_docs_disabled = is_production_env()
+app = FastAPI(
+    lifespan=lifespan,
+    title="oracle-tutor api",
+    version=API_VERSION,
+    docs_url=None if _docs_disabled else "/docs",
+    redoc_url=None if _docs_disabled else "/redoc",
+    openapi_url=None if _docs_disabled else "/openapi.json",
+)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
 app.add_middleware(RequestSizeLimitMiddleware)
 
@@ -219,6 +224,26 @@ def root() -> dict[str, str]:
 @app.get("/health", tags=["meta"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ready", tags=["meta"])
+def ready() -> Response:
+    # Returns 200 once a semantic model is materialised in memory, 503 otherwise.
+    # The frontend polls this on load so it can mask cold-start latency with a
+    # themed boot overlay instead of letting search hit 503s.
+    from ._semantic_index import get_semantic_index
+
+    index = get_semantic_index()
+    if index is None or index.model_id is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"ready": False},
+            headers={"Cache-Control": "no-store"},
+        )
+    return JSONResponse(
+        content={"ready": True, "model_id": index.model_id},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/version", tags=["meta"])

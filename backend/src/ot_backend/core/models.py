@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -143,8 +143,8 @@ class Card(Base):
     name: Mapped[str] = mapped_column(String, index=True)
     layout: Mapped[str | None] = mapped_column(String, nullable=True)
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
-    color_identity: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    legalities: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    color_identity: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    legalities: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rarity: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -186,7 +186,7 @@ class CardFace(Base):
     toughness: Mapped[str | None] = mapped_column(String, nullable=True)
     loyalty: Mapped[str | None] = mapped_column(String, nullable=True)
     defense: Mapped[str | None] = mapped_column(String, nullable=True)
-    colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    colors: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # Normalized primary card types extracted from type_line. GIN-indexed
     # native ARRAY column for fast overlap filters.
@@ -317,7 +317,6 @@ class SemanticModel(Base):
         back_populates="model",
         cascade="all, delete-orphan",
     )
-    jobs: Mapped[list["SemanticJob"]] = relationship(back_populates="model")
     dataset: Mapped["SemanticDataset | None"] = relationship(back_populates="models")
 
 
@@ -338,7 +337,6 @@ class SemanticDataset(Base):
         back_populates="dataset",
         cascade="all, delete-orphan",
     )
-    jobs: Mapped[list["SemanticJob"]] = relationship(back_populates="dataset")
     models: Mapped[list["SemanticModel"]] = relationship(back_populates="dataset")
 
 
@@ -352,7 +350,7 @@ class SemanticModelArtifact(Base):
     model_id: Mapped[str] = mapped_column(ForeignKey("semantic_models.id", ondelete="CASCADE"), nullable=False, index=True)
     artifact_kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
     object_key: Mapped[str] = mapped_column(String, nullable=False)
-    sha256: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    sha256: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     content_type: Mapped[str] = mapped_column(String, nullable=False)
     metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
@@ -371,7 +369,7 @@ class SemanticDatasetArtifact(Base):
     dataset_id: Mapped[str] = mapped_column(ForeignKey("semantic_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
     artifact_kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
     object_key: Mapped[str] = mapped_column(String, nullable=False)
-    sha256: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    sha256: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     content_type: Mapped[str] = mapped_column(String, nullable=False)
     metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
@@ -398,22 +396,53 @@ class SemanticModelEmbedding(Base):
     model: Mapped["SemanticModel"] = relationship(back_populates="embeddings")
 
 
-class SemanticJob(Base):
-    __tablename__ = "semantic_jobs"
+# ---------------------------------------------------------------------------
+# Admin IP state
+# ---------------------------------------------------------------------------
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
-    job_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    requested_by: Mapped[str] = mapped_column(String, nullable=False)
-    model_id: Mapped[str | None] = mapped_column(ForeignKey("semantic_models.id", ondelete="SET NULL"), nullable=True, index=True)
-    dataset_id: Mapped[str | None] = mapped_column(ForeignKey("semantic_datasets.id", ondelete="SET NULL"), nullable=True, index=True)
-    payload_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
-    result_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
-    started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
-    heartbeat_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
-    finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+class AdminIpState(Base):
+    # Tracks per-IP admin-login failures and permanent bans. Replaces an
+    # earlier in-process dict so lockouts survive container restarts and
+    # work across multiple workers if we ever scale out. A row exists only
+    # while the IP has unresolved failure state or a standing ban; a
+    # successful login deletes the row (unless banned=true).
+    __tablename__ = "admin_ip_state"
 
-    model: Mapped["SemanticModel | None"] = relationship(back_populates="jobs")
-    dataset: Mapped["SemanticDataset | None"] = relationship(back_populates="jobs")
+    ip_address: Mapped[str] = mapped_column(String, primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    locked_until: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    banned_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    banned_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_failure_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive
+    )
+
+
+# ---------------------------------------------------------------------------
+# Semantic query log
+# ---------------------------------------------------------------------------
+
+class SemanticQueryLog(Base):
+    # One row per /similar-cards request. Best-effort write — logging failures
+    # do not bubble up to the response. Retention policy is operator-driven
+    # (e.g. `DELETE FROM semantic_query_log WHERE created_at < now() - interval '30 days'`).
+    #
+    # query_mode is "text" when the caller passed `q`, or "by-face" when they
+    # passed oracle_id + face_ix (find-similar-to-this-card flow).
+    __tablename__ = "semantic_query_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=utcnow_naive, index=True)
+    query_mode: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    client_ip: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    query_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    oracle_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    face_ix: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    limit_param: Mapped[int] = mapped_column(Integer, nullable=False)
+    offset_param: Mapped[int] = mapped_column(Integer, nullable=False)
+    filters_json: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    model_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    result_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)

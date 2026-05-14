@@ -1,4 +1,7 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useApiReadyState } from '../lib/apiReadyContext'
+import { useDelayedBoolean } from '../lib/useDelayedBoolean'
 import { getApiDownMessage, getSearchErrorMessage, isApiDownError } from './searchShellState'
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
@@ -9,8 +12,15 @@ import { DenseTextBackground } from '../components/background/DenseTextBackgroun
 import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
 import { HomeView } from './HomeView'
 import { ResultsView } from './ResultsView'
+import { WaitingView } from './WaitingView'
 
 const LEFT_STRIPE_WIDTH_PX = 6
+// Cold-start API wake-ups can take 10-20s on Railway scale-from-zero. Don't
+// hijack the page with the "Oracle Tutor offline" overlay until the failure
+// has been continuous for 30s — otherwise the user sees an outage page for
+// a service that's just waking up.
+const API_DOWN_OVERLAY_DELAY_MS = 30_000
+const API_RECOVERY_POLL_MS = 500
 import { useCardQuery } from './useCardQuery'
 import { useDocumentHead } from './useDocumentHead'
 import { useOracleSamplesQuery } from './useOracleSamplesQuery'
@@ -69,6 +79,9 @@ export function SearchShell() {
   const [detail, setDetail] = useState<DetailTarget | null>(null)
   const [lastTextQuery, setLastTextQuery] = useState<string | null>(null)
   const viewport = useViewport()
+  const queryClient = useQueryClient()
+  const apiReadyState = useApiReadyState()
+  const apiReady = apiReadyState.ready
 
   const oracleSamplesQuery = useOracleSamplesQuery()
   const cardQuery = useCardQuery(ui.pinnedCard?.oracle_id)
@@ -84,7 +97,14 @@ export function SearchShell() {
   const resolvedPinnedName = ui.pinnedCard
     ? ui.pinnedCard.name || cardQuery.data?.name || ''
     : ''
-  const displayDraft = ui.pinnedCard && !ui.draftQuery ? resolvedPinnedName : ui.draftQuery
+  // Only fall back to the resolved pinned name when the pinnedCard has no
+  // name yet (URL-load case). Once the user has a named pinned card, an
+  // empty draftQuery means the user cleared the bar to start a new search,
+  // and the field must stay empty so they can type.
+  const displayDraft =
+    ui.pinnedCard && !ui.draftQuery && !ui.pinnedCard.name
+      ? resolvedPinnedName
+      : ui.draftQuery
   const displaySubmitted = ui.pinnedCard ? resolvedPinnedName : ui.submittedQuery
 
   const pinnedSummary = useMemo(() => {
@@ -108,6 +128,42 @@ export function SearchShell() {
     }
     return null
   }, [activeQuery, oracleSamplesQuery])
+  const shouldShowApiDownOverlay = useDelayedBoolean(apiDownError !== null, API_DOWN_OVERLAY_DELAY_MS)
+
+  // While the API is failing, poll /api/ready in the background. As soon as
+  // it answers ready=true we invalidate the dormant queries so the oracle
+  // background and search-box autocomplete repopulate without a reload.
+  useEffect(() => {
+    if (apiDownError === null) return undefined
+    let cancelled = false
+    let timerId: ReturnType<typeof setTimeout> | null = null
+    const controller = new AbortController()
+
+    async function probe() {
+      if (cancelled) return
+      try {
+        const res = await fetch('/api/ready', { signal: controller.signal, cache: 'no-store' })
+        const body = (await res.json().catch(() => ({}))) as { ready?: boolean }
+        if (cancelled) return
+        if (res.ok && body.ready === true) {
+          void queryClient.invalidateQueries({ queryKey: ['oracle-samples'] })
+          void queryClient.invalidateQueries({ queryKey: ['card-autocomplete'] })
+          return
+        }
+      } catch {
+        // swallow — retry on next tick
+      }
+      if (!cancelled) timerId = setTimeout(probe, API_RECOVERY_POLL_MS)
+    }
+
+    void probe()
+
+    return () => {
+      cancelled = true
+      if (timerId !== null) clearTimeout(timerId)
+      controller.abort()
+    }
+  }, [apiDownError, queryClient])
 
   const searchErrorMessage =
     activeQuery.isError && !isApiDownError(activeQuery.error)
@@ -127,6 +183,7 @@ export function SearchShell() {
   }
 
   const isHome = ui.submittedQuery === null && ui.pinnedCard === null
+  const isSemanticWarming = !apiReady && !isHome
   const activeFilterCount = getActiveFilterCount(ui.filters)
   const hasOracleBackground = oracleSamples.texts.length > 0
 
@@ -245,7 +302,7 @@ export function SearchShell() {
     <main
       className={[
         'relative isolate min-h-screen bg-ot-bg',
-        isHome
+        isHome || isSemanticWarming
           ? 'grid place-items-center px-6 pb-16 pl-11 pt-12 max-[720px]:px-4 max-[720px]:pb-12 max-[720px]:pl-[30px] max-[720px]:pt-8'
           : '',
       ].join(' ')}
@@ -266,6 +323,8 @@ export function SearchShell() {
           onSubmit={handleSubmit}
           onCardSelect={handleCardSelect}
         />
+      ) : isSemanticWarming ? (
+        <WaitingView attempts={apiReadyState.attempts} error={apiReadyState.error} />
       ) : (
         <ResultsView
           state={shellState}
@@ -292,7 +351,7 @@ export function SearchShell() {
         onClose={handleDetailClose}
         onFindSimilar={handleDetailFindSimilar}
       />
-      {apiDownError ? (
+      {shouldShowApiDownOverlay && apiDownError ? (
         <ApiDownOverlay
           message={getApiDownMessage(apiDownError)}
           isRetrying={activeQuery.isFetching || oracleSamplesQuery.isFetching}

@@ -226,9 +226,20 @@ def get_semantic_dataset_artifact(
     ).scalar_one_or_none()
 
 
+# Manifest version 2 carries every field needed to rehydrate a SemanticModel /
+# SemanticDataset row from S3 alone. Sync downloads only manifest.json — no
+# bundle.zip / training-dataset.json round-trips. Backfill upgrades older
+# manifests (or missing ones) in place.
+SEMANTIC_MANIFEST_VERSION = 2
+
+
 def build_semantic_model_manifest(
     *,
     bundle_bytes: bytes,
+    base_model: str,
+    embedding_dim: int,
+    bundle_config: dict[str, object] | None,
+    bundle_metrics: dict[str, object] | None,
     dataset_metadata: dict[str, object] | None,
     source_semantic_data_version: int | None,
 ) -> bytes:
@@ -239,8 +250,12 @@ def build_semantic_model_manifest(
         names = sorted(name for name in archive.namelist() if not name.endswith("/"))
 
     payload = {
-        "version": 1,
+        "version": SEMANTIC_MANIFEST_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
+        "base_model": base_model,
+        "embedding_dim": embedding_dim,
+        "config": bundle_config or {},
+        "metrics": bundle_metrics or {},
         "bundle": {
             "format": "zip",
             "entry_count": len(names),
@@ -261,12 +276,14 @@ def build_semantic_dataset_manifest(
     dataset_metadata: dict[str, object] | None,
     augmentation_mode: str,
     source_semantic_data_version: int | None,
+    dataset_metrics: dict[str, object] | None,
 ) -> bytes:
     payload = {
-        "version": 1,
+        "version": SEMANTIC_MANIFEST_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "augmentation_mode": augmentation_mode,
         "source_semantic_data_version": source_semantic_data_version,
         "dataset_metadata": dataset_metadata or {},
+        "dataset_metrics": dataset_metrics or {},
     }
     return json.dumps(payload, indent=2).encode("utf-8")

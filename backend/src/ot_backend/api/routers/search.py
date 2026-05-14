@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+import time
 from typing import Final, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 from ...core.config import MAX_QUERY_LENGTH
 from ...core.database import get_db
 from ...core.logging_config import log_performance
-from ...core.models import Card, CardFace
+from ...core.models import Card, CardFace, SemanticQueryLog
 from .. import _semantic_index as _sem_idx_mod
 from .._ensure_schema_ready import ensure_schema_ready
 from ..schemas import CardMatch, OracleSamplesResponse, SimilarCard, SimilarCardsPage
@@ -242,9 +243,48 @@ def get_card_by_id(oracle_id: str, db: Session = Depends(get_db)) -> dict[str, o
     return card.to_dict()
 
 
+def _log_semantic_query(
+    db: Session,
+    request: Request,
+    *,
+    query_mode: str,
+    query_text: str | None,
+    oracle_id: str | None,
+    face_ix: int | None,
+    limit_param: int,
+    offset_param: int,
+    filters: dict[str, object] | None,
+    model_id: str | None,
+    result_count: int,
+    latency_ms: int,
+) -> None:
+    try:
+        client_ip = request.headers.get("x-real-ip", "").strip() or None
+        db.add(
+            SemanticQueryLog(
+                query_mode=query_mode,
+                client_ip=client_ip,
+                query_text=query_text,
+                oracle_id=oracle_id,
+                face_ix=face_ix,
+                limit_param=limit_param,
+                offset_param=offset_param,
+                filters_json=filters or None,
+                model_id=model_id,
+                result_count=result_count,
+                latency_ms=latency_ms,
+            )
+        )
+        db.commit()
+    except Exception as exc:  # noqa: BLE001 — logging is best-effort
+        logger.warning("Failed to write semantic query log: %s", exc)
+        db.rollback()
+
+
 @router.get("/similar-cards", response_model=SimilarCardsPage)
 @log_performance(logger=logger)
 def get_similar_cards(
+    request: Request,
     db: Session = Depends(get_db),
     oracle_id: str | None = None,
     face_ix: int = Query(0, ge=0),
@@ -272,6 +312,7 @@ def get_similar_cards(
     if index is None:
         raise HTTPException(status_code=503, detail="Semantic index not available")
 
+    t0 = time.monotonic()
     if oracle_id is not None:
         results = index.similar_to_face(
             (oracle_id, face_ix),
@@ -304,4 +345,35 @@ def get_similar_cards(
 
     page_results = results[offset : offset + limit]
     has_more = len(results) > offset + limit
-    return SimilarCardsPage(items=_to_similar_cards(page_results, db), has_more=has_more)
+    response = SimilarCardsPage(items=_to_similar_cards(page_results, db), has_more=has_more)
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    filters: dict[str, object] = {
+        k: v
+        for k, v in {
+            "card_type": card_type,
+            "colors": colors,
+            "cmc_min": cmc_min,
+            "cmc_max": cmc_max,
+            "format": format,
+            "rarity": rarity,
+            "color_feature": color_feature,
+            "match_mode": match_mode,
+        }.items()
+        if v is not None
+    }
+    _log_semantic_query(
+        db,
+        request,
+        query_mode="by-face" if oracle_id is not None else "text",
+        query_text=q,
+        oracle_id=oracle_id,
+        face_ix=face_ix if oracle_id is not None else None,
+        limit_param=limit,
+        offset_param=offset,
+        filters=filters,
+        model_id=index.model_id,
+        result_count=len(response.items),
+        latency_ms=latency_ms,
+    )
+    return response

@@ -240,8 +240,15 @@ describe('SearchShell integration', () => {
 
   it('shows a global api-down overlay on home when bootstrap samples cannot load', async () => {
     getOracleSamplesMock.mockRejectedValueOnce(new Error('Failed to fetch'))
-
-    renderWithQueryClient(<SearchShell />)
+    vi.useFakeTimers()
+    try {
+      renderWithQueryClient(<SearchShell />)
+      // SearchShell waits API_DOWN_OVERLAY_DELAY_MS (30s) of continuous
+      // failure before hijacking the page with the offline overlay.
+      await vi.advanceTimersByTimeAsync(30_000)
+    } finally {
+      vi.useRealTimers()
+    }
 
     expect(await screen.findByText('Oracle Tutor offline.')).toBeInTheDocument()
     expect(
@@ -251,11 +258,17 @@ describe('SearchShell integration', () => {
 
   it('shows a global api-down overlay on results when the search request cannot reach the api', async () => {
     searchOracleTextMock.mockRejectedValueOnce(new Error('Failed to fetch'))
+    vi.useFakeTimers()
+    try {
+      renderWithQueryClient(<SearchShell />)
 
-    renderWithQueryClient(<SearchShell />)
+      fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
+      fireEvent.click(screen.getByText('submit search'))
 
-    fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'value' } })
-    fireEvent.click(screen.getByText('submit search'))
+      await vi.advanceTimersByTimeAsync(30_000)
+    } finally {
+      vi.useRealTimers()
+    }
 
     expect(await screen.findByText('Oracle Tutor offline.')).toBeInTheDocument()
     expect(

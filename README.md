@@ -12,7 +12,7 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 - **Full card data** — 3-layer schema: raw Scryfall printings, oracle-deduplicated canonical cards, and per-face data with image URIs
 - **Community tags** — parallel Scryfall Tagger GraphQL integration for semantic categories (shocklands, cantrips, etc.)
 - **Daily sync** — Railway Cron `ingest-worker` pulls Scryfall bulk data and re-ingests changes automatically
-- **Model registry** — admin panel for managing semantic models, datasets, and training/promotion jobs
+- **Model registry** — read-only admin explorer for semantic models and datasets
 
 ## Tech stack
 
@@ -39,7 +39,7 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 docker compose up --build
 ```
 
-This starts PostgreSQL (pgvector/pgvector:pg17), MinIO, the API (`:8000`), and the React frontend (`:5173`). Worker containers (`ingest-worker`, `dataset-worker`, `train-worker`, `promotion-worker`) are defined as separate services and are invoked on demand.
+This starts PostgreSQL (pgvector/pgvector:pg17), MinIO, the API (`:8000`), and the React frontend (`:5173`). The `ingest-worker` container is defined as a separate service and runs on a cron schedule.
 
 If you want the app stack without kicking off ingestion, start only the long-running services:
 
@@ -98,20 +98,22 @@ uv run python -m ot_backend.ingest.main --skip-tags --strict --trigger-type manu
 
 ### Train and promote a semantic model
 
-The model lifecycle runs through the admin panel + one-shot workers:
-
-1. Open `http://localhost:5173/admin`, authenticate with `ADMIN_PASSWORD`.
-2. **Queue dataset job** — picks augmentation mode, writes to `semantic_jobs`. The `dataset-worker` claims the job, builds the training dataset, uploads it as an artifact.
-3. **Queue train job** — picks base model + hyperparameters + dataset. The `train-worker` claims the job, runs training (locally for smoke runs, or Modal for full fine-tunes), packages an ONNX bundle, registers it in `semantic_models`.
-4. **Queue promote job** (or toggle "Queue promotion after register" on the train form) — the `promotion-worker` downloads the bundle, populates `semantic_model_embeddings`, flips `is_active`. The API picks up the new model on its next poll.
-
-Workers can also be invoked directly for local testing:
+Dataset generation, training, and promotion are run via local CLI scripts from `backend/scripts/`:
 
 ```bash
-uv run python -m ot_backend.semantic.dataset_worker --job-id <id>
-uv run python -m ot_backend.semantic.train_worker --job-id <id>
-uv run python -m ot_backend.semantic.promote_worker --job-id <id>
+cd backend
+
+# Build a dataset
+uv run python scripts/build_dataset.py --output dataset.pkl --augmentation medium
+
+# Train a fine-tuned model
+uv run python scripts/train_model.py --dataset dataset.pkl --base-model "sentence-transformers/all-MiniLM-L6-v2" --output model.onnx
+
+# Promote the model (materialize embeddings and activate)
+uv run python scripts/promote_model.py --bundle model.onnx
 ```
+
+For full details on the training workflow, see `RAILWAY.md`.
 
 ## Project structure
 
@@ -130,17 +132,14 @@ backend/
       model_promotion.py     Single-entry `promote_semantic_model` orchestration
       artifacts.py           S3 artifact storage
       bundle_registration.py Bundle parsing and model registration
-      dataset_worker.py      One-shot worker: build dataset, upload artifacts
-      train_worker.py        One-shot worker: train (local or Modal), register bundle
-      promote_worker.py      One-shot worker: materialize + embed + activate
-      semantic_jobs.py       DB job records with FOR UPDATE SKIP LOCKED claim
     ingest/                  Scryfall ingestion + parallel Tagger GraphQL sync
+  scripts/                   Local CLI: build_dataset.py, train_model.py, promote_model.py
   tests/                     Pytest suite — real Postgres via testcontainers
-  alembic/                   Single initial-schema migration
+  alembic/                   Initial schema + drop-semantic_jobs migration
 frontend/
   src/
     public/                  SearchShell, HomeView, ResultsView + TanStack Query hooks
-    admin/                   Admin panel — AdminPage, forms, tables, adminQueries/adminMutations
+    admin/                   Admin explorer — ModelTable, DatasetTable, AdminPage + adminQueries
     components/              Shared UI + SearchBox autocomplete
     lib/                     API client (zod-validated), filters, URL state, queryClient
     types/                   TS types + zod schemas
@@ -159,12 +158,12 @@ frontend/
 | GET | `/similar-cards?oracle_id=` | Similar cards to a known oracle ID |
 | GET | `/similar-cards?q=` | Semantic free-text search with optional filters |
 | POST | `/admin/auth/token` | Exchange admin password for bearer token (timing-safe compare) |
-| GET/POST | `/admin/semantic-models` | List / register models |
-| POST | `/admin/semantic-models/{id}/promote` | Queue a promote job |
-| GET/POST | `/admin/semantic-datasets` | List datasets |
-| GET | `/admin/semantic-base-models`, `/admin/semantic-train-options` | Training form metadata |
-| GET | `/admin/semantic-jobs`, `/admin/semantic-jobs/{id}` | Jobs list + detail |
-| POST | `/admin/semantic-jobs/{dataset,train,promote}` | Queue jobs |
+| GET | `/admin/semantic-models` | List all semantic models |
+| GET | `/admin/semantic-models/{id}` | Get model detail |
+| GET | `/admin/semantic-models/{id}/artifacts` | List model artifacts |
+| GET | `/admin/semantic-datasets` | List all datasets |
+| GET | `/admin/semantic-datasets/{id}` | Get dataset detail |
+| GET | `/admin/semantic-datasets/{id}/artifacts` | List dataset artifacts |
 
 Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature`, `match_mode`.
 
@@ -185,37 +184,30 @@ tags / tag_ancestor_map                  — tag definitions + hierarchy
 semantic_models                          — registered model versions
   ├── semantic_model_artifacts           — S3 artifact records per model
   └── semantic_model_embeddings          — pgvector(384) per (model, face) + HNSW index
-semantic_jobs                            — job history (dataset, train, promote)
 semantic_datasets                        — training dataset records
   └── semantic_dataset_artifacts         — S3 artifact records per dataset
 system_metadata / ingestion_logs         — operational tracking
 ```
 
-The schema is defined by the ORM models in `backend/src/ot_backend/core/models.py`. The single `alembic/versions/0001_initial_schema.py` uses `Base.metadata.create_all()` plus explicit DDL for the pgvector HNSW index on `semantic_model_embeddings.embedding` and the GIN index on `card_faces.type_categories`.
+The schema is defined by the ORM models in `backend/src/ot_backend/core/models.py`. The single migration `alembic/versions/0001_initial_schema.py` uses `Base.metadata.create_all()` plus explicit DDL for the pgvector HNSW index on `semantic_model_embeddings.embedding` and the GIN index on `card_faces.type_categories`.
 
 ## Railway deployment
 
-The repo is designed to deploy as **five Railway services** plus Railway Postgres (with pgvector) and an S3-compatible bucket.
+The repo is designed to deploy as **four Railway services** plus Railway Postgres (with pgvector) and an S3-compatible bucket.
 
-| Service | Dockerfile target | Purpose |
+| Service | Dockerfile | Purpose |
 |---|---|---|
 | API | `backend/Dockerfile` | Web process |
-| ingest-worker | `backend/Dockerfile.worker` (`ingest` stage) | Daily scryfall-sync cron |
-| dataset-worker | `backend/Dockerfile.worker` (`dataset` stage) | Build training datasets |
-| train-worker | `backend/Dockerfile.worker` (`train` stage) | Train + Modal orchestration + register bundle |
-| promotion-worker | `backend/Dockerfile.worker` (`promote` stage) | Embedding build + model activation |
+| ingest-worker | `backend/Dockerfile.worker.ingest` | Daily scryfall-sync cron |
 | Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
+| Database | Railway Postgres | pgvector-enabled database |
 
-Workers set `ENV OT_SERVICE_ROLE=worker` which sizes their DB pool defaults to `2+1` (vs `10+5` on the API).
 
 ### Required environment variables
 
-**API + workers:**
+**All services:**
 - `DATABASE_URL` — Railway Postgres connection string (injected automatically); Postgres must have pgvector
 - `OT_ENV=production`
-
-**train-worker + dataset-worker (Modal orchestration):**
-- `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` — credentials for remote Modal jobs
 
 **API (runtime):**
 - `ADMIN_PASSWORD` — password accepted by `POST /admin/auth/token`

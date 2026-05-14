@@ -7,9 +7,30 @@ import {
 } from 'react'
 import { getManaClass, isSupportedManaSymbol, splitSymbolParts } from '../../lib/manaSymbols'
 
+// Zero-width-space anchor inserted after every non-editable token span so
+// the browser has a stable text-node caret anchor adjacent to the token.
+// Without it, when content ends with (or is bounded by) a contenteditable=
+// false span Chrome can't place a usable caret, leaving the field stuck
+// after auto-substitution. Anchors are invisible and stripped from the
+// reported raw value.
+const ANCHOR = '\u200B'
+const ANCHOR_RE = /\u200B/g
+
 type SelectionRange = {
   start: number
   end: number
+}
+
+function stripAnchors(text: string): string {
+  return text.replace(ANCHOR_RE, '')
+}
+
+function countAnchorsBefore(text: string, offset: number): number {
+  let count = 0
+  for (let i = 0; i < offset && i < text.length; i += 1) {
+    if (text[i] === ANCHOR) count += 1
+  }
+  return count
 }
 
 interface SearchInputProps {
@@ -32,7 +53,7 @@ interface SearchInputProps {
 
 function getNodeRawLength(node: Node): number {
   if (node.nodeType === Node.TEXT_NODE) {
-    return node.textContent?.length ?? 0
+    return stripAnchors(node.textContent ?? '').length
   }
 
   if (node instanceof HTMLElement && node.dataset.token) {
@@ -47,6 +68,17 @@ function getNodeRawLength(node: Node): number {
 
 function buildEditableContent(root: HTMLDivElement, text: string) {
   const fragment = document.createDocumentFragment()
+
+  if (text === '') {
+    // Leave the editor truly empty (no DOM children). Browsers only paint
+    // the caret reliably on a contenteditable that's either empty or has
+    // real editable text — adding a ZWSP, <br>, or non-editable span
+    // breaks Chrome and Safari's caret rendering. The placeholder is
+    // rendered as a CSS ::before pseudo (see styles.css) which doesn't
+    // affect the :empty state.
+    root.replaceChildren(fragment)
+    return
+  }
 
   splitSymbolParts(text).forEach((part) => {
     if (isSupportedManaSymbol(part)) {
@@ -64,6 +96,7 @@ function buildEditableContent(root: HTMLDivElement, text: string) {
 
         token.appendChild(icon)
         fragment.appendChild(token)
+        fragment.appendChild(document.createTextNode(ANCHOR))
         return
       }
     }
@@ -74,11 +107,23 @@ function buildEditableContent(root: HTMLDivElement, text: string) {
   root.replaceChildren(fragment)
 }
 
+function readNodeRawText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return stripAnchors(node.textContent ?? '')
+  }
+
+  if (node instanceof HTMLElement && node.dataset.token) {
+    return node.dataset.token
+  }
+
+  return Array.from(node.childNodes).map(readNodeRawText).join('')
+}
+
 function readRawQuery(root: HTMLDivElement): string {
   return Array.from(root.childNodes)
     .map((node) => {
       if (node.nodeType === Node.TEXT_NODE) {
-        return node.textContent ?? ''
+        return stripAnchors(node.textContent ?? '')
       }
 
       if (node instanceof HTMLElement && node.dataset.token) {
@@ -92,16 +137,10 @@ function readRawQuery(root: HTMLDivElement): string {
     .join('')
 }
 
-function readNodeRawText(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node.textContent ?? ''
-  }
-
-  if (node instanceof HTMLElement && node.dataset.token) {
-    return node.dataset.token
-  }
-
-  return Array.from(node.childNodes).map(readNodeRawText).join('')
+function rawOffsetWithinTextNode(node: Node, offset: number): number {
+  const text = node.textContent ?? ''
+  const clamped = Math.min(offset, text.length)
+  return clamped - countAnchorsBefore(text, clamped)
 }
 
 function getRawOffset(root: HTMLDivElement, target: Node | null, offset: number): number {
@@ -121,7 +160,7 @@ function getRawOffset(root: HTMLDivElement, target: Node | null, offset: number)
 
     if (node === target) {
       if (node.nodeType === Node.TEXT_NODE) {
-        return total + offset
+        return total + rawOffsetWithinTextNode(node, offset)
       }
 
       if (node instanceof HTMLElement && node.dataset.token) {
@@ -138,7 +177,7 @@ function getRawOffset(root: HTMLDivElement, target: Node | null, offset: number)
 function getNestedRawOffset(node: Node, target: Node, offset: number): number {
   if (node === target) {
     if (node.nodeType === Node.TEXT_NODE) {
-      return offset
+      return rawOffsetWithinTextNode(node, offset)
     }
 
     if (node instanceof HTMLElement && node.dataset.token) {
@@ -171,6 +210,22 @@ function getSelectionRange(root: HTMLDivElement): SelectionRange {
   return start <= end ? { start, end } : { start: end, end: start }
 }
 
+function mapRawOffsetToTextNodeOffset(text: string, rawOffsetInNode: number): number {
+  let domOffset = 0
+  let countedRaw = 0
+  while (domOffset < text.length && countedRaw < rawOffsetInNode) {
+    if (text[domOffset] !== ANCHOR) countedRaw += 1
+    domOffset += 1
+  }
+  // After landing on the target raw offset, skip any anchor chars at this
+  // position so the caret sits on a real text position rather than on an
+  // anchor boundary (which Chrome handles inconsistently).
+  while (domOffset < text.length && text[domOffset] === ANCHOR) {
+    domOffset += 1
+  }
+  return domOffset
+}
+
 function setSelectionRange(root: HTMLDivElement, start: number, end: number) {
   const selection = window.getSelection()
   if (!selection) return
@@ -184,7 +239,9 @@ function setSelectionRange(root: HTMLDivElement, start: number, end: number) {
       const length = getNodeRawLength(node)
 
       if (node.nodeType === Node.TEXT_NODE && rawOffset <= total + length) {
-        return { node, offset: rawOffset - total }
+        const text = node.textContent ?? ''
+        const offsetInNode = mapRawOffsetToTextNodeOffset(text, rawOffset - total)
+        return { node, offset: offsetInNode }
       }
 
       if (node instanceof HTMLElement && node.dataset.token) {
@@ -193,6 +250,15 @@ function setSelectionRange(root: HTMLDivElement, start: number, end: number) {
         }
 
         if (rawOffset <= total + length) {
+          // Prefer an adjacent text node as the caret anchor; the builder
+          // always inserts an anchor text node after a token, so this
+          // virtually always lands inside that anchor node.
+          const nextNode = nodes[index + 1]
+          if (nextNode && nextNode.nodeType === Node.TEXT_NODE) {
+            const text = nextNode.textContent ?? ''
+            const offsetInNode = mapRawOffsetToTextNodeOffset(text, 0)
+            return { node: nextNode, offset: offsetInNode }
+          }
           return { node: root, offset: index + 1 }
         }
       }
@@ -294,9 +360,20 @@ export function SearchInput({
   const handleInput = () => {
     if (!editorRef.current) return
 
-    const nextValue = readRawQuery(editorRef.current)
-    pendingSelectionRef.current = getSelectionRange(editorRef.current)
+    const editor = editorRef.current
+    const nextValue = readRawQuery(editor)
+    pendingSelectionRef.current = getSelectionRange(editor)
     onChange(nextValue)
+
+    // If the raw value didn't change (e.g. the browser stripped an anchor
+    // character via Backspace/Delete without affecting visible text), React
+    // won't re-render and the layout effect won't rebuild the canonical
+    // structure. Rebuild synchronously so anchors always exist and the
+    // caret stays on a real text node.
+    if (nextValue === value) {
+      buildEditableContent(editor, nextValue)
+      restoreSelection(editor, pendingSelectionRef.current, nextValue.length)
+    }
   }
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -315,6 +392,79 @@ export function SearchInput({
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.key === 'Backspace' &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      editorRef.current
+    ) {
+      const editor = editorRef.current
+      const sel = getSelectionRange(editor)
+      if (sel.start === sel.end) {
+        // Collapsed cursor at raw position 0: nothing in the value to
+        // delete. Swallow the keystroke so the browser doesn't strip our
+        // invisible anchor character and leave the caret without an anchor.
+        if (sel.start === 0) {
+          event.preventDefault()
+          return
+        }
+        // Collapsed cursor right after a mana token → delete the entire
+        // token in one keystroke. Without this, the default Backspace
+        // first removes the invisible anchor character and only deletes
+        // the token on the second press.
+        let pos = 0
+        for (const part of splitSymbolParts(value)) {
+          const partEnd = pos + part.length
+          if (partEnd === sel.start && isSupportedManaSymbol(part)) {
+            event.preventDefault()
+            const nextValue = value.slice(0, pos) + value.slice(sel.end)
+            pendingSelectionRef.current = { start: pos, end: pos }
+            onChange(nextValue)
+            return
+          }
+          pos = partEnd
+        }
+      }
+    }
+
+    if (
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      editorRef.current
+    ) {
+      const editor = editorRef.current
+      const sel = getSelectionRange(editor)
+      if (sel.start === sel.end) {
+        // Step over the entire mana token in one keystroke. Without this,
+        // the user presses arrow twice (once to traverse the invisible
+        // anchor character, again to traverse the token).
+        let pos = 0
+        for (const part of splitSymbolParts(value)) {
+          const partEnd = pos + part.length
+          if (isSupportedManaSymbol(part)) {
+            if (event.key === 'ArrowLeft' && partEnd === sel.start) {
+              event.preventDefault()
+              pendingSelectionRef.current = { start: pos, end: pos }
+              setSelectionRange(editor, pos, pos)
+              return
+            }
+            if (event.key === 'ArrowRight' && pos === sel.start) {
+              event.preventDefault()
+              pendingSelectionRef.current = { start: partEnd, end: partEnd }
+              setSelectionRange(editor, partEnd, partEnd)
+              return
+            }
+          }
+          pos = partEnd
+        }
+      }
+    }
+
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       onArrowNavigate(event.key === 'ArrowDown' ? 'down' : 'up')
@@ -362,9 +512,15 @@ export function SearchInput({
         className={[
           'search-editor w-full min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap border-2 border-ot-ink bg-ot-surface text-ot-ink caret-ot-red outline-none transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none',
           'box-border',
+          // Block + padding for vertical centering. Flex+items-center fails
+          // for an EMPTY contenteditable (no flex items → no cross-axis
+          // content → caret renders at top, not center). Block layout gives
+          // the empty editor a natural line box at line-height, and the
+          // padding-y values are chosen so that line sits at the editor's
+          // vertical center.
           variant === 'topbar'
-            ? 'flex h-full min-h-full items-center border-x-0 border-y-0 bg-ot-surface px-[22px] py-0 text-sm leading-[1.3] max-[720px]:px-[14px] max-[720px]:text-[0.8125rem]'
-            : 'flex h-14 min-h-14 items-center px-[18px] py-0 text-base leading-[1.45]',
+            ? 'block h-full min-h-full border-x-0 border-y-0 bg-ot-surface px-[22px] py-5 text-sm leading-[1.3] max-[720px]:px-[14px] max-[720px]:py-[20px] max-[720px]:text-[0.8125rem]'
+            : 'block h-14 min-h-14 px-[18px] py-[14px] text-base leading-[1.45]',
         ].join(' ')}
         data-placeholder="search for a card or describe what it does…"
         data-variant={variant}

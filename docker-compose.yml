@@ -1,26 +1,9 @@
-x-worker-env: &worker-env
+# Container-network-only env vars. Anything user-configurable (artifact creds,
+# admin password, DB credentials) lives in backend/.env and is loaded via env_file.
+x-backend-env: &backend-env
   OT_ENV: ${OT_ENV:-development}
   DB_HOST: db
   DB_PORT: "5432"
-  DB_NAME: ${DB_NAME:-mtg_search}
-  DB_USER: ${DB_USER:-oracle}
-  DB_PASSWORD: ${DB_PASSWORD:-secret_password}
-  SEMANTIC_ARTIFACT_ENDPOINT: http://minio:9000
-  SEMANTIC_ARTIFACT_ACCESS_KEY_ID: minioadmin
-  SEMANTIC_ARTIFACT_SECRET_ACCESS_KEY: minioadmin123
-  SEMANTIC_ARTIFACT_BUCKET: semantic-artifacts
-  SEMANTIC_ARTIFACT_REGION: us-east-1
-
-x-llm-env: &llm-env
-  HF_HOME: /app/data/huggingface
-  MODAL_TOKEN_ID: ${MODAL_TOKEN_ID:-}
-  MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET:-}
-  SEMANTIC_LLM_MODEL: ${SEMANTIC_LLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
-  SEMANTIC_LLM_MAX_QUERIES_PER_FACE: ${SEMANTIC_LLM_MAX_QUERIES_PER_FACE:-3}
-  SEMANTIC_LLM_MAX_FACES: ${SEMANTIC_LLM_MAX_FACES:-2500}
-  SEMANTIC_LLM_MIN_TEMPLATE_COVERAGE: ${SEMANTIC_LLM_MIN_TEMPLATE_COVERAGE:-2}
-  SEMANTIC_LLM_TEMPERATURE: ${SEMANTIC_LLM_TEMPERATURE:-0.6}
-  SEMANTIC_LLM_MAX_TOKENS: ${SEMANTIC_LLM_MAX_TOKENS:-500}
 
 x-worker-depends: &worker-depends
   db:
@@ -36,6 +19,8 @@ x-worker-volumes: &worker-volumes
 services:
   db:
     image: pgvector/pgvector:pg17
+    # POSTGRES_* read by the postgres image at first-init; values here must match
+    # DB_USER/DB_PASSWORD/DB_NAME in backend/.env so the api can connect.
     environment:
       POSTGRES_DB: ${DB_NAME:-mtg_search}
       POSTGRES_USER: ${DB_USER:-oracle}
@@ -94,10 +79,11 @@ services:
       - ./backend/data:/app/data
       - ./backend/tests:/app/tests
       - ./backend/src:/app/src
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
-      <<: *worker-env
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
-      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-dev-admin-jwt-secret-change-me-please}
+      <<: *backend-env
     depends_on:
       db:
         condition: service_healthy
@@ -109,52 +95,18 @@ services:
     profiles: ["manual"]
     build:
       context: ./backend
-      dockerfile: Dockerfile.worker
-      target: ingest
+      dockerfile: Dockerfile.worker.ingest
     volumes: *worker-volumes
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
-      <<: *worker-env
+      <<: *backend-env
       OT_ALLOW_SCHEMA_RESET: ${OT_ALLOW_SCHEMA_RESET:-true}
     depends_on:
       <<: *worker-depends
       api:
         condition: service_started
-    restart: "no"
-
-  dataset-worker:
-    profiles: ["manual"]
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-      target: dataset
-    volumes: *worker-volumes
-    environment:
-      <<: [*worker-env, *llm-env]
-    depends_on: *worker-depends
-    restart: "no"
-
-  train-worker:
-    profiles: ["manual"]
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-      target: train
-    volumes: *worker-volumes
-    environment:
-      <<: [*worker-env, *llm-env]
-    depends_on: *worker-depends
-    restart: "no"
-
-  promotion-worker:
-    profiles: ["manual"]
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-      target: promote
-    volumes: *worker-volumes
-    environment:
-      <<: *worker-env
-    depends_on: *worker-depends
     restart: "no"
 
   frontend:
@@ -163,6 +115,9 @@ services:
       target: dev
     ports:
       - "5173:5173"
+    env_file:
+      - path: ./frontend/.env
+        required: false
     environment:
       VITE_API_URL: /api
       API_PROXY_TARGET: http://api:8000

@@ -28,10 +28,19 @@ SEMANTIC_MODEL_STATUS_ACTIVE = "active"
 SEMANTIC_MODEL_STATUS_FAILED = "failed"
 SEMANTIC_MODEL_STATUS_ARCHIVED = "archived"
 _MODEL_ROOT_MARKER = ".model_root"
+# Sidecar metadata that every bundle must carry. Pytorch + onnx model directories
+# are checked separately below.
 _REQUIRED_BUNDLE_FILES = (
     "config.json",
     "metrics.json",
     "manifest.json",
+)
+# These are produced by the full training flow but are not load-bearing at runtime:
+# - embeddings.npz is an optimisation; promotion falls back to encoding from the
+#   bundled pytorch/onnx model when it's absent.
+# - training-dataset.json / eval.json are informational artifacts.
+# Listed here for documentation only — they are intentionally NOT required.
+_OPTIONAL_BUNDLE_FILES = (
     "embeddings/embeddings.npz",
     "training/training-dataset.json",
     "eval/eval.json",
@@ -177,7 +186,8 @@ def materialize_semantic_model(
 
     base_dir = semantic_temp_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
-    extract_dir = base_dir / f"semantic-model-{model.id}-{bundle_artifact.sha256[:12]}"
+    cache_suffix = bundle_artifact.sha256[:12] if bundle_artifact.sha256 else "nosha"
+    extract_dir = base_dir / f"semantic-model-{model.id}-{cache_suffix}"
     marker_path = extract_dir / _MODEL_ROOT_MARKER
 
     if marker_path.exists():

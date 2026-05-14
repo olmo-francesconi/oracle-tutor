@@ -17,6 +17,11 @@ def _build_database_url() -> str:
     # Allows tests and power users to bypass DB_* envs entirely.
     explicit = os.getenv("DATABASE_URL")
     if explicit:
+        # Railway and most Postgres providers hand back `postgresql://...` with
+        # no driver suffix. SQLAlchemy maps that to psycopg2, which we don't
+        # install (we ship psycopg v3 only). Force the psycopg-3 dialect.
+        if explicit.startswith("postgresql://"):
+            return "postgresql+psycopg://" + explicit[len("postgresql://"):]
         return explicit
 
     # Production should be configured via DATABASE_URL (Railway-friendly).
@@ -49,9 +54,9 @@ def _pool_defaults_for_role() -> tuple[int, int]:
     """Role-aware pool defaults.
 
     API serves concurrent requests and needs headroom for the pgvector query
-    that pins a connection per /similar-cards call. Workers are one-shot
-    containers that use 1-2 connections (job claim + DB writes); sizing them
-    like the API just wastes Postgres backends.
+    that pins a connection per /similar-cards call. The ingest worker is a
+    one-shot container that uses 1-2 connections; sizing it like the API
+    just wastes Postgres backends.
     """
     role = os.getenv("OT_SERVICE_ROLE", "api").strip().lower()
     if role == "worker":
@@ -62,6 +67,14 @@ def _pool_defaults_for_role() -> tuple[int, int]:
 def _create_engine(database_url: str) -> Engine:
     pool_recycle_seconds = int(os.getenv("DB_POOL_RECYCLE", "3600"))
     default_pool_size, default_max_overflow = _pool_defaults_for_role()
+    connect_args: dict[str, str] = {}
+    # API requests must complete within a bounded budget; long-running queries
+    # are a DoS lever. Worker has no timeout because ingestion runs minute-long
+    # batch statements.
+    if os.getenv("OT_SERVICE_ROLE", "api").strip().lower() == "api":
+        timeout_ms = int(os.getenv("OT_DB_STATEMENT_TIMEOUT_MS", "5000"))
+        if timeout_ms > 0:
+            connect_args["options"] = f"-c statement_timeout={timeout_ms}"
     return create_engine(
         database_url,
         pool_pre_ping=True,
@@ -69,6 +82,7 @@ def _create_engine(database_url: str) -> Engine:
         pool_size=int(os.getenv("DB_POOL_SIZE", str(default_pool_size))),
         max_overflow=int(os.getenv("DB_POOL_MAX_OVERFLOW", str(default_max_overflow))),
         pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        connect_args=connect_args,
     )
 
 

@@ -1,13 +1,13 @@
 [project]
 name = "ot-backend"
-version = "2.0.0"
+version = "2.1.0"
 description = "FastAPI service for MTG oracle search (uv-managed)."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14.0",
   "boto3>=1.35.0",
-  "PyJWT>=2.9.0",
+  "PyJWT[crypto]>=2.9.0",
   "sqlalchemy>=2.0.0",
   "psycopg[binary]>=3.2.0",
   "pgvector>=0.3",
@@ -30,6 +30,13 @@ semantic-train = [
   "datasets>=3.0.0",
   "sentence-transformers[onnx]>=3.0",
 ]
+tui = [
+  "rich>=13.7",
+  "httpx>=0.27.0",
+]
+
+[project.scripts]
+ot-tui = "ot_backend.tui.app:main"
 
 [dependency-groups]
 test = [

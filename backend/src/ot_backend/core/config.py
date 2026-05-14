@@ -114,18 +114,6 @@ def semantic_onnx_inter_op_threads() -> int:
     return max(1, int(os.getenv("SEMANTIC_ONNX_INTER_OP_THREADS", "1")))
 
 
-def semantic_job_heartbeat_seconds() -> float:
-    return float(os.getenv("SEMANTIC_JOB_HEARTBEAT_SECONDS", "600"))
-
-
-def semantic_job_stale_seconds() -> float:
-    return float(os.getenv("SEMANTIC_JOB_STALE_SECONDS", "1200"))
-
-
-def semantic_train_max_jobs_per_run() -> int:
-    return int(os.getenv("SEMANTIC_TRAIN_MAX_JOBS_PER_RUN", "1"))
-
-
 def semantic_max_jobs_per_run() -> int:
     return int(os.getenv("SEMANTIC_MAX_JOBS_PER_RUN", "3"))
 

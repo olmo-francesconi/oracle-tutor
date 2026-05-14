@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { useApiReady } from '../../lib/useApiReady'
 import type { CardMatch } from '../../types/api'
 import { ManaSymbolRail } from './ManaSymbolRail'
+import { SearchBootingNotice } from './SearchBootingNotice'
 import { SearchInput } from './SearchInput'
 import { SearchSuggestions } from './SearchSuggestions'
 import { useCardAutocompleteQuery } from './useCardAutocompleteQuery'
@@ -39,7 +41,13 @@ export function SearchBox({
   const autocomplete = useCardAutocompleteQuery(value)
   const suggestions: CardMatch[] = autocomplete.data ?? []
   const hasSuggestions = suggestions.length > 0
-  const showPanel = isOpen && hasSuggestions
+  const { ready } = useApiReady()
+  // Reveal the boot notice once the user has typed enough to expect suggestions
+  // (matches the autocomplete trigger). If the API isn't ready yet AND we
+  // don't have cached suggestions to show, the dropdown becomes a single
+  // editorial row instead of staying invisibly empty.
+  const showBootingNotice = isOpen && value.trim().length >= 2 && !ready && !hasSuggestions
+  const showPanel = (isOpen && hasSuggestions) || showBootingNotice
 
   // activeIndex is clamped at render time against the live suggestions list.
   // If the list shrinks under the hovered index it just snaps back to -1; any
@@ -187,7 +195,9 @@ export function SearchBox({
         onInsertHandled={() => setPendingInsert(null)}
       />
 
-      {showPanel ? (
+      {showBootingNotice ? (
+        <SearchBootingNotice id={SEARCH_SUGGESTIONS_ID} variant={variant} />
+      ) : showPanel ? (
         <SearchSuggestions
           id={SEARCH_SUGGESTIONS_ID}
           variant={variant}

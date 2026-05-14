@@ -7,6 +7,7 @@ server {
   listen ${PORT};
 
   server_tokens off;
+  absolute_redirect off;
 
   root /usr/share/nginx/html;
   index index.html;
@@ -16,7 +17,8 @@ server {
   add_header X-Content-Type-Options "nosniff" always;
   add_header X-Frame-Options "DENY" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests" always;
+  add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests" always;
 
   location ^~ /.well-known/ {
     try_files $uri =404;
@@ -28,7 +30,7 @@ server {
   location = /sitemap.xml {
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -44,7 +46,7 @@ server {
     internal;
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -99,12 +101,27 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
     proxy_read_timeout 30s;
     access_log /dev/stdout main_ext;
+    proxy_pass $upstream_target;
+  }
+
+  # Readiness probe: SPA polls this on load to mask cold-start latency with
+  # a themed boot overlay. No rate limit (must succeed once warm); no bot block.
+  location = /api/ready {
+    set $upstream_target ${API_PROXY_TARGET};
+    rewrite ^/api/(.*)$ /$1 break;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
+    include /etc/nginx/proxy_params;
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 10s;
+    proxy_read_timeout 10s;
+    add_header Cache-Control "no-store" always;
+    access_log off;
     proxy_pass $upstream_target;
   }
 
@@ -118,7 +135,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -132,7 +149,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -151,7 +168,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -170,7 +187,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -189,7 +206,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -208,7 +225,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -227,7 +244,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;
@@ -242,7 +259,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 60s;
@@ -260,7 +277,7 @@ server {
 
     set $upstream_target ${API_PROXY_TARGET};
     rewrite ^/api/(.*)$ /$1 break;
-    resolver ${NGINX_RESOLVER} valid=10s;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=on;
     include /etc/nginx/proxy_params;
     proxy_connect_timeout 5s;
     proxy_send_timeout 30s;

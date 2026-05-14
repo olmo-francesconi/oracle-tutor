@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
 from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Annotated, Any
@@ -9,6 +9,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
+from sqlalchemy.orm import Session
 
 from ..core.config import (
     admin_jwt_secret,
@@ -18,23 +19,16 @@ from ..core.config import (
     cloudflare_access_team_domain,
     is_production_env,
 )
+from ..core.models import AdminIpState
+
+logger = logging.getLogger("ot_backend.api.admin_auth")
 
 _ADMIN_TOKEN_TTL_SECONDS = 8 * 60 * 60
 _ALGORITHM = "HS256"
 _CLOUDFLARE_ACCESS_ALGORITHMS = ["RS256"]
 _security = HTTPBearer(auto_error=False)
-_attempt_lock = Lock()
 _jwks_clients: dict[str, PyJWKClient] = {}
 _jwks_lock = Lock()
-
-
-@dataclass
-class _AdminLoginAttemptState:
-    failures: int = 0
-    locked_until: datetime | None = None
-
-
-_login_attempts_by_ip: dict[str, _AdminLoginAttemptState] = {}
 
 
 def admin_token_ttl_seconds() -> int:
@@ -60,30 +54,46 @@ def get_admin_client_ip(request: Request) -> str:
     if real_ip:
         return real_ip
 
+    # Falling through to XFF or request.client.host means nginx isn't in the
+    # proxy chain — in production this implies a config regression that would
+    # collapse all lockout buckets to one. Log so it surfaces.
     forwarded_for = request.headers.get("x-forwarded-for", "").strip()
     if forwarded_for:
         first_hop = forwarded_for.split(",", 1)[0].strip()
         if first_hop:
+            logger.warning("Admin client IP fell back to X-Forwarded-For; X-Real-IP was absent.")
             return first_hop
 
     if request.client and request.client.host:
+        logger.warning("Admin client IP fell back to request.client.host; X-Real-IP was absent.")
         return request.client.host
     return "unknown"
 
 
-def ensure_admin_ip_not_locked_out(ip_address: str, *, now: datetime | None = None) -> None:
-    current_time = now or datetime.now(UTC)
-    with _attempt_lock:
-        state = _login_attempts_by_ip.get(ip_address)
-        if state is None:
-            return
-        if state.locked_until is None:
-            return
-        if state.locked_until <= current_time:
-            _login_attempts_by_ip.pop(ip_address, None)
-            return
-        retry_after_seconds = max(1, int((state.locked_until - current_time).total_seconds()))
+def _utcnow_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
+
+def ensure_admin_ip_not_locked_out(db: Session, ip_address: str) -> None:
+    current_time = _utcnow_naive()
+    state = db.get(AdminIpState, ip_address)
+    if state is None:
+        return
+
+    if state.banned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This IP is banned from admin access.",
+        )
+
+    if state.locked_until is None:
+        return
+    if state.locked_until <= current_time:
+        db.delete(state)
+        db.commit()
+        return
+
+    retry_after_seconds = max(1, int((state.locked_until - current_time).total_seconds()))
     raise HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail=f"Too many failed admin login attempts. Try again in {retry_after_seconds} seconds.",
@@ -91,27 +101,38 @@ def ensure_admin_ip_not_locked_out(ip_address: str, *, now: datetime | None = No
     )
 
 
-def register_admin_login_failure(ip_address: str, *, now: datetime | None = None) -> None:
-    current_time = now or datetime.now(UTC)
-    with _attempt_lock:
-        state = _login_attempts_by_ip.get(ip_address)
-        if state is None or (state.locked_until is not None and state.locked_until <= current_time):
-            state = _AdminLoginAttemptState()
-            _login_attempts_by_ip[ip_address] = state
+def register_admin_login_failure(db: Session, ip_address: str) -> None:
+    current_time = _utcnow_naive()
+    state = db.get(AdminIpState, ip_address)
+    if state is None:
+        state = AdminIpState(ip_address=ip_address, failures=0)
+        db.add(state)
+    elif state.locked_until is not None and state.locked_until <= current_time:
+        # Previous lockout window expired; reset the counter before re-counting.
+        state.failures = 0
+        state.locked_until = None
 
-        state.failures += 1
-        if state.failures >= admin_login_max_failures():
-            state.locked_until = current_time + timedelta(seconds=admin_login_lockout_seconds())
+    state.failures += 1
+    state.last_failure_at = current_time
+    if state.failures >= admin_login_max_failures():
+        state.locked_until = current_time + timedelta(seconds=admin_login_lockout_seconds())
+    db.commit()
 
 
-def reset_admin_login_failures(ip_address: str) -> None:
-    with _attempt_lock:
-        _login_attempts_by_ip.pop(ip_address, None)
+def reset_admin_login_failures(db: Session, ip_address: str) -> None:
+    state = db.get(AdminIpState, ip_address)
+    if state is None:
+        return
+    # A banned IP that somehow produces a valid login does NOT clear the ban.
+    if state.banned:
+        return
+    db.delete(state)
+    db.commit()
 
 
-def clear_admin_login_attempts_for_tests() -> None:
-    with _attempt_lock:
-        _login_attempts_by_ip.clear()
+def clear_admin_login_attempts_for_tests(db: Session) -> None:
+    db.query(AdminIpState).delete()
+    db.commit()
 
 
 def require_admin_token(

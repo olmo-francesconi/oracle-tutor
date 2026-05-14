@@ -125,7 +125,11 @@ def test_get_semantic_index_uses_onnx_runtime_and_tokenizer(monkeypatch, tmp_pat
     def fake_import_module(module_name: str) -> object:
         import_calls.append(module_name)
         if module_name == "onnxruntime":
-            return SimpleNamespace(InferenceSession=FakeInferenceSession, SessionOptions=FakeSessionOptions)
+            return SimpleNamespace(
+                InferenceSession=FakeInferenceSession,
+                SessionOptions=FakeSessionOptions,
+                GraphOptimizationLevel=SimpleNamespace(ORT_ENABLE_BASIC="ORT_ENABLE_BASIC"),
+            )
         if module_name == "tokenizers":
             return SimpleNamespace(Tokenizer=FakeTokenizer)
         raise AssertionError(f"Unexpected import: {module_name}")

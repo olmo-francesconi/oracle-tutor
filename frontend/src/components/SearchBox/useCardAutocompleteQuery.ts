@@ -25,8 +25,6 @@ export function useCardAutocompleteQuery(rawValue: string) {
     queryKey: ['card-autocomplete', debounced],
     queryFn: ({ signal }) => searchCards(debounced, AUTOCOMPLETE_LIMIT, 0, signal),
     enabled,
-    // Keep suggestions around for quick re-show; TanStack will dedupe identical
-    // keys across focus/blur cycles.
     staleTime: 60_000,
   })
 }
