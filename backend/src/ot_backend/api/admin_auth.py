@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 from datetime import UTC, datetime, timedelta
 from threading import Lock
@@ -49,20 +50,33 @@ def create_admin_token() -> str:
     return str(jwt.encode(payload, secret, algorithm=_ALGORITHM))
 
 
+def _valid_ip(value: str) -> str | None:
+    candidate = value.strip()
+    if not candidate:
+        return None
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return None
+
+
 def get_admin_client_ip(request: Request) -> str:
-    real_ip = request.headers.get("x-real-ip", "").strip()
+    # nginx is configured to set X-Real-IP to $remote_addr (the real peer),
+    # overriding any client-supplied value (see frontend/nginx/proxy_params).
+    # We still validate it parses as an IP so a malformed/spoofed header can't
+    # mint an unbounded set of fresh lockout buckets.
+    real_ip = _valid_ip(request.headers.get("x-real-ip", ""))
     if real_ip:
         return real_ip
 
     # Falling through to XFF or request.client.host means nginx isn't in the
     # proxy chain — in production this implies a config regression that would
     # collapse all lockout buckets to one. Log so it surfaces.
-    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
-    if forwarded_for:
-        first_hop = forwarded_for.split(",", 1)[0].strip()
-        if first_hop:
-            logger.warning("Admin client IP fell back to X-Forwarded-For; X-Real-IP was absent.")
-            return first_hop
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    first_hop = _valid_ip(forwarded_for.split(",", 1)[0]) if forwarded_for else None
+    if first_hop:
+        logger.warning("Admin client IP fell back to X-Forwarded-For; X-Real-IP was absent.")
+        return first_hop
 
     if request.client and request.client.host:
         logger.warning("Admin client IP fell back to request.client.host; X-Real-IP was absent.")

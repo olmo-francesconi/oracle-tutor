@@ -198,7 +198,7 @@ def test_get_semantic_index_rejects_unsupported_pooling(monkeypatch, tmp_path) -
     _reset_index_state()
 
 
-def test_get_semantic_index_clears_stale_cache_when_active_model_changes_and_reload_fails(monkeypatch, tmp_path) -> None:
+def test_get_semantic_index_keeps_serving_when_reload_fails(monkeypatch, tmp_path) -> None:
     _reset_index_state()
 
     model_root = tmp_path / "semantic-model"
@@ -227,11 +227,14 @@ def test_get_semantic_index_clears_stale_cache_when_active_model_changes_and_rel
     first_index = index.get_semantic_index()
     second_index = index.get_semantic_index()
 
+    # Reload to model 2 fails: keep serving the previously-loaded index instead
+    # of dropping to 503, and leave _loaded_model_id unchanged so the next poll
+    # retries materialization (rather than pinning the failed model id).
     assert first_index is not None
     assert first_index.model_id == 1
-    assert second_index is None
-    assert index._index is None
-    assert index._loaded_model_id == 2
+    assert second_index is first_index
+    assert index._index is first_index
+    assert index._loaded_model_id == 1
 
 
 def test_get_semantic_index_clears_cache_when_no_active_model_exists(monkeypatch, tmp_path) -> None:

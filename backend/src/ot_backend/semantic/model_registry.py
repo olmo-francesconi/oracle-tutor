@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import shutil
@@ -14,8 +15,10 @@ from ..core.database import SessionLocal
 from ..core.models import SemanticModel, SemanticModelArtifact, SemanticModelEmbedding
 from .artifacts import (
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
+    delete_artifact_object,
     download_artifact_bytes,
     get_semantic_model_artifact,
+    semantic_model_artifact_object_key,
     upload_and_record_semantic_model_artifact,
 )
 
@@ -45,6 +48,13 @@ _OPTIONAL_BUNDLE_FILES = (
     "training/training-dataset.json",
     "eval/eval.json",
 )
+
+
+def _best_effort_delete_artifact(object_key: str) -> None:
+    try:
+        delete_artifact_object(object_key=object_key)
+    except Exception:
+        logger.warning("Failed to clean up orphaned artifact object %s", object_key, exc_info=True)
 
 
 def bundle_model_directory(model_root: Path) -> bytes:
@@ -100,7 +110,15 @@ def create_semantic_model(
     dataset_id: str | None = None,
     config_json: dict[str, object] | None = None,
     metrics_json: dict[str, object] | None = None,
+    commit: bool = True,
 ) -> SemanticModel:
+    """Create the model row and upload+record its bundle artifact.
+
+    With commit=False the row is only flushed (model.id is available) so the
+    caller can register additional artifacts and commit everything atomically.
+    On failure the just-uploaded bundle object is removed to avoid an orphaned
+    S3 blob.
+    """
     validate_model_bundle(artifact_bundle_bytes)
     model = SemanticModel(
         slug=slug,
@@ -114,16 +132,24 @@ def create_semantic_model(
     )
     db.add(model)
     db.flush()
-    upload_and_record_semantic_model_artifact(
-        db,
-        model_id=model.id,
-        artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
-        content_bytes=artifact_bundle_bytes,
-        content_type="application/zip",
-        metadata_json={"format": "zip"},
-    )
-    db.commit()
-    db.refresh(model)
+    bundle_key = semantic_model_artifact_object_key(model.id, SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP)
+    try:
+        upload_and_record_semantic_model_artifact(
+            db,
+            model_id=model.id,
+            artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
+            content_bytes=artifact_bundle_bytes,
+            content_type="application/zip",
+            metadata_json={"format": "zip"},
+        )
+        if commit:
+            db.commit()
+    except Exception:
+        db.rollback()
+        _best_effort_delete_artifact(bundle_key)
+        raise
+    if commit:
+        db.refresh(model)
     return model
 
 
@@ -201,12 +227,41 @@ def materialize_semantic_model(
     extract_dir.mkdir(parents=True, exist_ok=True)
 
     bundle_bytes = download_artifact_bytes(object_key=bundle_artifact.object_key)
+    _verify_bundle_integrity(bundle_bytes, expected_sha256=bundle_artifact.sha256, model_id=model.id)
     with zipfile.ZipFile(io.BytesIO(bundle_bytes)) as archive:
-        archive.extractall(extract_dir)
+        _safe_extractall(archive, extract_dir)
 
     model_root = _resolve_extracted_model_root(extract_dir)
     marker_path.write_text(str(model_root.relative_to(extract_dir)), encoding="utf-8")
     return model_root, extract_dir
+
+
+def _verify_bundle_integrity(bundle_bytes: bytes, *, expected_sha256: str | None, model_id: str) -> None:
+    """Fail closed if the downloaded bundle doesn't match its recorded hash.
+
+    The bundle is extracted and a PyTorch model is deserialized from it, so a
+    corrupted or tampered S3 object must not be trusted. Skips only when no hash
+    was recorded (legacy artifacts).
+    """
+    if not expected_sha256:
+        logger.warning("Semantic model %s bundle has no recorded sha256; skipping integrity check.", model_id)
+        return
+    actual = hashlib.sha256(bundle_bytes).hexdigest()
+    if actual != expected_sha256:
+        raise ValueError(
+            f"Semantic model {model_id} bundle failed integrity check: "
+            f"expected sha256 {expected_sha256}, got {actual}."
+        )
+
+
+def _safe_extractall(archive: zipfile.ZipFile, extract_dir: Path) -> None:
+    """Extract every member, rejecting paths that escape extract_dir (zip slip)."""
+    dest_root = extract_dir.resolve()
+    for member in archive.namelist():
+        target = (extract_dir / member).resolve()
+        if target != dest_root and dest_root not in target.parents:
+            raise ValueError(f"Unsafe path in semantic model bundle: {member!r}")
+    archive.extractall(extract_dir)
 
 
 def _path_contains_onnx_model(path: Path) -> bool:

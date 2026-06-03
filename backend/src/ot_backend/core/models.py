@@ -12,10 +12,12 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -77,11 +79,11 @@ class CardRaw(Base):
     mana_cost: Mapped[str | None] = mapped_column(String, nullable=True)
     type_line: Mapped[str | None] = mapped_column(String, nullable=True)
     oracle_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    colors: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    color_identity: Mapped[list[str]] = mapped_column(JSON)
-    color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    keywords: Mapped[list[str]] = mapped_column(JSON)
-    legalities: Mapped[dict[str, str]] = mapped_column(JSON)
+    colors: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    color_identity: Mapped[list[str]] = mapped_column(JSONB)
+    color_indicator: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    keywords: Mapped[list[str]] = mapped_column(JSONB)
+    legalities: Mapped[dict[str, str]] = mapped_column(JSONB)
     power: Mapped[str | None] = mapped_column(String, nullable=True)
     toughness: Mapped[str | None] = mapped_column(String, nullable=True)
     loyalty: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -96,15 +98,15 @@ class CardRaw(Base):
     artist: Mapped[str | None] = mapped_column(String, nullable=True)
     illustration_id: Mapped[str | None] = mapped_column(String, nullable=True)
     image_status: Mapped[str | None] = mapped_column(String, nullable=True)
-    image_uris: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
-    card_faces_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
-    all_parts: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
-    games: Mapped[list[str]] = mapped_column(JSON)
-    finishes: Mapped[list[str]] = mapped_column(JSON)
+    image_uris: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
+    card_faces_json: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB, nullable=True)
+    all_parts: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB, nullable=True)
+    games: Mapped[list[str]] = mapped_column(JSONB)
+    finishes: Mapped[list[str]] = mapped_column(JSONB)
     digital: Mapped[bool] = mapped_column(Boolean, default=False)
     booster: Mapped[bool] = mapped_column(Boolean, default=False)
     promo: Mapped[bool] = mapped_column(Boolean, default=False)
-    promo_types: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    promo_types: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     reprint: Mapped[bool] = mapped_column(Boolean, default=False)
     variation: Mapped[bool] = mapped_column(Boolean, default=False)
     variation_of: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -113,15 +115,15 @@ class CardRaw(Base):
     story_spotlight: Mapped[bool] = mapped_column(Boolean, default=False)
     border_color: Mapped[str | None] = mapped_column(String, nullable=True)
     frame: Mapped[str | None] = mapped_column(String, nullable=True)
-    frame_effects: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    frame_effects: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     watermark: Mapped[str | None] = mapped_column(String, nullable=True)
     edhrec_rank: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    prices: Mapped[dict[str, str | None] | None] = mapped_column(JSON, nullable=True)
+    prices: Mapped[dict[str, str | None] | None] = mapped_column(JSONB, nullable=True)
     arena_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mtgo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tcgplayer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cardmarket_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    multiverse_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    multiverse_ids: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
     flavor_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     flavor_name: Mapped[str | None] = mapped_column(String, nullable=True)
     content_warning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -139,7 +141,12 @@ class Card(Base):
     __tablename__ = "cards"
 
     oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
-    scryfall_id: Mapped[str] = mapped_column(ForeignKey("cards_raw.id"), nullable=False)
+    # RESTRICT (not the implicit NO ACTION) makes the invariant explicit: a
+    # cards row's best-printing pointer must always reference a kept cards_raw
+    # row. Ingest already orders writes so this holds (Card pointer is updated /
+    # the Card is deleted before its obsolete raw printing is pruned); the DB
+    # constraint loudly rejects any future code that breaks that ordering.
+    scryfall_id: Mapped[str] = mapped_column(ForeignKey("cards_raw.id", ondelete="RESTRICT"), nullable=False)
     name: Mapped[str] = mapped_column(String, index=True)
     layout: Mapped[str | None] = mapped_column(String, nullable=True)
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -187,11 +194,11 @@ class CardFace(Base):
     loyalty: Mapped[str | None] = mapped_column(String, nullable=True)
     defense: Mapped[str | None] = mapped_column(String, nullable=True)
     colors: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
-    color_indicator: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    color_indicator: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # Normalized primary card types extracted from type_line. GIN-indexed
     # native ARRAY column for fast overlap filters.
     type_categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
-    image_uris: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    image_uris: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
     artist: Mapped[str | None] = mapped_column(String, nullable=True)
     flavor_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -295,6 +302,16 @@ class CardRelationship(Base):
 
 class SemanticModel(Base):
     __tablename__ = "semantic_models"
+    __table_args__ = (
+        # At most one active model at a time, enforced by the DB (not just the
+        # promotion code path). Partial unique index over the single TRUE value.
+        Index(
+            "uq_semantic_models_single_active",
+            "is_active",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid_str)
     slug: Mapped[str] = mapped_column(String, nullable=False, unique=True)

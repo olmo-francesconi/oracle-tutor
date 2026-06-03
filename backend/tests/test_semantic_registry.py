@@ -512,6 +512,129 @@ def test_promote_semantic_model_blocks_when_another_is_embedding(tmp_path):
         raise AssertionError("Expected second promotion to be blocked.")
 
 
+def test_single_active_model_enforced_by_db_constraint(tmp_path):
+    from sqlalchemy.exc import IntegrityError
+
+    init_db()
+    _reset_registry_tables()
+
+    with SessionLocal() as db:
+        db.add(SemanticModel(slug="active-a", base_model="m", status="active", is_active=True, embedding_dim=384))
+        db.add(SemanticModel(slug="active-b", base_model="m", status="active", is_active=True, embedding_dim=384))
+        raised = False
+        try:
+            db.commit()
+        except IntegrityError:
+            raised = True
+            db.rollback()
+        assert raised, "DB must reject a second active semantic model"
+
+    with SessionLocal() as db:
+        assert db.query(SemanticModel).filter(SemanticModel.is_active.is_(True)).count() == 0
+
+
+def test_materialize_rejects_sha256_mismatch(tmp_path, monkeypatch):
+    monkeypatch.setenv("SEMANTIC_TEMP_DIR", str(tmp_path / "semantic-cache"))
+    bundle = _make_model_bundle(tmp_path)
+    # Download returns the real bundle, but the recorded sha256 is wrong.
+    _mock_artifact_download(monkeypatch, bundle)
+    init_db()
+    _reset_registry_tables()
+
+    with SessionLocal() as db:
+        model = SemanticModel(slug="bad-sha", base_model="m", status="uploaded", is_active=False, embedding_dim=384)
+        db.add(model)
+        db.commit()
+        db.refresh(model)
+        db.add(
+            SemanticModelArtifact(
+                model_id=model.id,
+                artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
+                object_key=f"semantic-registry/{model.id}/bundle.zip",
+                sha256="0" * 64,
+                size_bytes=len(bundle),
+                content_type="application/zip",
+                metadata_json={"format": "zip"},
+            )
+        )
+        db.commit()
+        db.refresh(model)
+
+        try:
+            materialize_semantic_model(model)
+        except ValueError as exc:
+            assert "integrity" in str(exc).lower()
+        else:
+            raise AssertionError("Expected sha256 mismatch to be rejected.")
+
+
+def test_safe_extractall_rejects_path_traversal(tmp_path):
+    import io
+    import zipfile
+
+    from ot_backend.semantic.model_registry import _safe_extractall
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("../escape.txt", b"pwned")
+    buf.seek(0)
+
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    with zipfile.ZipFile(buf) as archive:
+        try:
+            _safe_extractall(archive, extract_dir)
+        except ValueError as exc:
+            assert "Unsafe path" in str(exc)
+        else:
+            raise AssertionError("Expected zip-slip member to be rejected.")
+
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_register_bundle_cleans_s3_and_rolls_back_on_failure(tmp_path, monkeypatch):
+    bundle = _make_model_bundle(tmp_path)
+    dataset_bytes = b'{"version": 5, "metadata": {"semantic_data_version": 1}}'
+    uploaded: dict[str, bytes] = {}
+    deleted: list[str] = []
+
+    def fake_upload(*, object_key, content_bytes, content_type):
+        if object_key.endswith("manifest.json"):
+            raise RuntimeError("boom on manifest upload")
+        uploaded[object_key] = content_bytes
+
+    monkeypatch.setattr("ot_backend.semantic.artifacts.upload_artifact_bytes", fake_upload)
+    monkeypatch.setattr(
+        "ot_backend.semantic.bundle_registration.delete_artifact_object",
+        lambda *, object_key: deleted.append(object_key),
+    )
+    init_db()
+    _reset_registry_tables()
+
+    with SessionLocal() as db:
+        try:
+            register_model_bundle_bytes(
+                db,
+                slug="atomic-fail",
+                base_model="sentence-transformers/all-MiniLM-L6-v2",
+                artifact_bundle_bytes=bundle,
+                dataset_bytes=dataset_bytes,
+                augmentation_mode="none",
+                source_semantic_data_version=1,
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("Expected registration to fail on manifest upload.")
+
+    with SessionLocal() as db:
+        assert db.query(SemanticModel).filter(SemanticModel.slug == "atomic-fail").count() == 0
+
+    # The objects uploaded before the failure are cleaned up (no orphans).
+    assert any(key.endswith("bundle.zip") for key in deleted)
+    assert any(key.endswith("training-dataset.json") for key in deleted)
+
+
 def test_populate_model_embeddings_prefers_precomputed_archive(monkeypatch, tmp_path):
     bundle_root = tmp_path / "bundle"
     onnx_root = bundle_root / "models" / "onnx"

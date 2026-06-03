@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import zipfile
 from pathlib import Path
 
@@ -10,16 +11,21 @@ from sqlalchemy.orm import Session
 
 from ..core.models import SemanticModel
 from .artifacts import (
+    SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
     SEMANTIC_MODEL_ARTIFACT_KIND_EVAL_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_MANIFEST_JSON,
     SEMANTIC_MODEL_ARTIFACT_KIND_TRAINING_DATASET,
     build_semantic_model_manifest,
+    delete_artifact_object,
     list_semantic_model_artifacts,
+    semantic_model_artifact_object_key,
     upload_and_record_semantic_model_artifact,
 )
 from .eval_service import summarize_eval_payload
 from .model_registry import create_semantic_model, validate_model_bundle
 from .semantic_state import get_semantic_data_version
+
+logger = logging.getLogger("ot_backend.semantic.bundle_registration")
 
 _BUNDLE_CONFIG_PATH = "config.json"
 _BUNDLE_METRICS_PATH = "metrics.json"
@@ -178,64 +184,83 @@ def register_model_bundle_bytes(
         merged_config["dataset_metadata"] = dataset_metadata
     merged_config["semantic_data_version"] = resolved_source_version
 
-    model = create_semantic_model(
-        db,
-        slug=slug,
-        base_model=base_model,
-        artifact_bundle_bytes=artifact_bundle_bytes,
-        embedding_dim=embedding_dim,
-        dataset_id=dataset_id,
-        config_json=merged_config or None,
-        metrics_json=merged_metrics or None,
-    )
+    # Upload every artifact and stage every row, then commit once. If any step
+    # fails, roll back the rows and delete the S3 objects written this call so
+    # we leave neither a partial artifact set nor orphaned blobs.
+    uploaded_keys: list[str] = []
+    try:
+        model = create_semantic_model(
+            db,
+            slug=slug,
+            base_model=base_model,
+            artifact_bundle_bytes=artifact_bundle_bytes,
+            embedding_dim=embedding_dim,
+            dataset_id=dataset_id,
+            config_json=merged_config or None,
+            metrics_json=merged_metrics or None,
+            commit=False,
+        )
+        uploaded_keys.append(semantic_model_artifact_object_key(model.id, SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP))
 
-    if resolved_dataset_bytes is not None:
+        if resolved_dataset_bytes is not None:
+            upload_and_record_semantic_model_artifact(
+                db,
+                model_id=model.id,
+                artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_TRAINING_DATASET,
+                content_bytes=resolved_dataset_bytes,
+                content_type="application/json",
+                metadata_json=dataset_metadata or None,
+            )
+            uploaded_keys.append(semantic_model_artifact_object_key(model.id, SEMANTIC_MODEL_ARTIFACT_KIND_TRAINING_DATASET))
+
+        if resolved_eval_bytes is not None:
+            eval_metadata = summarize_eval_payload(json.loads(resolved_eval_bytes.decode("utf-8")))
+            upload_and_record_semantic_model_artifact(
+                db,
+                model_id=model.id,
+                artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_EVAL_JSON,
+                content_bytes=resolved_eval_bytes,
+                content_type="application/json",
+                metadata_json=eval_metadata or None,
+            )
+            uploaded_keys.append(semantic_model_artifact_object_key(model.id, SEMANTIC_MODEL_ARTIFACT_KIND_EVAL_JSON))
+
+        manifest_bytes = build_semantic_model_manifest(
+            bundle_bytes=artifact_bundle_bytes,
+            base_model=base_model,
+            embedding_dim=embedding_dim,
+            bundle_config=merged_config or None,
+            bundle_metrics=merged_metrics or None,
+            dataset_metadata=dataset_metadata,
+            source_semantic_data_version=resolved_source_version,
+        )
         upload_and_record_semantic_model_artifact(
             db,
             model_id=model.id,
-            artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_TRAINING_DATASET,
-            content_bytes=resolved_dataset_bytes,
+            artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_MANIFEST_JSON,
+            content_bytes=manifest_bytes,
             content_type="application/json",
-            metadata_json=dataset_metadata or None,
+            metadata_json={
+                "source_semantic_data_version": resolved_source_version,
+                "has_training_dataset": resolved_dataset_bytes is not None,
+                "has_eval_json": resolved_eval_bytes is not None,
+            },
         )
+        uploaded_keys.append(semantic_model_artifact_object_key(model.id, SEMANTIC_MODEL_ARTIFACT_KIND_MANIFEST_JSON))
 
-    if resolved_eval_bytes is not None:
-        eval_metadata = summarize_eval_payload(json.loads(resolved_eval_bytes.decode("utf-8")))
-        upload_and_record_semantic_model_artifact(
-            db,
-            model_id=model.id,
-            artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_EVAL_JSON,
-            content_bytes=resolved_eval_bytes,
-            content_type="application/json",
-            metadata_json=eval_metadata or None,
-        )
-
-    manifest_bytes = build_semantic_model_manifest(
-        bundle_bytes=artifact_bundle_bytes,
-        base_model=base_model,
-        embedding_dim=embedding_dim,
-        bundle_config=merged_config or None,
-        bundle_metrics=merged_metrics or None,
-        dataset_metadata=dataset_metadata,
-        source_semantic_data_version=resolved_source_version,
-    )
-    upload_and_record_semantic_model_artifact(
-        db,
-        model_id=model.id,
-        artifact_kind=SEMANTIC_MODEL_ARTIFACT_KIND_MANIFEST_JSON,
-        content_bytes=manifest_bytes,
-        content_type="application/json",
-        metadata_json={
-            "source_semantic_data_version": resolved_source_version,
-            "has_training_dataset": resolved_dataset_bytes is not None,
-            "has_eval_json": resolved_eval_bytes is not None,
-        },
-    )
+        db.commit()
+    except Exception:
+        db.rollback()
+        for object_key in uploaded_keys:
+            try:
+                delete_artifact_object(object_key=object_key)
+            except Exception:
+                logger.warning("Failed to clean up orphaned artifact object %s", object_key, exc_info=True)
+        raise
 
     refreshed = db.get(SemanticModel, model.id)
     if refreshed is None:
         raise KeyError(f"Semantic model {model.id} disappeared during artifact registration.")
-    db.commit()
     db.refresh(refreshed)
     return refreshed
 

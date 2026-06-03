@@ -34,6 +34,8 @@ INIT_MODE_API = "api"
 INIT_MODE_WORKER = "worker"
 
 SCHEMA_LOCK_KEY = 8462751100339012
+_SCHEMA_LOCK_TIMEOUT_S = 120.0
+_SCHEMA_LOCK_POLL_S = 1.0
 MIGRATION_STATE_KEY = "schema_migration"
 MIGRATION_STATE_READY = "ready"
 MIGRATION_STATE_MIGRATING = "migrating"
@@ -53,14 +55,30 @@ def _schema_lock() -> Iterator[None]:
     transaction committed, which freed the lock *before* Alembic ran. A
     session-level pg_advisory_lock on a dedicated connection keeps two
     concurrent init_db callers serialized across the Alembic upgrade too.
+
+    The acquisition is bounded: pg_advisory_lock() ignores lock_timeout, so we
+    poll pg_try_advisory_lock() with a deadline. If another instance is stuck
+    mid-migration we fail fast instead of blocking startup forever.
     """
     conn = engine.connect()
     try:
-        conn.execute(text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": SCHEMA_LOCK_KEY})
+        deadline = time.monotonic() + _SCHEMA_LOCK_TIMEOUT_S
+        while True:
+            acquired = bool(conn.exec_driver_sql(f"SELECT pg_try_advisory_lock({SCHEMA_LOCK_KEY})").scalar())
+            conn.commit()
+            if acquired:
+                break
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Timed out after {_SCHEMA_LOCK_TIMEOUT_S:.0f}s waiting for the schema advisory "
+                    "lock; another instance may be stuck migrating."
+                )
+            time.sleep(_SCHEMA_LOCK_POLL_S)
         yield
     finally:
         try:
-            conn.execute(text("SELECT pg_advisory_unlock(:lock_key)"), {"lock_key": SCHEMA_LOCK_KEY})
+            conn.exec_driver_sql(f"SELECT pg_advisory_unlock({SCHEMA_LOCK_KEY})")
+            conn.commit()
         except Exception:
             logger.exception("Failed to release schema advisory lock.")
         conn.close()
@@ -197,30 +215,33 @@ def init_db(mode: str = INIT_MODE_API) -> None:
 
     with _schema_lock():
         try:
+            # Migration STATE is written in both API and worker modes so the
+            # `wait_for_migration_ready` gate works regardless of which process
+            # runs the migration. (`_upsert_schema_version` tracks Scryfall data
+            # and stays worker-only.)
             with engine.begin() as conn:
                 inspector = inspect(conn)
-                if mode == INIT_MODE_WORKER and inspector.has_table("system_metadata"):
+                if inspector.has_table("system_metadata"):
                     _set_migration_state(conn, state=MIGRATION_STATE_MIGRATING, target_version=DB_SCHEMA_VERSION)
             _upgrade_schema_to_head()
-            if mode == INIT_MODE_WORKER:
-                with engine.begin() as conn:
+            with engine.begin() as conn:
+                if mode == INIT_MODE_WORKER:
                     _upsert_schema_version(conn, DB_SCHEMA_VERSION)
-                    _set_migration_state(conn, state=MIGRATION_STATE_READY, target_version=DB_SCHEMA_VERSION)
+                _set_migration_state(conn, state=MIGRATION_STATE_READY, target_version=DB_SCHEMA_VERSION)
         except Exception:
             # Persist failed state in a separate transaction. If we wrote this inside the failed
             # transaction it would be rolled back alongside the original error.
-            if mode == INIT_MODE_WORKER:
-                try:
-                    with engine.begin() as fail_conn:
-                        fail_inspector = inspect(fail_conn)
-                        if fail_inspector.has_table("system_metadata"):
-                            _set_migration_state(
-                                fail_conn,
-                                state=MIGRATION_STATE_FAILED,
-                                target_version=DB_SCHEMA_VERSION,
-                            )
-                except Exception:
-                    logger.exception("Failed to persist schema migration failed state.")
+            try:
+                with engine.begin() as fail_conn:
+                    fail_inspector = inspect(fail_conn)
+                    if fail_inspector.has_table("system_metadata"):
+                        _set_migration_state(
+                            fail_conn,
+                            state=MIGRATION_STATE_FAILED,
+                            target_version=DB_SCHEMA_VERSION,
+                        )
+            except Exception:
+                logger.exception("Failed to persist schema migration failed state.")
             raise
 
     logger.info("Database initialized (mode=%s).", mode)

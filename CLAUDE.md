@@ -147,16 +147,48 @@ Feature branches optional: `feat/<name>` / `fix/<name>`, merge into `develop`.
 
 When `develop` is release-ready:
 
-```bash
-git checkout production
-git pull --ff-only origin production
-git merge --squash develop
-git commit -m "vX.Y.Z"
-git tag vX.Y.Z
-git push origin production --tags
-```
+1. **Bump versions on develop first** so the release commit reflects the new version. Tag must match the version in both files.
 
-Bump `backend/pyproject.toml` and `frontend/package.json` versions before the squash so the release commit reflects the new version. Tag must match the version in both files.
+   ```bash
+   # edit backend/pyproject.toml and frontend/package.json to vX.Y.Z
+   uv lock --project backend                # refresh backend/uv.lock
+   ( cd frontend && npm install )           # refresh frontend/package-lock.json
+   git add backend/pyproject.toml backend/uv.lock frontend/package.json frontend/package-lock.json
+   git commit -m "chore: bump version to X.Y.Z"
+   git push origin develop
+   ```
+
+2. **Wait for CI green on develop** before cutting the release.
+
+3. **Snapshot develop's tree onto production** and tag.
+
+   ```bash
+   git checkout production
+   git pull --ff-only origin production
+   git read-tree --reset -u develop         # overlay develop's tree onto the production index
+   git commit -m "vX.Y.Z"
+   git tag vX.Y.Z
+   ```
+
+   `git read-tree --reset -u develop` is used instead of `git merge --squash develop` because `--squash` doesn't record ancestry, so each subsequent release re-runs a 3-way merge against an ancient common ancestor and produces a storm of bogus add/add conflicts. The tree-overlay approach is content-equivalent and conflict-free.
+
+4. **Merge production back into develop with `--no-ff`** so develop's history has a visible anchor pointing to the release. Without this, the next release's squash hits the same ancient-ancestor conflict storm.
+
+   ```bash
+   git checkout develop
+   git merge --no-ff production -m "Merge tag vX.Y.Z into develop"
+   ```
+
+   Trees are identical, so the merge has no content delta — it just records the linkage.
+
+5. **Push both branches and the tag.** Production first (kicks off Railway deploy), develop second.
+
+   ```bash
+   git push origin production --tags
+   git push origin develop
+   ```
+
+Historical note: `v2.0.0` was cut without the merge-back step, so its production commit has no ancestry link to develop. The `v2.1.0` merge-back fixed the flow forward; releases from `v2.1.0` onward squash cleanly because git finds the previous release tag as the common ancestor.
 
 ## Git commits
 
