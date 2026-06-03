@@ -61,6 +61,11 @@ def download_artifact_bytes(*, object_key: str) -> bytes:
     return response["Body"].read()
 
 
+def delete_artifact_object(*, object_key: str) -> None:
+    client = artifact_bucket_client()
+    client.delete_object(Bucket=artifact_bucket_name(), Key=object_key)
+
+
 def _record_artifact(
     artifact: SemanticModelArtifact | SemanticDatasetArtifact,
     *,

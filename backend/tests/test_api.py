@@ -178,6 +178,42 @@ def test_similar_cards_rejects_duplicate_compact_format_codes(client):
     assert res.status_code == 422
 
 
+def test_similar_cards_rejects_invalid_match_mode(client):
+    res = client.get("/similar-cards", params={"q": "shock", "match_mode": "bogus"})
+    assert res.status_code == 422
+
+
+def test_similar_cards_rejects_invalid_color_feature(client):
+    res = client.get("/similar-cards", params={"q": "shock", "color_feature": "colours"})
+    assert res.status_code == 422
+
+
+def test_similar_cards_accepts_valid_match_mode_and_color_feature(client, monkeypatch):
+    class FakeSemanticIndex:
+        model_id = None
+
+        def search_oracle(self, *_args, **_kwargs):
+            return []
+
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
+
+    res = client.get(
+        "/similar-cards",
+        params={"q": "shock", "match_mode": "exact", "color_feature": "colors"},
+    )
+    assert res.status_code == 200
+
+
+def test_similar_cards_rejects_offset_over_cap(client):
+    res = client.get("/similar-cards", params={"q": "shock", "offset": 10_001})
+    assert res.status_code == 422
+
+
+def test_search_rejects_offset_over_cap(client):
+    res = client.get("/search", params={"q": "shock", "offset": 10_001})
+    assert res.status_code == 422
+
+
 def test_data_endpoints_return_503_while_schema_migrating(client, monkeypatch):
     monkeypatch.setattr("ot_backend.api._ensure_schema_ready._schema_ready", False)
     monkeypatch.setattr("ot_backend.api._ensure_schema_ready.wait_for_migration_ready", lambda **_: False)

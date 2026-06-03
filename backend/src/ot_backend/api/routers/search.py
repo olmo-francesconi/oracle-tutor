@@ -24,6 +24,8 @@ router = APIRouter(tags=["search"])
 
 MAX_SEARCH_LIMIT: Final[int] = 25
 MAX_SIMILAR_CARDS_LIMIT: Final[int] = 100
+MAX_PAGINATION_OFFSET: Final[int] = 10_000
+MAX_FILTER_CODE_LENGTH: Final[int] = 16
 ORACLE_TEXT_POOL_LIMIT: Final[int] = 300
 HOME_TERM_POOL_LIMIT: Final[int] = 300
 ABILITY_WORD_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*([A-Za-z][A-Za-z' -]{1,40}?)\s+[—-]\s+", re.MULTILINE)
@@ -187,7 +189,7 @@ def search_cards(
     q: str = Query(..., max_length=MAX_QUERY_LENGTH),
     db: Session = Depends(get_db),
     limit: int = Query(10, ge=1, le=MAX_SEARCH_LIMIT),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_PAGINATION_OFFSET),
 ) -> list[CardMatch]:
     ensure_schema_ready()
     if not q.strip():
@@ -290,15 +292,15 @@ def get_similar_cards(
     face_ix: int = Query(0, ge=0),
     q: str | None = Query(None, max_length=MAX_QUERY_LENGTH),
     limit: int = Query(20, ge=1, le=MAX_SIMILAR_CARDS_LIMIT),
-    offset: int = Query(0, ge=0),
-    card_type: str | None = None,
-    colors: str | None = None,
+    offset: int = Query(0, ge=0, le=MAX_PAGINATION_OFFSET),
+    card_type: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
+    colors: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
     cmc_min: float | None = None,
     cmc_max: float | None = None,
-    format: str | None = None,
-    rarity: str | None = None,
-    color_feature: str = "identity",
-    match_mode: str = "at_least",
+    format: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
+    rarity: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
+    color_feature: Literal["identity", "colors"] = "identity",
+    match_mode: Literal["at_least", "at_most", "exact"] = "at_least",
 ) -> SimilarCardsPage:
     ensure_schema_ready()
     if oracle_id is None and not (q and q.strip()):

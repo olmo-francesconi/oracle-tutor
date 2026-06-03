@@ -32,21 +32,34 @@ SEMANTIC_MODEL_CONFIG_SOURCE_DATA_VERSION = "semantic_data_version"
 _EMBEDDINGS_ARCHIVE_RELATIVE_PATH = Path("embeddings") / "embeddings.npz"
 
 
-def _try_promotion_advisory_lock(db: Session) -> bool:
-    return bool(db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": _PROMOTION_ADVISORY_LOCK_KEY}))
+def _acquire_promotion_lock(db: Session) -> bool:
+    """Take a session-scoped advisory lock held for the whole promotion.
+
+    Unlike a transaction-scoped lock, this is NOT released when intermediate
+    transactions commit — it is held on this connection until explicitly
+    unlocked (see `_release_promotion_lock`), so the entire claim → embed →
+    activate sequence runs mutually exclusive with any other promotion.
+    """
+    acquired = bool(db.scalar(text("SELECT pg_try_advisory_lock(:key)"), {"key": _PROMOTION_ADVISORY_LOCK_KEY}))
+    # Session-level locks survive commit; commit so the lock connection isn't
+    # left idle-in-transaction for the whole (potentially multi-minute) embed.
+    db.commit()
+    return acquired
+
+
+def _release_promotion_lock(db: Session) -> None:
+    db.scalar(text("SELECT pg_advisory_unlock(:key)"), {"key": _PROMOTION_ADVISORY_LOCK_KEY})
+    db.commit()
 
 
 def _claim_model_for_promotion(model_id: str) -> tuple[Path, Path]:
-    """Validate + transition model to EMBEDDING status under the advisory lock.
+    """Validate + transition the model to EMBEDDING status.
 
     Runs all preconditions (existence, not-already-active, no other in-flight
-    promotion, not stale) in one place so the long-running embed+activate phase
-    can proceed without re-taking the lock.
+    promotion, not stale) in one place. The caller must already hold the
+    session-level promotion lock for the duration of the promotion.
     """
     with SessionLocal() as db:
-        if not _try_promotion_advisory_lock(db):
-            raise RuntimeError("Another semantic model promotion is already running.")
-
         model = db.get(SemanticModel, model_id)
         if model is None:
             raise KeyError(f"Semantic model {model_id} not found.")
@@ -85,29 +98,39 @@ def promote_semantic_model(model_id: str, *, embed_batch_size: int = _DEFAULT_RE
     failed (model is marked failed in that case). Raises on pre-flight failures
     (missing / already-active / stale / lock contention) before the model is
     touched.
+
+    A session-level advisory lock is held on a dedicated connection for the
+    entire claim → embed → activate sequence, so two promotions can never
+    interleave (the second fails fast on lock contention).
     """
-    model_root, bundle_root = _claim_model_for_promotion(model_id)
-    try:
-        embedding_count, embedding_backend = _populate_model_embeddings(
-            model_id,
-            model_root,
-            bundle_root,
-            batch_size=embed_batch_size,
-        )
-        _activate_model(model_id, embedding_count=embedding_count, embedding_backend=embedding_backend)
-
+    with SessionLocal() as lock_db:
+        if not _acquire_promotion_lock(lock_db):
+            raise RuntimeError("Another semantic model promotion is already running.")
         try:
-            from .index import mark_semantic_index_stale
+            model_root, bundle_root = _claim_model_for_promotion(model_id)
+            try:
+                embedding_count, embedding_backend = _populate_model_embeddings(
+                    model_id,
+                    model_root,
+                    bundle_root,
+                    batch_size=embed_batch_size,
+                )
+                _activate_model(model_id, embedding_count=embedding_count, embedding_backend=embedding_backend)
 
-            mark_semantic_index_stale()
-        except Exception:
-            logger.exception("Failed to mark semantic index cache stale after activation.")
-        return True
-    except Exception as exc:
-        logger.exception("Semantic model promotion failed for model_id=%s", model_id)
-        _mark_model_failed(model_id, str(exc))
-        _clear_model_embeddings(model_id)
-        return False
+                try:
+                    from .index import mark_semantic_index_stale
+
+                    mark_semantic_index_stale()
+                except Exception:
+                    logger.exception("Failed to mark semantic index cache stale after activation.")
+                return True
+            except Exception as exc:
+                logger.exception("Semantic model promotion failed for model_id=%s", model_id)
+                _mark_model_failed(model_id, str(exc))
+                _clear_model_embeddings(model_id)
+                return False
+        finally:
+            _release_promotion_lock(lock_db)
 
 
 def _iter_face_rows(batch_size: int) -> Iterator[list[tuple[str, int, str]]]:

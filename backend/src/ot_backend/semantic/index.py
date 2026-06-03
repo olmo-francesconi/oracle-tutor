@@ -479,11 +479,11 @@ def get_semantic_index() -> SemanticIndex | None:
         model_root, _bundle_root = materialize_semantic_model(active_model)
         new_index = SemanticIndex(model_root=model_root, model_id=active_model.id)
     except Exception as exc:
-        logger.warning("Semantic index unavailable: %s", exc)
-        with _index_lock:
-            _index = None
-            _loaded_model_id = active_model_id
-        return None
+        # Keep any previously-loaded index serving rather than dropping to 503 on
+        # a transient S3/ONNX failure, and leave _loaded_model_id unchanged so the
+        # next poll retries materialization (instead of pinning the failed model).
+        logger.warning("Semantic index reload failed; keeping current index: %s", exc)
+        return _index
 
     # Swap the index under lock — fast operation
     with _index_lock:

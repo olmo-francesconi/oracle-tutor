@@ -1,16 +1,25 @@
 from __future__ import annotations
 
-from typing import cast
+import threading
+from types import SimpleNamespace
+from typing import Any, cast
 
 import requests
 
 from ot_backend.core.database import SessionLocal
 from ot_backend.core.db_init import init_db
 from ot_backend.core.models import Card, CardRaw, CardRelationship, CardTagging, Tag, TagAncestorMap
+from ot_backend.ingest import fetch_tags as ft
 from ot_backend.ingest.fetch_tags import (
+    DEFAULT_RETRY_AFTER_SECONDS,
+    MAX_RETRY_AFTER_SECONDS,
+    FetchExtraction,
     FetchOutcome,
     _extract_card_entities,
+    _fetch_card_extraction,
     _flush_card_batch,
+    _parse_retry_after,
+    _RateLimitBreaker,
     _tagger_graphql_once,
     cards_needing_tag_fetch,
 )
@@ -285,12 +294,41 @@ def test_cards_needing_tag_fetch_only_returns_cards_without_taggings() -> None:
         assert [card.oracle_id for card in cards_needing_tag_fetch(db, refresh_tags=True)] == ["card-1", "card-2"]
 
 
-def test_tagger_graphql_once_requests_session_reset_on_retryable_status() -> None:
+def test_tagger_graphql_once_returns_rate_limited_on_429() -> None:
     init_db()
 
     class DummyResponse:
         status_code = 429
         text = "rate limited"
+        headers = {"Retry-After": "3"}
+
+        def json(self):
+            return {}
+
+    class DummySession:
+        def post(self, *args: object, **kwargs: object) -> DummyResponse:
+            return DummyResponse()
+
+    result = _tagger_graphql_once(
+        cast(requests.Session, cast(object, DummySession())),
+        "csrf-token",
+        "rvr",
+        "404",
+        "card-1",
+    )
+
+    assert result.outcome == FetchOutcome.RATE_LIMITED
+    assert result.retry_after == 3.0
+    assert result.extracted is None
+
+
+def test_tagger_graphql_once_resets_session_on_server_error() -> None:
+    init_db()
+
+    class DummyResponse:
+        status_code = 503
+        text = "down"
+        headers: dict[str, str] = {}
 
         def json(self):
             return {}
@@ -308,4 +346,64 @@ def test_tagger_graphql_once_requests_session_reset_on_retryable_status() -> Non
     )
 
     assert result.outcome == FetchOutcome.RESET_SESSION
-    assert result.extracted is None
+
+
+def test_parse_retry_after_handles_seconds_default_and_clamp() -> None:
+    assert _parse_retry_after("2") == 2.0
+    assert _parse_retry_after(None) == DEFAULT_RETRY_AFTER_SECONDS
+    assert _parse_retry_after("not-a-number") == DEFAULT_RETRY_AFTER_SECONDS
+    assert _parse_retry_after("99999") == MAX_RETRY_AFTER_SECONDS
+
+
+def test_rate_limit_breaker_aborts_after_threshold() -> None:
+    breaker = _RateLimitBreaker(abort_threshold=3)
+    assert not breaker.aborted.is_set()
+    breaker.note_rate_limited(0.0)
+    breaker.note_rate_limited(0.0)
+    assert not breaker.aborted.is_set()
+    breaker.note_rate_limited(0.0)
+    assert breaker.aborted.is_set()
+
+
+def test_fetch_card_extraction_retries_same_session_on_429(monkeypatch) -> None:
+    session_obj = object()
+    reset_called: list[bool] = []
+    monkeypatch.setattr(ft, "_worker_session", lambda: (session_obj, "csrf"))
+    monkeypatch.setattr(ft, "_reset_worker_session", lambda: reset_called.append(True) or (session_obj, "csrf"))
+    monkeypatch.setattr(ft, "TAG_FETCH_RATE_LIMIT_SLEEP", 0.0)
+
+    calls = {"n": 0}
+
+    def fake_once(session, _csrf, _set_code, _number, _card_id):
+        # A 429 must back off and retry on the SAME session (no reset).
+        assert session is session_obj
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return FetchExtraction(FetchOutcome.RATE_LIMITED, retry_after=0.0)
+        return FetchExtraction(FetchOutcome.SUCCESS)
+
+    monkeypatch.setattr(ft, "_tagger_graphql_once", fake_once)
+
+    card = SimpleNamespace(set_code="rvr", collector_number="404", oracle_id="card-1", name="X")
+    breaker = _RateLimitBreaker(abort_threshold=50)
+    result = _fetch_card_extraction(cast(Any, card), threading.Semaphore(1), breaker)
+
+    assert result.outcome == FetchOutcome.SUCCESS
+    assert calls["n"] == 2
+    assert reset_called == []
+
+
+def test_fetch_card_extraction_gives_up_after_max_rate_limit_retries(monkeypatch) -> None:
+    monkeypatch.setattr(ft, "_worker_session", lambda: (object(), "csrf"))
+    monkeypatch.setattr(ft, "TAG_FETCH_RATE_LIMIT_SLEEP", 0.0)
+    monkeypatch.setattr(
+        ft,
+        "_tagger_graphql_once",
+        lambda *_a, **_k: FetchExtraction(FetchOutcome.RATE_LIMITED, retry_after=0.0),
+    )
+
+    card = SimpleNamespace(set_code="rvr", collector_number="404", oracle_id="card-1", name="X")
+    breaker = _RateLimitBreaker(abort_threshold=10_000)
+    result = _fetch_card_extraction(cast(Any, card), threading.Semaphore(1), breaker)
+
+    assert result.outcome == FetchOutcome.FAILED

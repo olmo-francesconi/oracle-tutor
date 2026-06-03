@@ -29,6 +29,14 @@ TAGGER_GRAPHQL_URL = f"{TAGGER_BASE_URL}/graphql"
 SESSION_RESET_BACKOFF_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_SESSION_RESETS: int = 5
+# 429 handling: back off (honoring Retry-After) within the SAME session instead
+# of pointlessly rebuilding the CSRF session. Bound per-card retries, and abort
+# the whole run once Tagger is sustained-rate-limiting rather than silently
+# dropping cards.
+MAX_RATE_LIMIT_RETRIES: int = 6
+DEFAULT_RETRY_AFTER_SECONDS = 5.0
+MAX_RETRY_AFTER_SECONDS = 60.0
+RATE_LIMIT_ABORT_THRESHOLD = max(1, int(os.getenv("TAG_FETCH_RATE_LIMIT_ABORT_THRESHOLD", "50")))
 ORACLE_FOREIGN_KEY = "oracleId"
 TAG_FETCH_BATCH_SIZE = 500
 TAG_FETCH_COMMIT_INTERVAL = 25
@@ -109,6 +117,9 @@ class FetchOutcome(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
     RESET_SESSION = "reset_session"
+    # Transient signal from a single HTTP call up to the retry loop; never a
+    # terminal per-card outcome (the loop resolves it to SUCCESS or FAILED).
+    RATE_LIMITED = "rate_limited"
 
 
 @dataclass(frozen=True)
@@ -480,6 +491,7 @@ class FetchExtraction:
 
     outcome: FetchOutcome
     extracted: ExtractedCardEntities | None = None
+    retry_after: float | None = None
 
 
 def _tagger_graphql_once(
@@ -516,14 +528,16 @@ def _tagger_graphql_once(
         return FetchExtraction(FetchOutcome.FAILED)
 
     if resp.status_code == 429:
+        retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
         logger.warning(
-            "Tagger rate-limited (HTTP 429) for %s (%s/%s); body=%r",
+            "Tagger rate-limited (HTTP 429) for %s (%s/%s); retry_after=%.1fs body=%r",
             card_id,
             scryfall_set,
             collector_number,
+            retry_after,
             resp.text[:200],
         )
-        return FetchExtraction(FetchOutcome.RESET_SESSION)
+        return FetchExtraction(FetchOutcome.RATE_LIMITED, retry_after=retry_after)
 
     if resp.status_code >= 500:
         logger.warning(
@@ -595,15 +609,71 @@ def _close_worker_session() -> None:
         _thread_local.state = None
 
 
+def _parse_retry_after(header_value: str | None) -> float:
+    """Parse a Retry-After header (delta-seconds form) into a bounded delay.
+
+    HTTP-date form and malformed values fall back to a sane default. The result
+    is clamped to MAX_RETRY_AFTER_SECONDS so a hostile/huge value can't stall a
+    worker indefinitely.
+    """
+    if header_value:
+        try:
+            seconds = float(header_value.strip())
+            if seconds >= 0:
+                return min(seconds, MAX_RETRY_AFTER_SECONDS)
+        except ValueError:
+            pass
+    return DEFAULT_RETRY_AFTER_SECONDS
+
+
+class _RateLimitBreaker:
+    """Pool-wide backoff + circuit breaker for sustained Tagger 429s.
+
+    On a 429 the whole pool pauses until `pause_until` (the longest Retry-After
+    seen) so workers don't keep hammering a throttled endpoint. After
+    `abort_threshold` total 429 events the run is aborted rather than silently
+    dropping the rate-limited cards.
+    """
+
+    def __init__(self, *, abort_threshold: int) -> None:
+        self._lock = threading.Lock()
+        self._pause_until = 0.0
+        self._events = 0
+        self._abort_threshold = abort_threshold
+        self.aborted = threading.Event()
+
+    def note_rate_limited(self, retry_after: float) -> None:
+        with self._lock:
+            self._pause_until = max(self._pause_until, time.monotonic() + retry_after)
+            self._events += 1
+            if self._events >= self._abort_threshold:
+                self.aborted.set()
+
+    def wait_if_paused(self) -> None:
+        while not self.aborted.is_set():
+            with self._lock:
+                remaining = self._pause_until - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(remaining, 1.0))
+
+
 def _fetch_card_extraction(
     card: Row[tuple[str, str, str, str]],
     rate_sem: threading.Semaphore,
+    breaker: _RateLimitBreaker,
 ) -> FetchExtraction:
     if not card.set_code or not card.collector_number:
         return FetchExtraction(FetchOutcome.FAILED)
 
     resets = 0
+    rate_limit_retries = 0
     while True:
+        if breaker.aborted.is_set():
+            return FetchExtraction(FetchOutcome.FAILED)
+        # Back off with the rest of the pool before taking a slot, so a 429 on
+        # one worker throttles all of them.
+        breaker.wait_if_paused()
         with rate_sem:
             session, csrf_token = _worker_session()
             started = time.monotonic()
@@ -623,6 +693,19 @@ def _fetch_card_extraction(
                     result.outcome.value,
                 )
             time.sleep(TAG_FETCH_RATE_LIMIT_SLEEP)
+        if result.outcome == FetchOutcome.RATE_LIMITED:
+            retry_after = result.retry_after if result.retry_after is not None else DEFAULT_RETRY_AFTER_SECONDS
+            breaker.note_rate_limited(retry_after)
+            rate_limit_retries += 1
+            if rate_limit_retries >= MAX_RATE_LIMIT_RETRIES:
+                logger.error(
+                    "Tagger rate limit: exhausted retries for %s/%s, skipping.",
+                    card.set_code,
+                    card.collector_number,
+                )
+                return FetchExtraction(FetchOutcome.FAILED)
+            # The pool-wide pause is applied at the top of the loop; same session.
+            continue
         if result.outcome != FetchOutcome.RESET_SESSION:
             return result
         resets += 1
@@ -731,6 +814,7 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
 
     cards = list(_itercards_needing_tag_fetch(db, refresh_tags))
     rate_sem = threading.Semaphore(TAG_FETCH_CONCURRENCY)
+    breaker = _RateLimitBreaker(abort_threshold=RATE_LIMIT_ABORT_THRESHOLD)
 
     # Stall watchdog: if no card completes for 60 s, log a warning so the
     # operator knows the ingest is stuck rather than quietly chugging.
@@ -758,7 +842,7 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
         # a single slow card blocks visibility of every later card that has
         # already finished — looks like the whole ingest froze.
         future_to_card = {
-            executor.submit(_fetch_card_extraction, card, rate_sem): card for card in cards
+            executor.submit(_fetch_card_extraction, card, rate_sem, breaker): card for card in cards
         }
 
         for future in as_completed(future_to_card):
@@ -767,6 +851,11 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
             last_progress_ts[0] = time.monotonic()
             processed += 1
             counts[result.outcome] += 1
+            if breaker.aborted.is_set():
+                # Sustained 429s: stop processing. In-flight/queued workers
+                # short-circuit via the breaker, so shutdown drains quickly.
+                logger.error("Aborting tag ingestion: Tagger is sustained-rate-limiting (HTTP 429).")
+                break
             oracle_tag_count = 0
             relationship_count = 0
 
@@ -811,6 +900,14 @@ def run_fetch_tags(db: Session, *, refresh_tags: bool = False) -> TagFetchStats:
         _flush_card_batch(db, pending_batch)
         db.commit()
         pending_batch.clear()
+
+    if breaker.aborted.is_set():
+        # Partial progress above is committed; fail loudly so the run isn't
+        # mistaken for a clean pass (and the daily worker exits non-zero).
+        raise RuntimeError(
+            f"Tag ingestion aborted after sustained Tagger rate-limiting "
+            f"(threshold={RATE_LIMIT_ABORT_THRESHOLD}); processed {processed}/{total} before aborting."
+        )
 
     logger.info(
         "Tag ingestion complete. success=%d failed=%d inserted: ot=%d rel=%d",
