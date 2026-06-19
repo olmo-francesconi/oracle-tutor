@@ -393,6 +393,30 @@ def test_fetch_card_extraction_retries_same_session_on_429(monkeypatch) -> None:
     assert reset_called == []
 
 
+def test_create_tagger_session_sets_user_agent(monkeypatch) -> None:
+    # Scryfall rejects default User-Agents; the bootstrapped session must carry ours.
+    class FakeResponse:
+        status_code = 200
+        text = '<meta name="csrf-token" content="tok-123">'
+
+        def raise_for_status(self) -> None:
+            pass
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+        def get(self, *_a: object, **_k: object) -> FakeResponse:
+            return FakeResponse()
+
+    monkeypatch.setattr(ft.requests, "Session", FakeSession)
+
+    session, csrf = ft._create_tagger_session()
+
+    assert session.headers["User-Agent"] == ft.TAGGER_USER_AGENT
+    assert csrf == "tok-123"
+
+
 def test_fetch_card_extraction_gives_up_after_max_rate_limit_retries(monkeypatch) -> None:
     monkeypatch.setattr(ft, "_worker_session", lambda: (object(), "csrf"))
     monkeypatch.setattr(ft, "TAG_FETCH_RATE_LIMIT_SLEEP", 0.0)
