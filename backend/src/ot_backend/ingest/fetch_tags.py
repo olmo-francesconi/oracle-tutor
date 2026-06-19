@@ -26,6 +26,8 @@ logger = logging.getLogger("ot_backend.ingest")
 
 TAGGER_BASE_URL = "https://tagger.scryfall.com"
 TAGGER_GRAPHQL_URL = f"{TAGGER_BASE_URL}/graphql"
+# Scryfall rejects requests without an explicit, identifying User-Agent (HTTP 400/403).
+TAGGER_USER_AGENT = "OracleTutor/1.0 (+https://oracletutor.org)"
 SESSION_RESET_BACKOFF_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_SESSION_RESETS: int = 5
@@ -337,6 +339,7 @@ def _extract_card_entities(payload: object) -> ExtractedCardEntities:
 
 def _create_tagger_session() -> tuple[requests.Session, str]:
     session = requests.Session()
+    session.headers.update({"User-Agent": TAGGER_USER_AGENT})
     try:
         response = session.get(TAGGER_BASE_URL, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception as e:

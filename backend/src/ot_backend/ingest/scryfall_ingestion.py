@@ -39,6 +39,11 @@ from .fetch_tags import run_fetch_tags
 logger = logging.getLogger("ot_backend.ingest")
 
 BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
+# Scryfall rejects requests without an explicit User-Agent and Accept header (HTTP 400/403).
+SCRYFALL_HEADERS = {
+    "User-Agent": "OracleTutor/1.0 (+https://oracletutor.org)",
+    "Accept": "application/json",
+}
 BATCH_SIZE = 500
 CHUNK_SIZE = 1_000
 REDUCTION_LOG_INTERVAL = 10_000
@@ -114,7 +119,7 @@ def _validate_scryfall_download_url(download_url: str) -> None:
 
 
 def fetch_bulk_metadata(url: str = BULK_DATA_URL) -> dict[str, Any]:
-    resp = requests.get(url, timeout=30)
+    resp = requests.get(url, timeout=30, headers=SCRYFALL_HEADERS)
     resp.raise_for_status()
     return resp.json()
 
@@ -137,7 +142,9 @@ def load_local_metadata() -> dict[str, Any] | None:
 def download_bulk_file(download_url: str, destination: Path = CARDS_JSON) -> None:
     logger.info("Downloading bulk data...")
     _validate_scryfall_download_url(download_url)
-    with requests.get(download_url, stream=True, timeout=60, allow_redirects=True) as resp:
+    with requests.get(
+        download_url, stream=True, timeout=60, allow_redirects=True, headers=SCRYFALL_HEADERS
+    ) as resp:
         resp.raise_for_status()
         # If we were redirected, ensure the final host is still allowed.
         _validate_scryfall_download_url(resp.url)
