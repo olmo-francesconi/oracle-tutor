@@ -57,6 +57,15 @@ class TrainingDatasetState:
     face_names: dict[FaceIdentity, str] = field(default_factory=dict)
 
 
+def _lift_statement_timeout(db: Session) -> None:
+    """Dataset builds run minute-long analytics queries. Operator sessions
+    inherit the API's 5s statement_timeout (OT_SERVICE_ROLE defaults to "api"),
+    which kills them. Disable it for the current build transaction."""
+    from sqlalchemy import text
+
+    db.execute(text("SET LOCAL statement_timeout = 0"))
+
+
 def _face_text_records(db: Session) -> list[FaceTextRecord]:
     from sqlalchemy import select
 
@@ -100,6 +109,7 @@ def build_training_dataset_state(
         if augmentation_mode is not None
         else DEFAULT_TRAIN_AUGMENTATION_KEYS
     )
+    _lift_statement_timeout(db)
     logger.info("Loading face text for semantic training.")
     face_records = _face_text_records(db)
     face_texts: dict[FaceIdentity, str] = {}
@@ -203,6 +213,7 @@ def build_training_dataset_build_payload(
         if augmentation_mode is not None
         else DEFAULT_TRAIN_AUGMENTATION_KEYS
     )
+    _lift_statement_timeout(db)
     face_records = _face_text_records(db)
     face_payload_rows: list[dict[str, Any]] = []
     card_face_map: dict[str, list[FaceIdentity]] = defaultdict(list)
