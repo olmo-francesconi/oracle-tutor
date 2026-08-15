@@ -23,7 +23,6 @@ api = [
 ]
 scryfall-sync = [
   "requests>=2.32.0",
-  "ijson>=3.3.0",
 ]
 semantic-train = [
   "accelerate>=1.1.0",
@@ -45,7 +44,6 @@ test = [
   "httpx>=0.27.0",
   "fastapi>=0.115.0",
   "requests>=2.32.0",
-  "ijson>=3.3.0",
   "testcontainers[postgres]>=4.8.0",
 ]
 dev = [

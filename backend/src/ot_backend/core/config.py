@@ -8,7 +8,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 DATA_DIR = PROJECT_ROOT / "data"
-CARDS_JSON = DATA_DIR / "cards.json"
+# Scryfall now publishes bulk data only as gzipped JSON Lines (`jsonl_download_uri`);
+# the old single-JSON-array `download_uri` was removed. Stored compressed on disk.
+CARDS_BULK_FILE = DATA_DIR / "cards.jsonl.gz"
 DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
 SCRYFALL_DATA_KEY = "scryfall_data"
 
