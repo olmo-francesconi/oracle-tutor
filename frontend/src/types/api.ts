@@ -36,6 +36,8 @@ export interface SimilarCard extends Card {
   face_ix: number
   image_side: 'front' | 'back'
   similarity: number
+  /** The single ability that drove the match, for highlighting why this card ranked. */
+  matched_ability?: string | null
   card_name?: string | null
 }
 
@@ -65,6 +67,8 @@ export interface FilterState {
   rarities?: string[]
   matchMode?: 'exact' | 'at_most' | 'at_least'
   colorFeature?: 'identity' | 'colors'
+  /** Exclude bare keyword abilities (Flying, Trample, ...) from similarity scoring. */
+  ignoreKeywords?: boolean
 }
 
 export interface OracleSamples {

@@ -1,4 +1,5 @@
 from ot_backend.api.routers.search import _CARD_TYPE_MAP, _FORMAT_MAP, _parse_code_filter
+from ot_backend.semantic.index import SimilarityHit
 
 
 def test_root(client):
@@ -71,7 +72,7 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
         model_id = None
 
         def similar_to_face(self, *_args, **_kwargs):
-            return [(("o2", 0), 0.95)]
+            return [SimilarityHit(face_key=("o2", 0), score=0.95, matched_ability="deal damage")]
 
     monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
@@ -87,6 +88,7 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
                 "name": "Shock",
                 "card_name": "Shock",
                 "similarity": 0.95,
+                "matched_ability": "deal damage",
                 "rank": 2,
                 "type_line": "Instant",
                 "mana_cost": None,
@@ -110,7 +112,7 @@ def test_similar_cards_uses_shared_front_image_side_for_split_faces(client, monk
         model_id = None
 
         def search_oracle(self, *_args, **_kwargs):
-            return [(("o6", 1), 0.91)]
+            return [SimilarityHit(face_key=("o6", 1), score=0.91, matched_ability="deal damage")]
 
     monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
@@ -126,7 +128,7 @@ def test_similar_cards_uses_back_image_side_for_double_faced_back_face(client, m
         model_id = None
 
         def search_oracle(self, *_args, **_kwargs):
-            return [(("o7", 1), 0.89)]
+            return [SimilarityHit(face_key=("o7", 1), score=0.89, matched_ability="deal damage")]
 
     monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
@@ -142,7 +144,10 @@ def test_similar_cards_sets_has_more_when_more_results_exist(client, monkeypatch
         model_id = None
 
         def search_oracle(self, *_args, **_kwargs):
-            return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
+            return [
+                SimilarityHit(face_key=("o2", 0), score=0.95, matched_ability="deal damage"),
+                SimilarityHit(face_key=("o1", 0), score=0.9, matched_ability="draw a card"),
+            ]
 
     monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 
@@ -157,7 +162,10 @@ def test_similar_cards_sets_has_more_false_on_last_page(client, monkeypatch):
         model_id = None
 
         def search_oracle(self, *_args, **_kwargs):
-            return [(("o2", 0), 0.95), (("o1", 0), 0.9)]
+            return [
+                SimilarityHit(face_key=("o2", 0), score=0.95, matched_ability="deal damage"),
+                SimilarityHit(face_key=("o1", 0), score=0.9, matched_ability="draw a card"),
+            ]
 
     monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: FakeSemanticIndex())
 

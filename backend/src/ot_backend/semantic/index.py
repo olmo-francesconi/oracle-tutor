@@ -6,6 +6,7 @@ import threading
 import time
 import warnings
 from collections.abc import Sequence
+from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from typing import cast as type_cast
 
 import numpy as np
 import numpy.typing as npt
-from sqlalchemy import and_, cast, or_, select
+from sqlalchemy import and_, cast, func, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
@@ -25,7 +26,7 @@ from ..core.config import (
     semantic_onnx_intra_op_threads,
 )
 from ..core.database import SessionLocal
-from ..core.models import Card, CardFace, SemanticModel, SemanticModelEmbedding
+from ..core.models import Card, CardFace, CardFaceAbility, SemanticAbilityEmbedding, SemanticModel
 from .model_registry import get_active_semantic_model_id, materialize_semantic_model
 from .text_prep import normalize_oracle_text
 
@@ -40,6 +41,26 @@ _ORT_LOG_SEVERITY_ERRORS_ONLY = 3
 FloatArray = npt.NDArray[np.float32]
 
 _VALID_COLORS = frozenset({"W", "U", "B", "R", "G"})
+
+# Two-stage retrieval knobs. Stage 1 scans distinct ability vectors exactly
+# (~37k rows, no HNSW — see migration 0006) and keeps the closest `_ABILITY_PROBE`
+# of them; those expand to at most `_CANDIDATE_FACES_PER_ABILITY` faces, which
+# stage 2 rescores. Generous enough that the candidate set is not the binding
+# constraint on result quality for realistic `limit` values.
+_ABILITY_PROBE = 256
+_CANDIDATE_FACES_PER_ABILITY = 400
+# How far below the best-matching ability another ability may sit and still be
+# considered "matched just as well" when picking which one to show the user.
+_DISPLAY_SIMILARITY_MARGIN = 0.05
+
+
+@dataclass(frozen=True)
+class SimilarityHit:
+    """A scored card face plus the ability that drove the match."""
+
+    face_key: tuple[str, int]
+    score: float
+    matched_ability: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +143,62 @@ def _mean_pool(token_embeddings: FloatArray, attention_mask: FloatArray) -> Floa
 def _normalize_embeddings(embeddings: FloatArray) -> FloatArray:
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
     return np.asarray(embeddings / np.clip(norms, a_min=1e-12, a_max=None), dtype=np.float32)
+
+
+def _weighted_mean(values: FloatArray, weights: FloatArray | None) -> float:
+    if weights is None or float(weights.sum()) <= 0.0:
+        return float(values.mean())
+    return float((values * weights).sum() / weights.sum())
+
+
+def _chamfer_rerank(
+    seed_vectors: FloatArray,
+    candidate_vectors: FloatArray,
+    *,
+    bidirectional: bool,
+    seed_weights: FloatArray | None = None,
+    candidate_weights: FloatArray | None = None,
+) -> tuple[float, int]:
+    """Score two ability sets and report which candidate ability matched best.
+
+    Stored vectors are already L2-normalized, so the dot product is cosine
+    similarity and `sims[i, j]` is seed ability i against candidate ability j.
+
+    * forward  = mean over seed abilities of their best candidate match
+                 — "how much of the seed does this card cover?"
+    * backward = mean over candidate abilities of their best seed match
+                 — "how much of this card is explained by the seed?"
+
+    Card-to-card similarity averages both, so a card that matches one ability
+    and does five unrelated things scores below one that matches throughout.
+    Text search uses forward only (see `search_oracle`).
+
+    Both means are IDF-weighted: "Flying" sits on ~3.2k faces and matches itself
+    at 1.0, so unweighted it drowns out the abilities that actually distinguish
+    cards. Weighting is by frequency rather than by keyword-ness because common
+    non-keyword abilities ("Enchant creature", "{T}: Add {C}.") swamp results
+    just as badly.
+    """
+    sims = seed_vectors @ candidate_vectors.T
+    forward = _weighted_mean(sims.max(axis=1), seed_weights)
+    if bidirectional:
+        backward = _weighted_mean(sims.max(axis=0), candidate_weights)
+        score = (forward + backward) / 2.0
+    else:
+        score = forward
+
+    # Choosing the ability to SHOW the user: relevance gates, distinctiveness
+    # only breaks ties. Raw argmax always reports "Flying" for fliers (a keyword
+    # self-match is ~1.0); pure IDF-weighted argmax overcorrects and reports the
+    # most obscure ability instead, even when it barely matched. So: keep the
+    # abilities that matched about as well as the best one, then among those
+    # prefer the most distinctive.
+    per_candidate_best = sims.max(axis=0)
+    if candidate_weights is None:
+        return score, int(np.argmax(per_candidate_best))
+    eligible = per_candidate_best >= (float(per_candidate_best.max()) - _DISPLAY_SIMILARITY_MARGIN)
+    tiebreak = np.where(eligible, candidate_weights, -np.inf)
+    return score, int(np.argmax(tiebreak))
 
 
 # ---------------------------------------------------------------------------
@@ -290,10 +367,37 @@ def _apply_filters(
 class SemanticIndex:
     model: OnnxTextEncoder
     model_id: str | None
+    # Class-level default, not just an __init__ assignment: callers construct
+    # this via object.__new__ to get a DB-only index without loading ONNX.
+    _idf: dict[str, float] | None = None
 
     def __init__(self, model_root: Path, *, model_id: str | None = None):
         self.model = OnnxTextEncoder(model_root=model_root)
         self.model_id = model_id
+        self._idf = None
+
+    def _idf_weights(self, db: Session, text_hashes: Sequence[str]) -> FloatArray:
+        """Inverse document frequency per distinct ability text.
+
+        Loaded once per index instance (~37k rows) and reused. Document
+        frequencies only change on re-ingest, and a slightly stale weight just
+        nudges ranking, so this is not refreshed per request.
+        """
+        if self._idf is None:
+            rows = db.execute(
+                select(CardFaceAbility.text_hash, func.count())
+                .group_by(CardFaceAbility.text_hash)
+            ).all()
+            total = float(sum(int(count) for _hash, count in rows)) or 1.0
+            # log1p(N/df): "Flying" (df~3235) lands near 2.5 while a one-off
+            # ability lands near 11, so distinctive text dominates without
+            # common text being zeroed out entirely.
+            self._idf = {
+                str(text_hash): float(np.log1p(total / max(1, int(count))))
+                for text_hash, count in rows
+            }
+        default = float(np.log1p(1.0))
+        return np.asarray([self._idf.get(h, default) for h in text_hashes], dtype=np.float32)
 
     def encode_query(self, text: str) -> list[float]:
         return self.model.encode(text)
@@ -311,22 +415,30 @@ class SemanticIndex:
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-    ) -> list[tuple[tuple[str, int], float]]:
+        ignore_keywords: bool = False,
+    ) -> list[SimilarityHit]:
+        """Find faces whose *ability set* resembles this face's ability set.
+
+        Scored with a bidirectional Chamfer mean (see `_chamfer_rerank`): a card
+        ranks highly when most of what it does is matched by the seed AND most
+        of what the seed does is matched by it. Sharing one keyword is not
+        enough on its own.
+        """
         if self.model_id is None:
             return []
-        seed = db.execute(
-            select(SemanticModelEmbedding.embedding).where(
-                SemanticModelEmbedding.model_id == self.model_id,
-                SemanticModelEmbedding.oracle_id == face_key[0],
-                SemanticModelEmbedding.face_ix == face_key[1],
-            )
-        ).scalar_one_or_none()
+        seed = self._load_face_abilities(db, face_key, ignore_keywords=ignore_keywords)
         if seed is None:
+            # Every ability was a keyword and keywords were excluded: there is
+            # nothing left to match on, so return nothing rather than garbage.
             return []
+        seed_vectors, seed_hashes = seed
         return self._score(
             db,
-            seed,
+            seed_vectors,
             limit,
+            bidirectional=True,
+            seed_hashes=seed_hashes,
+            ignore_keywords=ignore_keywords,
             exclude=face_key,
             card_type=card_type,
             colors=colors,
@@ -351,14 +463,24 @@ class SemanticIndex:
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-    ) -> list[tuple[tuple[str, int], float]]:
+        ignore_keywords: bool = False,
+    ) -> list[SimilarityHit]:
+        """Find faces that *have* an ability matching the query text.
+
+        Deliberately max-pooled rather than bidirectional: someone searching
+        "draw a card when a creature dies" wants cards with that ability, and
+        should not see them demoted for also having flying and four other
+        abilities the query never mentioned.
+        """
         if self.model_id is None:
             return []
-        query_vec = self.encode_query(query)
+        query_vec = np.asarray([self.encode_query(query)], dtype=np.float32)
         return self._score(
             db,
             query_vec,
             limit,
+            bidirectional=False,
+            ignore_keywords=ignore_keywords,
             card_type=card_type,
             colors=colors,
             cmc_min=cmc_min,
@@ -369,13 +491,155 @@ class SemanticIndex:
             match_mode=match_mode,
         )
 
+    def _load_face_abilities(
+        self, db: Session, face_key: tuple[str, int], *, ignore_keywords: bool = False
+    ) -> tuple[FloatArray, list[str]] | None:
+        stmt = (
+            select(
+                CardFaceAbility.text_hash,
+                SemanticAbilityEmbedding.embedding,
+            )
+            .join(
+                SemanticAbilityEmbedding,
+                and_(
+                    SemanticAbilityEmbedding.text_hash == CardFaceAbility.text_hash,
+                    SemanticAbilityEmbedding.model_id == self.model_id,
+                ),
+            )
+            .where(
+                CardFaceAbility.oracle_id == face_key[0],
+                CardFaceAbility.face_ix == face_key[1],
+            )
+        )
+        if ignore_keywords:
+            stmt = stmt.where(CardFaceAbility.is_keyword.is_(False))
+        rows = db.execute(stmt.order_by(CardFaceAbility.ability_ix)).all()
+        if not rows:
+            return None
+        vectors = np.asarray([row.embedding for row in rows], dtype=np.float32)
+        return vectors, [row.text_hash for row in rows]
+
+    def _candidate_faces(
+        self,
+        db: Session,
+        seed_vectors: FloatArray,
+        *,
+        exclude: tuple[str, int] | None,
+        filters: dict[str, Any],
+        ignore_keywords: bool,
+    ) -> list[tuple[tuple[str, int], float]]:
+        """Stage 1: cheap per-ability kNN, unioned across the seed's abilities.
+
+        Ranking each ability's neighbours by DISTINCT ability text (rather than
+        by face) is what makes this useful: one probe returns 256 different
+        abilities instead of 256 copies of "flying" from 256 different cards.
+        """
+        best: dict[tuple[str, int], float] = {}
+        for seed_vector in seed_vectors:
+            distance = SemanticAbilityEmbedding.embedding.cosine_distance(list(seed_vector))
+            nearest = (
+                select(
+                    SemanticAbilityEmbedding.text_hash.label("text_hash"),
+                    (1.0 - distance).label("sim"),
+                )
+                .where(SemanticAbilityEmbedding.model_id == self.model_id)
+                .order_by(distance)
+                .limit(_ABILITY_PROBE)
+                .cte("nearest_abilities")
+            )
+
+            stmt = (
+                select(
+                    CardFaceAbility.oracle_id,
+                    CardFaceAbility.face_ix,
+                    func.max(nearest.c.sim).label("sim"),
+                )
+                .select_from(nearest)
+                .join(CardFaceAbility, CardFaceAbility.text_hash == nearest.c.text_hash)
+                .join(
+                    CardFace,
+                    and_(
+                        CardFace.oracle_id == CardFaceAbility.oracle_id,
+                        CardFace.face_ix == CardFaceAbility.face_ix,
+                    ),
+                )
+                .join(Card, Card.oracle_id == CardFaceAbility.oracle_id)
+            )
+            if ignore_keywords:
+                stmt = stmt.where(CardFaceAbility.is_keyword.is_(False))
+            if exclude is not None:
+                stmt = stmt.where(
+                    or_(
+                        CardFaceAbility.oracle_id != exclude[0],
+                        CardFaceAbility.face_ix != exclude[1],
+                    )
+                )
+            stmt = _apply_filters(stmt, **filters)
+            stmt = (
+                stmt.group_by(CardFaceAbility.oracle_id, CardFaceAbility.face_ix)
+                .order_by(func.max(nearest.c.sim).desc())
+                .limit(_CANDIDATE_FACES_PER_ABILITY)
+            )
+
+            for row in db.execute(stmt).all():
+                key = (row.oracle_id, row.face_ix)
+                sim = float(row.sim)
+                if sim > best.get(key, -1.0):
+                    best[key] = sim
+        return sorted(best.items(), key=lambda item: item[1], reverse=True)
+
+    def _load_candidate_abilities(
+        self, db: Session, face_keys: list[tuple[str, int]], *, ignore_keywords: bool
+    ) -> dict[tuple[str, int], tuple[FloatArray, list[str], list[str]]]:
+        """Return (vectors, display texts, text hashes) per candidate face."""
+        if not face_keys:
+            return {}
+        stmt = (
+            select(
+                CardFaceAbility.oracle_id,
+                CardFaceAbility.face_ix,
+                CardFaceAbility.text,
+                CardFaceAbility.text_hash,
+                SemanticAbilityEmbedding.embedding,
+            )
+            .join(
+                SemanticAbilityEmbedding,
+                and_(
+                    SemanticAbilityEmbedding.text_hash == CardFaceAbility.text_hash,
+                    SemanticAbilityEmbedding.model_id == self.model_id,
+                ),
+            )
+            .where(tuple_(CardFaceAbility.oracle_id, CardFaceAbility.face_ix).in_(face_keys))
+        )
+        if ignore_keywords:
+            stmt = stmt.where(CardFaceAbility.is_keyword.is_(False))
+        rows = db.execute(
+            stmt.order_by(
+                CardFaceAbility.oracle_id, CardFaceAbility.face_ix, CardFaceAbility.ability_ix
+            )
+        ).all()
+
+        grouped: dict[tuple[str, int], tuple[list[list[float]], list[str], list[str]]] = {}
+        for row in rows:
+            vectors, texts, hashes = grouped.setdefault((row.oracle_id, row.face_ix), ([], [], []))
+            vectors.append(row.embedding)
+            texts.append(row.text)
+            hashes.append(row.text_hash)
+        return {
+            key: (np.asarray(vectors, dtype=np.float32), texts, hashes)
+            for key, (vectors, texts, hashes) in grouped.items()
+        }
+
     def _score(
         self,
         db: Session,
-        query_vec: Sequence[float],
+        seed_vectors: FloatArray,
         limit: int,
         *,
+        bidirectional: bool,
         exclude: tuple[str, int] | None = None,
+        seed_hashes: Sequence[str] | None = None,
+        ignore_keywords: bool = False,
         card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
@@ -384,56 +648,56 @@ class SemanticIndex:
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-    ) -> list[tuple[tuple[str, int], float]]:
-        if self.model_id is None or limit <= 0:
+    ) -> list[SimilarityHit]:
+        if self.model_id is None or limit <= 0 or len(seed_vectors) == 0:
             return []
 
-        distance = SemanticModelEmbedding.embedding.cosine_distance(query_vec)
-
-        stmt = (
-            select(
-                SemanticModelEmbedding.oracle_id,
-                SemanticModelEmbedding.face_ix,
-                (1.0 - distance).label("score"),
-            )
-            .join(
-                CardFace,
-                and_(
-                    CardFace.oracle_id == SemanticModelEmbedding.oracle_id,
-                    CardFace.face_ix == SemanticModelEmbedding.face_ix,
-                ),
-            )
-            .join(Card, Card.oracle_id == SemanticModelEmbedding.oracle_id)
-            .where(SemanticModelEmbedding.model_id == self.model_id)
+        filters: dict[str, Any] = {
+            "card_type": card_type,
+            "colors": colors,
+            "cmc_min": cmc_min,
+            "cmc_max": cmc_max,
+            "format": format,
+            "rarity": rarity,
+            "color_feature": color_feature,
+            "match_mode": match_mode,
+        }
+        candidates = self._candidate_faces(
+            db, seed_vectors, exclude=exclude, filters=filters, ignore_keywords=ignore_keywords
         )
+        if not candidates:
+            return []
 
-        if exclude is not None:
-            stmt = stmt.where(
-                or_(
-                    SemanticModelEmbedding.oracle_id != exclude[0],
-                    SemanticModelEmbedding.face_ix != exclude[1],
+        candidate_keys = [key for key, _ in candidates]
+        ability_map = self._load_candidate_abilities(db, candidate_keys, ignore_keywords=ignore_keywords)
+
+        # A free-text query is one vector with no corpus frequency of its own,
+        # so only the candidate side is IDF-weighted there.
+        seed_weights = self._idf_weights(db, seed_hashes) if seed_hashes is not None else None
+
+        hits: list[SimilarityHit] = []
+        for key in candidate_keys:
+            entry = ability_map.get(key)
+            if entry is None:
+                continue
+            candidate_vectors, candidate_texts, candidate_hashes = entry
+            score, matched_ix = _chamfer_rerank(
+                seed_vectors,
+                candidate_vectors,
+                bidirectional=bidirectional,
+                seed_weights=seed_weights,
+                candidate_weights=self._idf_weights(db, candidate_hashes),
+            )
+            hits.append(
+                SimilarityHit(
+                    face_key=key,
+                    score=round(score, 6),
+                    matched_ability=candidate_texts[matched_ix] or None,
                 )
             )
 
-        stmt = _apply_filters(
-            stmt,
-            card_type=card_type,
-            colors=colors,
-            cmc_min=cmc_min,
-            cmc_max=cmc_max,
-            format=format,
-            rarity=rarity,
-            color_feature=color_feature,
-            match_mode=match_mode,
-        )
-
-        stmt = stmt.order_by(distance).limit(limit)
-
-        rows = db.execute(stmt).all()
-        return [
-            ((row.oracle_id, row.face_ix), round(float(row.score), 6))
-            for row in rows
-        ]
+        hits.sort(key=lambda hit: hit.score, reverse=True)
+        return hits[:limit]
 
 
 # ---------------------------------------------------------------------------

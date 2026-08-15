@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import zipfile
@@ -119,8 +120,7 @@ def _bundle_with_config(*, config: dict, metrics: dict, embedding_dim: int) -> b
         npz_buf = io.BytesIO()
         np.savez_compressed(
             npz_buf,
-            oracle_ids=np.asarray(["o1"]),
-            face_ixs=np.asarray([0], dtype=np.int32),
+            text_hashes=np.asarray([hashlib.sha256(b"ability o1").hexdigest()]),
             embeddings=np.asarray([[0.0] * embedding_dim], dtype=np.float32),
         )
         zf.writestr("embeddings/embeddings.npz", npz_buf.getvalue())

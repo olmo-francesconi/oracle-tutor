@@ -204,6 +204,11 @@ class CardFace(Base):
     cmc: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     card: Mapped["Card"] = relationship(back_populates="faces")
+    abilities: Mapped[list["CardFaceAbility"]] = relationship(
+        back_populates="face",
+        cascade="all, delete-orphan",
+        order_by="CardFaceAbility.ability_ix",
+    )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -224,6 +229,43 @@ class CardFace(Base):
             "flavor_text": self.flavor_text,
             "cmc": self.cmc,
         }
+
+
+class CardFaceAbility(Base):
+    """One ability of one card face, in printed order.
+
+    Oracle text is segmented into abilities (see `semantic.ability_split`) so
+    similarity is computed over what a card *does*, rather than over one blob
+    of text per face. `text_hash` is the dedup key: identical ability text
+    across cards ("flying" is on ~3.2k faces) is embedded once and joined here.
+    """
+
+    __tablename__ = "card_face_abilities"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["oracle_id", "face_ix"],
+            ["card_faces.oracle_id", "card_faces.face_ix"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_card_face_abilities_text_hash", "text_hash"),
+    )
+
+    oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
+    face_ix: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ability_ix: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Raw ability text as printed, for display / highlighting the match.
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Normalized form actually fed to the encoder.
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # True for bare keyword abilities ("Flying", "Ward {2}"). They stay indexed
+    # so keyword-only creatures remain searchable, but scoring can exclude them
+    # (`ignore_keywords`) and IDF de-emphasises them by default.
+    # NB: `server_default="false"` as a plain string, not `text("false")` —
+    # the `text` column above shadows sqlalchemy's `text()` inside this class body.
+    is_keyword: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    face: Mapped["CardFace"] = relationship(back_populates="abilities")
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +368,7 @@ class SemanticModel(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=utcnow_naive, index=True)
     activated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
-    embeddings: Mapped[list["SemanticModelEmbedding"]] = relationship(
+    embeddings: Mapped[list["SemanticAbilityEmbedding"]] = relationship(
         back_populates="model",
         cascade="all, delete-orphan",
     )
@@ -396,6 +438,15 @@ class SemanticDatasetArtifact(Base):
 
 
 class SemanticModelEmbedding(Base):
+    """DEPRECATED: face-granularity embeddings, superseded by
+    `SemanticAbilityEmbedding`.
+
+    Nothing reads this table any more — it is retained so the live table is not
+    dropped out from under a running deployment, and so the ORM stays an
+    accurate description of the database. Migration 0007 removes it once an
+    ability-based model has been promoted and verified in production.
+    """
+
     __tablename__ = "semantic_model_embeddings"
     __table_args__ = (
         ForeignKeyConstraint(
@@ -408,6 +459,22 @@ class SemanticModelEmbedding(Base):
     model_id: Mapped[str] = mapped_column(ForeignKey("semantic_models.id", ondelete="CASCADE"), primary_key=True)
     oracle_id: Mapped[str] = mapped_column(String, primary_key=True)
     face_ix: Mapped[int] = mapped_column(Integer, primary_key=True)
+    embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
+
+
+class SemanticAbilityEmbedding(Base):
+    """One vector per (model, distinct ability text).
+
+    Keyed by `text_hash` rather than by face: identical ability text is stored
+    and searched once, so a kNN probe returns N *distinct* abilities instead of
+    N copies of "flying" from N different cards. Faces are recovered by joining
+    `card_face_abilities` on the hash.
+    """
+
+    __tablename__ = "semantic_ability_embeddings"
+
+    model_id: Mapped[str] = mapped_column(ForeignKey("semantic_models.id", ondelete="CASCADE"), primary_key=True)
+    text_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     embedding: Mapped[list[float]] = mapped_column(_semantic_embedding_type(), nullable=False)
 
     model: Mapped["SemanticModel"] = relationship(back_populates="embeddings")

@@ -37,6 +37,8 @@ export const SimilarCardSchema = CardSchema.extend({
   face_ix: z.number(),
   image_side: z.enum(['front', 'back']),
   similarity: z.number(),
+  // The single ability that drove the match, for highlighting why this card ranked.
+  matched_ability: z.string().nullish(),
   card_name: z.string().nullish(),
 })
 

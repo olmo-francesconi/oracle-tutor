@@ -18,6 +18,7 @@ const CMC_MAX_PARAM = 'cmcMax'
 const RARITIES_PARAM = 'rarity'
 const MATCH_MODE_PARAM = 'match'
 const COLOR_FEATURE_PARAM = 'colorBy'
+const IGNORE_KEYWORDS_PARAM = 'noKw'
 
 type SearchUrlState = {
   query: string | null
@@ -50,6 +51,7 @@ export function readSearchStateFromUrl(): SearchUrlState {
     // Unvalidated casts — normalizeFilterState drops unknown values against its enum allowlists.
     matchMode: params.get(MATCH_MODE_PARAM) as FilterState['matchMode'],
     colorFeature: params.get(COLOR_FEATURE_PARAM) as FilterState['colorFeature'],
+    ignoreKeywords: params.get(IGNORE_KEYWORDS_PARAM) === '1',
   })
 
   return {
@@ -86,6 +88,7 @@ function buildCanonicalSearch(
   if (encodedFormats) entries.push([FORMAT_PARAM, encodedFormats])
 
   if (normalized.matchMode) entries.push([MATCH_MODE_PARAM, normalized.matchMode])
+  if (normalized.ignoreKeywords) entries.push([IGNORE_KEYWORDS_PARAM, '1'])
 
   if (normalized.rarities?.length) {
     const sortedRarities = [...normalized.rarities].sort()

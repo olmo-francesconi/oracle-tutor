@@ -4,9 +4,14 @@ These exercise `SemanticIndex._score` end-to-end against the testcontainer
 Postgres (pgvector + JSONB + ARRAY). The ONNX encoder is bypassed entirely —
 we construct a fake `SemanticIndex` with only `model_id` set and call `_score`
 directly, so the tests cover what the SQL emits, not the model.
+
+Each seeded card has exactly one ability, so filter results are unchanged by
+the ability layer: one face still maps to one vector.
 """
 
 from __future__ import annotations
+
+import hashlib
 
 import numpy as np
 import pytest
@@ -16,10 +21,11 @@ from ot_backend.core.db_init import init_db
 from ot_backend.core.models import (
     Card,
     CardFace,
+    CardFaceAbility,
     CardRaw,
+    SemanticAbilityEmbedding,
     SemanticModel,
     SemanticModelArtifact,
-    SemanticModelEmbedding,
     SystemMetadata,
 )
 from ot_backend.semantic.index import SemanticIndex
@@ -35,8 +41,13 @@ def _vec(seed: int) -> list[float]:
     return v.tolist()
 
 
+def _hash(i: int) -> str:
+    return hashlib.sha256(f"ability {i}".encode()).hexdigest()
+
+
 def _truncate(db) -> None:
-    db.query(SemanticModelEmbedding).delete()
+    db.query(SemanticAbilityEmbedding).delete()
+    db.query(CardFaceAbility).delete()
     db.query(SemanticModelArtifact).delete()
     db.query(SemanticModel).delete()
     db.query(CardFace).delete()
@@ -219,15 +230,29 @@ def seeded_filter_db():
         )
         db.flush()
 
+        # One distinct ability per card; the hash is the join key between the
+        # ability row and its vector.
         db.add_all(
             [
-                SemanticModelEmbedding(
-                    model_id=_MODEL_ID,
+                CardFaceAbility(
                     oracle_id=oracle_id,
                     face_ix=0,
-                    embedding=_vec(seed=i),
+                    ability_ix=0,
+                    text=f"ability {i}",
+                    normalized_text=f"ability {i}",
+                    text_hash=_hash(i),
                 )
                 for i, (oracle_id, _scryfall_id, _fields) in enumerate(cards)
+            ]
+        )
+        db.add_all(
+            [
+                SemanticAbilityEmbedding(
+                    model_id=_MODEL_ID,
+                    text_hash=_hash(i),
+                    embedding=_vec(seed=i),
+                )
+                for i in range(len(cards))
             ]
         )
         db.commit()
@@ -239,7 +264,7 @@ def seeded_filter_db():
 
 
 def _ids(results) -> set[tuple[str, int]]:
-    return {face_key for face_key, _ in results}
+    return {hit.face_key for hit in results}
 
 
 def _make_index(model_id: str | None = _MODEL_ID) -> SemanticIndex:
@@ -249,8 +274,14 @@ def _make_index(model_id: str | None = _MODEL_ID) -> SemanticIndex:
     return idx
 
 
-def _score(db, **filters) -> list[tuple[tuple[str, int], float]]:
-    return _make_index()._score(db, _vec(seed=999), limit=100, **filters)
+def _seed():
+    """A single synthetic query vector, shaped as the (1, dim) seed set."""
+    return np.asarray([_vec(seed=999)], dtype=np.float32)
+
+
+def _score(db, **filters):
+    """Drive the ability-level scorer with a single synthetic query vector."""
+    return _make_index()._score(db, _seed(), limit=100, bidirectional=False, **filters)
 
 
 def test_no_filters_returns_every_face(seeded_filter_db) -> None:
@@ -345,7 +376,9 @@ def test_invalid_color_chars_skip_filter(seeded_filter_db) -> None:
 
 def test_exclude_seed_face(seeded_filter_db) -> None:
     with SessionLocal() as db:
-        results = _make_index()._score(db, _vec(seed=999), limit=100, exclude=("f3", 0))
+        results = _make_index()._score(
+            db, _seed(), limit=100, bidirectional=False, exclude=("f3", 0)
+        )
     assert ("f3", 0) not in _ids(results)
     assert len(results) == 6
 
@@ -369,19 +402,19 @@ def test_combined_filters(seeded_filter_db) -> None:
 def test_scores_are_in_descending_order(seeded_filter_db) -> None:
     with SessionLocal() as db:
         results = _score(db)
-    scores = [score for _key, score in results]
+    scores = [hit.score for hit in results]
     assert scores == sorted(scores, reverse=True)
 
 
 def test_limit_is_applied(seeded_filter_db) -> None:
     with SessionLocal() as db:
-        results = _make_index()._score(db, _vec(seed=999), limit=3)
+        results = _make_index()._score(db, _seed(), limit=3, bidirectional=False)
     assert len(results) == 3
 
 
 def test_no_model_id_returns_empty(seeded_filter_db) -> None:
     with SessionLocal() as db:
-        results = _make_index(model_id=None)._score(db, _vec(seed=999), limit=10)
+        results = _make_index(model_id=None)._score(db, _seed(), limit=10, bidirectional=False)
     assert results == []
 
 
@@ -391,5 +424,5 @@ def test_zero_limit_returns_empty(seeded_filter_db) -> None:
     assert _ids(results)  # sanity: default is populated
 
     with SessionLocal() as db:
-        results = _make_index()._score(db, _vec(seed=999), limit=0)
+        results = _make_index()._score(db, _seed(), limit=0, bidirectional=False)
     assert results == []

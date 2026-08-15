@@ -158,6 +158,7 @@ export function buildSimilarCardsParams(
   }
   if (filters.matchMode) params.match_mode = filters.matchMode
   if (filters.colorFeature) params.color_feature = filters.colorFeature
+  if (filters.ignoreKeywords) params.ignore_keywords = 'true'
 
   return params
 }

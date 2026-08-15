@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..core.config import semantic_temp_dir
 from ..core.database import SessionLocal
-from ..core.models import SemanticModel, SemanticModelArtifact, SemanticModelEmbedding
+from ..core.models import SemanticAbilityEmbedding, SemanticModel, SemanticModelArtifact
 from .artifacts import (
     SEMANTIC_MODEL_ARTIFACT_KIND_BUNDLE_ZIP,
     delete_artifact_object,
@@ -177,7 +177,7 @@ def get_active_semantic_model_id(db: Session) -> str | None:
 
 def count_semantic_model_embeddings(db: Session, model_id: str) -> int:
     return int(
-        db.scalar(select(func.count()).select_from(SemanticModelEmbedding).where(SemanticModelEmbedding.model_id == model_id))
+        db.scalar(select(func.count()).select_from(SemanticAbilityEmbedding).where(SemanticAbilityEmbedding.model_id == model_id))
         or 0
     )
 
@@ -187,9 +187,9 @@ def count_semantic_model_embeddings_batch(db: Session, model_ids: list[str]) -> 
         return {}
 
     rows = db.execute(
-        select(SemanticModelEmbedding.model_id, func.count().label("cnt"))
-        .where(SemanticModelEmbedding.model_id.in_(model_ids))
-        .group_by(SemanticModelEmbedding.model_id)
+        select(SemanticAbilityEmbedding.model_id, func.count().label("cnt"))
+        .where(SemanticAbilityEmbedding.model_id.in_(model_ids))
+        .group_by(SemanticAbilityEmbedding.model_id)
     ).all()
     counts = {str(row.model_id): int(row.cnt) for row in rows}
     return {model_id: counts.get(model_id, 0) for model_id in model_ids}

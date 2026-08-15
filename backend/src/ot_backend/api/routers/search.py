@@ -4,7 +4,7 @@ import logging
 import random
 import re
 import time
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import case, func, tuple_
@@ -17,6 +17,10 @@ from ...core.models import Card, CardFace, SemanticQueryLog
 from .. import _semantic_index as _sem_idx_mod
 from .._ensure_schema_ready import ensure_schema_ready
 from ..schemas import CardMatch, OracleSamplesResponse, SimilarCard, SimilarCardsPage
+
+if TYPE_CHECKING:
+    # Type-only: keep the semantic extras optional at import time.
+    from ...semantic.index import SimilarityHit
 
 logger = logging.getLogger("ot_backend.api")
 
@@ -125,12 +129,12 @@ def _parse_code_filter(raw_value: str | None, value_map: dict[str, str], field_n
     return [value_map[code] for code in codes]
 
 
-def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session) -> list[SimilarCard]:
+def _to_similar_cards(results: list[SimilarityHit], db: Session) -> list[SimilarCard]:
     if not results:
         return []
 
-    target_face_keys = [face_key for face_key, _ in results]
-    key_to_score = {face_key: score for face_key, score in results}
+    target_face_keys = [hit.face_key for hit in results]
+    key_to_hit = {hit.face_key: hit for hit in results}
     faces = (
         db.query(CardFace)
         .options(joinedload(CardFace.card).joinedload(Card.raw_printing))
@@ -145,6 +149,7 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
         if face is None:
             continue
         card = face.card
+        hit = key_to_hit.get(face_key)
         similar_cards.append(
             SimilarCard(
                 oracle_id=card.oracle_id,
@@ -153,7 +158,8 @@ def _to_similar_cards(results: list[tuple[tuple[str, int], float]], db: Session)
                 image_side=_image_side_for_face(card.layout, face.face_ix),
                 name=face.name,
                 card_name=card.name,
-                similarity=float(key_to_score.get(face_key, 0.0)),
+                similarity=float(hit.score) if hit else 0.0,
+                matched_ability=hit.matched_ability if hit else None,
                 rank=card.edhrec_rank,
                 type_line=face.type_line,
                 mana_cost=face.mana_cost,
@@ -301,6 +307,7 @@ def get_similar_cards(
     rarity: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
     color_feature: Literal["identity", "colors"] = "identity",
     match_mode: Literal["at_least", "at_most", "exact"] = "at_least",
+    ignore_keywords: bool = False,
 ) -> SimilarCardsPage:
     ensure_schema_ready()
     if oracle_id is None and not (q and q.strip()):
@@ -328,6 +335,7 @@ def get_similar_cards(
             rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,
+            ignore_keywords=ignore_keywords,
         )
     else:
         assert q is not None
@@ -343,6 +351,7 @@ def get_similar_cards(
             rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,
+            ignore_keywords=ignore_keywords,
         )
 
     page_results = results[offset : offset + limit]
@@ -361,6 +370,7 @@ def get_similar_cards(
             "rarity": rarity,
             "color_feature": color_feature,
             "match_mode": match_mode,
+            "ignore_keywords": ignore_keywords or None,
         }.items()
         if v is not None
     }

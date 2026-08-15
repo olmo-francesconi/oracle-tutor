@@ -28,12 +28,14 @@ from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
     CardFace,
+    CardFaceAbility,
     CardRaw,
     CardRelationship,
     CardTagging,
     IngestionLog,
     SystemMetadata,
 )
+from ..semantic.ability_split import build_face_abilities
 from ..semantic.semantic_state import bump_semantic_data_version
 from .fetch_tags import run_fetch_tags
 
@@ -424,6 +426,27 @@ def prepare_card_face(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -
     }
 
 
+def prepare_face_abilities(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Segment a face's oracle text into the rows backing `card_face_abilities`."""
+    abilities = build_face_abilities(
+        oracle_text=face_data.get("oracle_text"),
+        card_name=face_data.get("name") or "",
+        type_line=face_data.get("type_line") or "",
+    )
+    return [
+        {
+            "oracle_id": oracle_id,
+            "face_ix": face_ix,
+            "ability_ix": ability.ability_ix,
+            "text": ability.text,
+            "normalized_text": ability.normalized_text,
+            "text_hash": ability.text_hash,
+            "is_keyword": ability.is_keyword,
+        }
+        for ability in abilities
+    ]
+
+
 def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
     if not batch_cards:
         return
@@ -431,6 +454,7 @@ def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
     raw_cards: list[dict[str, Any]] = []
     parents: list[dict[str, Any]] = []
     faces_to_insert: list[dict[str, Any]] = []
+    abilities_to_insert: list[dict[str, Any]] = []
     face_oracle_ids: set[str] = set()
 
     for card in batch_cards:
@@ -446,6 +470,7 @@ def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
         faces = card.get("card_faces") or [card]
         for face_ix, face in enumerate(faces):
             faces_to_insert.append(prepare_card_face(oracle_id, face_ix, face))
+            abilities_to_insert.extend(prepare_face_abilities(oracle_id, face_ix, face))
 
     raw_stmt = insert(CardRaw).values(raw_cards)
     raw_stmt = raw_stmt.on_conflict_do_update(
@@ -480,6 +505,10 @@ def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
 
     if faces_to_insert:
         session.execute(insert(CardFace).values(faces_to_insert))
+    # Must follow the face insert: card_face_abilities FKs (oracle_id, face_ix).
+    # The delete above removed the previous generation via ON DELETE CASCADE.
+    if abilities_to_insert:
+        session.execute(insert(CardFaceAbility).values(abilities_to_insert))
 
 
 def select_best_printing(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:

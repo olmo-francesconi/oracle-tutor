@@ -58,6 +58,41 @@ def _number_word(n: int) -> str:
     return str(n)
 
 
+# Scryfall retemplated roughly half the corpus to refer to a card as
+# "this creature" / "this artifact" / "this spell". For the ~12% of faces that
+# still print their own name we do the substitution ourselves, and we must use
+# the SAME phrasing — writing "this card" there would split the vector space,
+# embedding "this card deals 4 damage" away from the identical-in-meaning
+# "this creature deals 4 damage".
+#
+# Ordered by Scryfall's own precedence: an Artifact Creature is "this creature",
+# an Artifact Land is "this land".
+_SELF_REFERENCE_BY_TYPE: tuple[tuple[str, str], ...] = (
+    ("creature", "this creature"),
+    ("planeswalker", "this planeswalker"),
+    ("land", "this land"),
+    ("artifact", "this artifact"),
+    ("enchantment", "this enchantment"),
+    ("instant", "this spell"),
+    ("sorcery", "this spell"),
+)
+_DEFAULT_SELF_REFERENCE = "this card"
+
+
+def self_reference_phrase(type_line: str | None) -> str:
+    """How Scryfall would refer to a card of this type in its own rules text."""
+    if not type_line:
+        return _DEFAULT_SELF_REFERENCE
+    # Primary types are always left of the em dash; subtypes on the right can
+    # collide ("Creature — Elf Assassin" vs an "Assassin" artifact subtype).
+    primary = type_line.split("—", 1)[0].lower()
+    tokens = {token for token in primary.replace("//", " ").split() if token}
+    for type_name, phrase in _SELF_REFERENCE_BY_TYPE:
+        if type_name in tokens:
+            return phrase
+    return _DEFAULT_SELF_REFERENCE
+
+
 def has_basic_land_type(type_line: str | None) -> bool:
     if not type_line or not type_line.strip():
         return False
@@ -291,11 +326,12 @@ def normalize_oracle_text(
         text = _strip_reminder_text_fully(text)
 
     if card_name:
-        text = _replace_card_name_standalone(text, card_name, "this card")
+        self_reference = self_reference_phrase(type_line)
+        text = _replace_card_name_standalone(text, card_name, self_reference)
         if "," in card_name:
             short_name = card_name.split(",")[0].strip()
             if len(short_name) > 2 and short_name != card_name:
-                text = _replace_card_name_standalone(text, short_name, "this card")
+                text = _replace_card_name_standalone(text, short_name, self_reference)
 
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     joined = ""

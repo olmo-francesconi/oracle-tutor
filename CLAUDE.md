@@ -29,7 +29,7 @@ backend/                FastAPI service + Pytest suite
     ingest/             One-shot Scryfall ingestion (scryfall_ingestion.py), parallel Tagger sync (fetch_tags.py)
   scripts/              Local CLI tools: build_dataset.py, train_model.py, promote_model.py
   tests/                Pytest suite (real Postgres via testcontainers + pgvector)
-  alembic/              Single initial-schema migration (versions/0001_initial_schema.py)
+  alembic/              Incremental migrations (0001_initial_schema.py .. 0007_ability_keyword_flag.py)
   Dockerfile            API image
   Dockerfile.worker.ingest     Ingest worker image (CMD baked: scryfall-sync cron)
 frontend/               React + Vite SPA
@@ -51,18 +51,30 @@ docker-compose.yml      Local dev: db + minio + api + frontend (+ ingest-worker 
 ## Architecture
 
 ### Data model (3-layer)
-- `cards_raw` — all Scryfall printings (~300k rows), PK = Scryfall UUID
+- `cards_raw` — the winning printing per oracle_id (~33.6k rows), PK = Scryfall UUID. Ingest reads the full `default-cards` bulk file (~117k printings) but only persists the printing `select_best_printing` picks, so this is NOT every printing
 - `cards` — oracle-deduplicated, PK = `oracle_id` (~30k rows)
 - `card_faces` — composite PK `(oracle_id, face_ix)`; `type_categories text[]` with GIN index for fast card-type filtering
+- `card_face_abilities` — composite PK `(oracle_id, face_ix, ability_ix)`; one row per ability, segmented from oracle text at ingest time. `text_hash` is the dedup/join key onto embeddings; `is_keyword` flags bare keyword abilities (Flying, Ward {2}) — ~23% of rows
 
 Additional tables: `tags`, `card_taggings`, `tag_ancestor_map`, `card_relationships`, `system_metadata`, `ingestion_logs`
 
-Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `semantic_model_embeddings`, `semantic_datasets`, `semantic_dataset_artifacts`
+Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `semantic_ability_embeddings`, `semantic_datasets`, `semantic_dataset_artifacts`
+(`semantic_model_embeddings` is the retired face-granular table — nothing reads it; migration 0007 will drop it)
 
 ### Semantic search
-- Embeddings stored per-model in `semantic_model_embeddings` (face granularity, filtered by `model_id`)
-- pgvector HNSW index on `embedding` for fast cosine-distance lookups
-- Query → ONNX tokenizer/model → pgvector cosine distance → hydrate via `CardFace → Card`
+Similarity is computed over **abilities**, not whole cards. The layer chain is
+`[card] → [card_face] → [oracle text] → [abilities]`.
+
+- Oracle text is split into abilities by `semantic/ability_split.py` (newline-per-ability, with keyword lines like "Flying, vigilance, haste" split via Scryfall's keyword-ability catalog; modal `•` lines stay attached to their parent ability)
+- Embeddings stored per-model in `semantic_ability_embeddings`, keyed by `(model_id, text_hash)` — one vector per **distinct ability text**, so ~63k ability instances collapse to ~37k vectors and a kNN probe returns distinct abilities instead of N copies of "flying"
+- No HNSW index: retrieval applies SQL filters alongside distance ordering, and pgvector's HNSW post-filters, which would silently cost recall. Exact cosine over ~37k rows is fast enough
+- Retrieval is two-stage (`semantic/index.py`):
+  1. **Candidate generation** — per-ability kNN (one probe per seed ability), filters applied, unioned into a candidate face set
+  2. **Rerank** — bidirectional Chamfer mean over ability sets: `(mean_i max_j sim + mean_j max_i sim) / 2`. A card matching across all its abilities outranks one sharing a single keyword
+- Both means are **IDF-weighted** by ability document frequency, so common text stops dominating. Weighting is by frequency rather than keyword-ness on purpose: the most common abilities include non-keywords (`Enchant creature` df=915, `{T}: Add {C}.` df=445) alongside `Flying` (df=3235). The df map is cached per index instance
+- `ignore_keywords=true` excludes `is_keyword` abilities from both the seed and candidate sets. Keywords are NOT removed from the table: 502 faces are keyword-only and would vanish from the index, and "flying" would stop being searchable
+- **Text queries (`q`) use forward/max-pool only**, deliberately: someone searching "draw a card when a creature dies" wants cards with that ability and should not see them demoted for also having flying
+- `/similar-cards` returns `matched_ability` — the specific ability that drove each match. Chosen by relevance first (within `_DISPLAY_SIMILARITY_MARGIN` of the best match), then most-distinctive-by-IDF as tiebreak; a raw argmax reports "Flying" for every flier, a pure IDF argmax reports the most obscure ability instead
 - Active model is determined by `semantic_models.is_active`; index polls DB every `SEMANTIC_ACTIVE_MODEL_POLL_SECONDS` seconds
 - Model artifacts (ONNX bundle zip) stored in S3-compatible storage; materialized to `SEMANTIC_TEMP_DIR` on demand
 - Semantic endpoints return 503 if no active model exists in the registry
@@ -90,18 +102,19 @@ Semantic model registry tables: `semantic_models`, `semantic_model_artifacts`, `
 | `/admin/semantic-datasets/{dataset_id}` | GET | Get dataset detail |
 | `/admin/semantic-datasets/{dataset_id}/artifacts` | GET | List dataset artifacts |
 
-Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`). `card_type` filters via array overlap on the GIN-indexed `type_categories` column; `matchMode` / `colorFeature` / `rarities` are allowlist-validated in `lib/filters.ts` before hitting the URL.
+Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`), `ignore_keywords` (bool; URL param `noKw=1`). `card_type` filters via array overlap on the GIN-indexed `type_categories` column; `matchMode` / `colorFeature` / `rarities` are allowlist-validated in `lib/filters.ts` before hitting the URL.
 
 ### Key files
 - `api/main.py` — FastAPI app setup, lifespan, middleware, meta routes; includes routers; spawns `rotate_oracle_pools` background task
 - `api/oracle_pool.py` — `load_oracle_pools`, `rotate_oracle_pools` (homepage sample refresh every `OT_ORACLE_POOL_REFRESH_SECONDS`)
 - `api/routers/admin.py` — read-only `/admin/*` routes (auth + models/datasets + artifacts) and their serializers
 - `api/routers/search.py` — `/search`, `/card/{oracle_id}`, `/similar-cards`, `/oracle-samples`
-- `core/models.py` — ORM models (source of truth for the schema); composite PKs for card_faces and embeddings; pgvector `Vector` type
+- `core/models.py` — ORM models (source of truth for the schema); composite PKs for card_faces, card_face_abilities and embeddings; pgvector `Vector` type
+- `semantic/ability_split.py` — oracle-text → ability segmentation + `text_hash` dedup key; bakes Scryfall's keyword-ability catalog
 - `core/db_init.py` — runs `alembic upgrade head` on every startup; session-level `pg_advisory_lock` held across Alembic; migration state FSM
-- `ingest/scryfall_ingestion.py` — stale-aware Scryfall bulk ingest, card derivation, `type_categories` extraction from `type_line`; delete phase is a single transaction (no split-state on crash)
+- `ingest/scryfall_ingestion.py` — stale-aware Scryfall bulk ingest (gzipped JSON Lines via `jsonl_download_uri`), card derivation, `type_categories` extraction, ability segmentation; delete phase is a single transaction (no split-state on crash)
 - `ingest/fetch_tags.py` — Scryfall Tagger GraphQL sync; `ThreadPoolExecutor` (default 6 workers) with per-thread sessions and a shared rate-limit semaphore
-- `semantic/index.py` — runtime: lazy-loads ONNX model, encodes queries, pgvector cosine search with server-side filters
+- `semantic/index.py` — runtime: lazy-loads ONNX model, encodes queries, two-stage ability retrieval (`_candidate_faces` → `_chamfer_rerank`) with server-side filters
 - `semantic/model_registry.py` — model CRUD, materialization, bundle utilities
 - `semantic/model_promotion.py` — `promote_semantic_model` end-to-end orchestration; atomic single-txn embedding replacement
 - `semantic/artifacts.py` — S3 artifact upload/download and recording
@@ -303,7 +316,8 @@ Secrets that must never appear in code or committed files: `ADMIN_PASSWORD`, `AD
 - Never run destructive Alembic migrations in production without reviewing the migration file first
 - Tests run against a real Postgres (via testcontainers + `pgvector/pgvector:pg17`). Docker must be running locally and in CI.
 - `DATABASE_URL` is always required (production, local, and Alembic CLI). No sqlite fallback anywhere.
-- Source of truth for the schema is the ORM models in `core/models.py`; the single `0001_initial_schema.py` migration uses `Base.metadata.create_all()` plus explicit DDL for the HNSW and GIN indexes.
+- Source of truth for the schema is the ORM models in `core/models.py`; `0001_initial_schema.py` uses `Base.metadata.create_all()` plus explicit DDL for the GIN index, and later migrations add tables incrementally.
+- **Because 0001 calls `create_all()` on live ORM metadata, it creates every table/column the ORM currently has — including ones a later migration is supposed to add.** Any migration that creates a table or adds a column MUST guard with `sa.inspect(bind)` first (see 0002, 0006, 0007), or fresh databases fail with DuplicateTable/DuplicateColumn. Spell columns out in the migration rather than reusing `Base.metadata`, so the migration stays a snapshot of that revision.
 - No dialect branching in app code — Postgres is the only supported database.
 
 # context-mode — MANDATORY routing rules

@@ -244,3 +244,6 @@ package-lock.json
 .vscode/
 # Added by code-review-graph
 .code-review-graph/
+
+# Local docker-compose overrides (points containers at MinIO instead of prod R2)
+docker-compose.override.yml
