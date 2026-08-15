@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+export const CardAbilitySchema = z.object({
+  ability_ix: z.number(),
+  text: z.string(),
+  is_keyword: z.boolean(),
+})
+
 export const CardFaceSchema = z.object({
   oracle_id: z.string(),
   face_ix: z.number(),
@@ -11,6 +17,7 @@ export const CardFaceSchema = z.object({
   toughness: z.string().nullish(),
   colors: z.array(z.string()).nullish(),
   image_uris: z.record(z.string(), z.string()).nullish(),
+  abilities: z.array(CardAbilitySchema).nullish(),
 })
 
 export const CardSchema = z.object({

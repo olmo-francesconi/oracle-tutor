@@ -371,3 +371,124 @@ def test_admin_route_rejects_invalid_bearer_token(client):
     res = client.get("/admin/semantic-models", headers={"Authorization": "Bearer nope"})
 
     assert res.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Ability tuning params
+# ---------------------------------------------------------------------------
+
+
+class _CapturingSemanticIndex:
+    """Records the kwargs the route hands the index, and returns nothing."""
+
+    model_id = None
+
+    def __init__(self) -> None:
+        self.kwargs: dict[str, object] = {}
+
+    def similar_to_face(self, *_args, **kwargs):
+        self.kwargs = kwargs
+        return []
+
+    def search_oracle(self, *_args, **kwargs):
+        self.kwargs = kwargs
+        return []
+
+
+def _capture_index(monkeypatch) -> _CapturingSemanticIndex:
+    index = _CapturingSemanticIndex()
+    monkeypatch.setattr("ot_backend.api._semantic_index.get_semantic_index", lambda: index)
+    return index
+
+
+def test_similar_cards_parses_ability_selection(client, monkeypatch):
+    index = _capture_index(monkeypatch)
+
+    res = client.get(
+        "/similar-cards",
+        params={"oracle_id": "o1", "include_abilities": "2,0,2", "exclude_abilities": "1"},
+    )
+
+    assert res.status_code == 200
+    # Deduplicated and sorted, so the same selection always hits the same cache key.
+    assert index.kwargs["include_abilities"] == [0, 2]
+    assert index.kwargs["exclude_abilities"] == [1]
+
+
+def test_similar_cards_defaults_ability_selection_to_none(client, monkeypatch):
+    index = _capture_index(monkeypatch)
+
+    res = client.get("/similar-cards", params={"oracle_id": "o1"})
+
+    assert res.status_code == 200
+    assert index.kwargs["include_abilities"] is None
+    assert index.kwargs["exclude_abilities"] is None
+
+
+def test_similar_cards_ignores_empty_ability_selection(client, monkeypatch):
+    index = _capture_index(monkeypatch)
+
+    res = client.get("/similar-cards", params={"oracle_id": "o1", "include_abilities": ""})
+
+    assert res.status_code == 200
+    assert index.kwargs["include_abilities"] is None
+
+
+def test_similar_cards_rejects_non_integer_abilities(client, monkeypatch):
+    _capture_index(monkeypatch)
+
+    res = client.get("/similar-cards", params={"oracle_id": "o1", "include_abilities": "0,nope"})
+
+    assert res.status_code == 422
+
+
+def test_similar_cards_rejects_negative_abilities(client, monkeypatch):
+    _capture_index(monkeypatch)
+
+    res = client.get("/similar-cards", params={"oracle_id": "o1", "exclude_abilities": "-1"})
+
+    assert res.status_code == 422
+
+
+def test_similar_cards_rejects_ability_in_both_selections(client, monkeypatch):
+    _capture_index(monkeypatch)
+
+    res = client.get(
+        "/similar-cards",
+        params={"oracle_id": "o1", "include_abilities": "0,1", "exclude_abilities": "1"},
+    )
+
+    assert res.status_code == 422
+
+
+def test_card_detail_exposes_segmented_abilities(client):
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.models import CardFaceAbility
+
+    with SessionLocal() as db:
+        db.add_all(
+            [
+                CardFaceAbility(
+                    oracle_id="o1", face_ix=0, ability_ix=0, text="Flying",
+                    normalized_text="flying", text_hash="h-flying", is_keyword=True,
+                ),
+                CardFaceAbility(
+                    oracle_id="o1", face_ix=0, ability_ix=1, text="Draw a card.",
+                    normalized_text="draw a card.", text_hash="h-draw", is_keyword=False,
+                ),
+                # Placeholder row for rules-text-free faces: nothing to click.
+                CardFaceAbility(
+                    oracle_id="o1", face_ix=0, ability_ix=2, text="",
+                    normalized_text="<empty>", text_hash="h-empty", is_keyword=False,
+                ),
+            ]
+        )
+        db.commit()
+
+    res = client.get("/card/o1")
+
+    assert res.status_code == 200
+    assert res.json()["faces"][0]["abilities"] == [
+        {"ability_ix": 0, "text": "Flying", "is_keyword": True},
+        {"ability_ix": 1, "text": "Draw a card.", "is_keyword": False},
+    ]

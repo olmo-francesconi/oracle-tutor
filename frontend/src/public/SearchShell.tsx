@@ -5,8 +5,9 @@ import { useDelayedBoolean } from '../lib/useDelayedBoolean'
 import { getApiDownMessage, getSearchErrorMessage, isApiDownError } from './searchShellState'
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
 import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
+import { cycleAbilityChoice, setAbilityChoices } from '../lib/abilitySelection'
 import type { CardMatch, FilterState, OracleSamples, SimilarCard } from '../types/api'
-import type { PinnedCard, SearchShellState } from '../types/ui'
+import type { AbilityChoice, AbilitySelection, PinnedCard, SearchShellState } from '../types/ui'
 import { CardDetailOverlay } from '../components/CardDetailOverlay'
 import { DenseTextBackground } from '../components/background/DenseTextBackground'
 import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
@@ -30,6 +31,7 @@ import { useUrlSync } from './useUrlSync'
 import { useViewport } from './useViewport'
 
 const EMPTY_ORACLE_SAMPLES: OracleSamples = { texts: [], terms: [] }
+const EMPTY_ABILITY_SELECTION: AbilitySelection = {}
 
 type ShellUiState = {
   draftQuery: string
@@ -114,6 +116,7 @@ export function SearchShell() {
     const face = card.faces?.[faceIx] ?? card.faces?.[0] ?? null
     return {
       oracleText: card.oracle_text ?? face?.oracle_text ?? null,
+      abilities: face?.abilities ?? [],
     }
   }, [ui.pinnedCard, cardQuery.data])
 
@@ -219,6 +222,44 @@ export function SearchShell() {
     },
     [ui.submittedQuery, ui.pinnedCard]
   )
+
+  const handleCycleAbility = useCallback((abilityIx: number) => {
+    setUi((current) => {
+      if (!current.pinnedCard) return current
+      const next = cycleAbilityChoice(current.pinnedCard.abilities ?? {}, abilityIx)
+      return {
+        ...current,
+        // Normalized back to undefined when empty so the query key (and URL)
+        // for "no tuning" is identical however the user got there.
+        pinnedCard: {
+          ...current.pinnedCard,
+          abilities: Object.keys(next).length ? next : undefined,
+        },
+      }
+    })
+  }, [])
+
+  const handleSetAbilities = useCallback((abilityIxs: number[], choice: AbilityChoice | null) => {
+    setUi((current) => {
+      if (!current.pinnedCard) return current
+      const next = setAbilityChoices(current.pinnedCard.abilities ?? {}, abilityIxs, choice)
+      return {
+        ...current,
+        pinnedCard: {
+          ...current.pinnedCard,
+          abilities: Object.keys(next).length ? next : undefined,
+        },
+      }
+    })
+  }, [])
+
+  const handleResetAbilities = useCallback(() => {
+    setUi((current) =>
+      current.pinnedCard
+        ? { ...current, pinnedCard: { ...current.pinnedCard, abilities: undefined } }
+        : current
+    )
+  }, [])
 
   const handleFiltersChange = useCallback((nextFilters: FilterState) => {
     const normalized = normalizeFilterState(nextFilters)
@@ -332,6 +373,10 @@ export function SearchShell() {
           activeFilterCount={activeFilterCount}
           lastTextQuery={lastTextQuery}
           pinnedSummary={pinnedSummary}
+          abilitySelection={ui.pinnedCard?.abilities ?? EMPTY_ABILITY_SELECTION}
+          onCycleAbility={handleCycleAbility}
+          onSetAbilities={handleSetAbilities}
+          onResetAbilities={handleResetAbilities}
           onDraftChange={handleDraftChange}
           onSubmit={handleSubmit}
           onCardSelect={handleCardSelect}

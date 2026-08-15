@@ -52,6 +52,17 @@ _CANDIDATE_FACES_PER_ABILITY = 400
 # How far below the best-matching ability another ability may sit and still be
 # considered "matched just as well" when picking which one to show the user.
 _DISPLAY_SIMILARITY_MARGIN = 0.05
+# Rejected-ability band. Cosine similarity between short ability texts has a
+# high floor — "Flying" scores ~0.67 against "Vigilance" and ~0.74 against
+# "Shadow" — so a raw `1 - sim` penalty would shave every card by two thirds and
+# make the reported match percentage meaningless. Only the band above the floor
+# carries signal: measured against "Flying", exact restatements sit at 0.99+,
+# compound lines that contain it ("Flying; fear") at ~0.84, and everything
+# unrelated below 0.78. So similarity is ramped linearly across the band and
+# anything at the top is dropped outright — "not this ability" has to actually
+# remove the cards that print it, not just rank them lower.
+_REJECT_IGNORE_SIMILARITY = 0.70
+_REJECT_EXCLUDE_SIMILARITY = 0.90
 
 
 @dataclass(frozen=True)
@@ -416,6 +427,8 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
         ignore_keywords: bool = False,
+        include_abilities: Sequence[int] | None = None,
+        exclude_abilities: Sequence[int] | None = None,
     ) -> list[SimilarityHit]:
         """Find faces whose *ability set* resembles this face's ability set.
 
@@ -423,21 +436,55 @@ class SemanticIndex:
         ranks highly when most of what it does is matched by the seed AND most
         of what the seed does is matched by it. Sharing one keyword is not
         enough on its own.
+
+        `include_abilities` narrows the seed to a subset of the face's abilities
+        and `exclude_abilities` names abilities the user does *not* want; a
+        rejected ability is dropped from the seed as well as penalized on the
+        candidate side, since searching by the very text you asked to avoid
+        makes no sense. Rejecting everything the face does leaves nothing to
+        match on and returns no results.
+
+        Scoring only switches to forward/max-pool when the selection genuinely
+        narrows the ability set, for the same reason text search does: having
+        asked for cards that *have* these abilities, the user should not see
+        them demoted for also doing things they never ruled out. Selecting every
+        ability narrows nothing, so it scores exactly like the untuned search.
         """
         if self.model_id is None:
             return []
-        seed = self._load_face_abilities(db, face_key, ignore_keywords=ignore_keywords)
-        if seed is None:
+        default = self._load_face_abilities(db, face_key, ignore_keywords=ignore_keywords)
+        if default is None:
             # Every ability was a keyword and keywords were excluded: there is
             # nothing left to match on, so return nothing rather than garbage.
             return []
-        seed_vectors, seed_hashes = seed
+        default_ixs = default[2]
+
+        if include_abilities:
+            # Loaded by index alone: an explicit pick overrides ignore_keywords.
+            seed = self._load_face_abilities(db, face_key, ability_ixs=include_abilities)
+        elif exclude_abilities:
+            rejected_ixs = set(exclude_abilities)
+            kept = [ix for ix in default_ixs if ix not in rejected_ixs]
+            seed = self._load_face_abilities(db, face_key, ability_ixs=kept) if kept else None
+        else:
+            seed = default
+        if seed is None:
+            return []
+        seed_vectors, seed_hashes, seed_ixs = seed
+
+        reject_vectors: FloatArray | None = None
+        if exclude_abilities:
+            rejected = self._load_face_abilities(db, face_key, ability_ixs=exclude_abilities)
+            if rejected is not None:
+                reject_vectors = rejected[0]
+
         return self._score(
             db,
             seed_vectors,
             limit,
-            bidirectional=True,
+            bidirectional=set(seed_ixs) == set(default_ixs),
             seed_hashes=seed_hashes,
+            reject_vectors=reject_vectors,
             ignore_keywords=ignore_keywords,
             exclude=face_key,
             card_type=card_type,
@@ -492,10 +539,17 @@ class SemanticIndex:
         )
 
     def _load_face_abilities(
-        self, db: Session, face_key: tuple[str, int], *, ignore_keywords: bool = False
-    ) -> tuple[FloatArray, list[str]] | None:
+        self,
+        db: Session,
+        face_key: tuple[str, int],
+        *,
+        ignore_keywords: bool = False,
+        ability_ixs: Sequence[int] | None = None,
+    ) -> tuple[FloatArray, list[str], list[int]] | None:
+        """Return (vectors, text hashes, ability indices) for one face."""
         stmt = (
             select(
+                CardFaceAbility.ability_ix,
                 CardFaceAbility.text_hash,
                 SemanticAbilityEmbedding.embedding,
             )
@@ -511,13 +565,17 @@ class SemanticIndex:
                 CardFaceAbility.face_ix == face_key[1],
             )
         )
-        if ignore_keywords:
+        if ability_ixs is not None:
+            # A hand-picked subset overrides the keyword filter: the user named
+            # these abilities explicitly.
+            stmt = stmt.where(CardFaceAbility.ability_ix.in_(list(ability_ixs)))
+        elif ignore_keywords:
             stmt = stmt.where(CardFaceAbility.is_keyword.is_(False))
         rows = db.execute(stmt.order_by(CardFaceAbility.ability_ix)).all()
         if not rows:
             return None
         vectors = np.asarray([row.embedding for row in rows], dtype=np.float32)
-        return vectors, [row.text_hash for row in rows]
+        return vectors, [row.text_hash for row in rows], [row.ability_ix for row in rows]
 
     def _candidate_faces(
         self,
@@ -639,6 +697,7 @@ class SemanticIndex:
         bidirectional: bool,
         exclude: tuple[str, int] | None = None,
         seed_hashes: Sequence[str] | None = None,
+        reject_vectors: FloatArray | None = None,
         ignore_keywords: bool = False,
         card_type: list[str] | None = None,
         colors: str | None = None,
@@ -681,6 +740,18 @@ class SemanticIndex:
             if entry is None:
                 continue
             candidate_vectors, candidate_texts, candidate_hashes = entry
+
+            reject_scale = 1.0
+            if reject_vectors is not None and len(reject_vectors):
+                reject_sim = float((reject_vectors @ candidate_vectors.T).max())
+                if reject_sim >= _REJECT_EXCLUDE_SIMILARITY:
+                    continue
+                reject_scale = 1.0 - max(
+                    0.0,
+                    (reject_sim - _REJECT_IGNORE_SIMILARITY)
+                    / (_REJECT_EXCLUDE_SIMILARITY - _REJECT_IGNORE_SIMILARITY),
+                )
+
             score, matched_ix = _chamfer_rerank(
                 seed_vectors,
                 candidate_vectors,
@@ -688,6 +759,11 @@ class SemanticIndex:
                 seed_weights=seed_weights,
                 candidate_weights=self._idf_weights(db, candidate_hashes),
             )
+            # Scale rather than subtract, so the score stays in [0, 1] and still
+            # reads as a percentage in the UI. Cards clear of the rejected
+            # ability keep their score untouched; the scale reaches zero exactly
+            # where the hard drop begins, so the two are continuous.
+            score *= reject_scale
             hits.append(
                 SimilarityHit(
                     face_key=key,

@@ -228,6 +228,14 @@ class CardFace(Base):
             "artist": self.artist,
             "flavor_text": self.flavor_text,
             "cmc": self.cmc,
+            # Segmented abilities, so the UI can offer per-ability search tuning.
+            # The placeholder ability on rules-text-free faces has empty text and
+            # is not something a user can select, so it is left out.
+            "abilities": [
+                {"ability_ix": a.ability_ix, "text": a.text, "is_keyword": a.is_keyword}
+                for a in self.abilities
+                if a.text
+            ],
         }
 
 

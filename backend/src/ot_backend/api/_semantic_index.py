@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Callable, Protocol, cast
 
 from sqlalchemy.orm import Session
@@ -33,6 +34,8 @@ class SemanticIndexProtocol(Protocol):
         color_feature: str = "identity",
         match_mode: str = "at_least",
         ignore_keywords: bool = False,
+        include_abilities: Sequence[int] | None = None,
+        exclude_abilities: Sequence[int] | None = None,
     ) -> list[SimilarityHit]: ...
 
     def search_oracle(

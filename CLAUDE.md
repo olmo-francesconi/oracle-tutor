@@ -104,6 +104,8 @@ Similarity is computed over **abilities**, not whole cards. The layer chain is
 
 Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `format`, `rarity`, `color_feature` (`"identity"` | `"colors"`), `match_mode` (`"at_least"` | `"at_most"` | `"exact"`), `ignore_keywords` (bool; URL param `noKw=1`). `card_type` filters via array overlap on the GIN-indexed `type_categories` column; `matchMode` / `colorFeature` / `rarities` are allowlist-validated in `lib/filters.ts` before hitting the URL.
 
+**Ability tuning** (card mode only): `include_abilities` / `exclude_abilities` on `/similar-cards` take comma-separated `ability_ix` values of the *seed* face (URL params `inc` / `exc`). Included abilities narrow the seed set; excluded ones ramp a candidate's score down across the `_REJECT_IGNORE_SIMILARITY`..`_REJECT_EXCLUDE_SIMILARITY` band (0.70..0.90) and drop it outright at the top. The band exists because cosine similarity between short ability texts has a ~0.7 floor — an unbanded penalty would shave every card and make the reported match percentage meaningless. Hand-picking an include subset switches scoring from bidirectional to forward/max-pool, on the same reasoning as text search. `/card/{oracle_id}` returns each face's segmented `abilities` (`ability_ix`, `text`, `is_keyword`) so the UI can offer the tri-state picker (`components/AbilityTuner.tsx`).
+
 ### Key files
 - `api/main.py` — FastAPI app setup, lifespan, middleware, meta routes; includes routers; spawns `rotate_oracle_pools` background task
 - `api/oracle_pool.py` — `load_oracle_pools`, `rotate_oracle_pools` (homepage sample refresh every `OT_ORACLE_POOL_REFRESH_SECONDS`)

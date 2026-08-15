@@ -1,3 +1,10 @@
+/** One segmented ability of a face — the unit similarity is scored over. */
+export interface CardAbility {
+  ability_ix: number
+  text: string
+  is_keyword: boolean
+}
+
 export interface CardFace {
   oracle_id: string
   face_ix: number
@@ -9,6 +16,7 @@ export interface CardFace {
   toughness?: string | null
   colors?: string[] | null
   image_uris?: Record<string, string> | null
+  abilities?: CardAbility[] | null
 }
 
 export interface Card {

@@ -1,13 +1,15 @@
+import { AbilityTuner } from '../components/AbilityTuner'
 import { FilterBar } from '../components/FilterBar'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
 import { SymbolText } from '../components/SymbolText'
 import { SearchErrorPanel } from '../components/errors/SearchErrorPanel'
-import type { CardMatch, FilterState, SimilarCard } from '../types/api'
-import type { SearchShellState } from '../types/ui'
+import type { CardAbility, CardMatch, FilterState, SimilarCard } from '../types/api'
+import type { AbilitySelection, SearchShellState } from '../types/ui'
 
 type PinnedSummary = {
   oracleText: string | null
+  abilities: CardAbility[]
 } | null
 
 type Props = {
@@ -16,6 +18,10 @@ type Props = {
   activeFilterCount: number
   lastTextQuery?: string | null
   pinnedSummary?: PinnedSummary
+  abilitySelection: AbilitySelection
+  onCycleAbility: (abilityIx: number) => void
+  onSetAbilities: (abilityIxs: number[], choice: AbilityChoice | null) => void
+  onResetAbilities: () => void
   onDraftChange: (value: string) => void
   onSubmit: (value?: string) => void
   onCardSelect: (card: CardMatch) => void
@@ -35,6 +41,10 @@ export function ResultsView({
   activeFilterCount,
   lastTextQuery,
   pinnedSummary,
+  abilitySelection,
+  onCycleAbility,
+  onSetAbilities,
+  onResetAbilities,
   onDraftChange,
   onSubmit,
   onCardSelect,
@@ -139,7 +149,15 @@ export function ResultsView({
               </div>
 
               <div className="grid content-start self-stretch border-l-2 border-ot-ink pl-8 max-[860px]:border-l-0 max-[860px]:border-t-2 max-[860px]:pl-0 max-[860px]:pt-3">
-                {pinnedSummary?.oracleText ? (
+                {pinnedSummary?.abilities.length ? (
+                  <AbilityTuner
+                    abilities={pinnedSummary.abilities}
+                    selection={abilitySelection}
+                    onCycle={onCycleAbility}
+                    onSet={onSetAbilities}
+                    onReset={onResetAbilities}
+                  />
+                ) : pinnedSummary?.oracleText ? (
                   <div className="whitespace-pre-line text-[0.85rem] leading-[1.55] text-ot-ink">
                     <SymbolText text={pinnedSummary.oracleText} />
                   </div>

@@ -30,6 +30,7 @@ MAX_SEARCH_LIMIT: Final[int] = 25
 MAX_SIMILAR_CARDS_LIMIT: Final[int] = 100
 MAX_PAGINATION_OFFSET: Final[int] = 10_000
 MAX_FILTER_CODE_LENGTH: Final[int] = 16
+MAX_ABILITY_SELECTION_LENGTH: Final[int] = 64
 ORACLE_TEXT_POOL_LIMIT: Final[int] = 300
 HOME_TERM_POOL_LIMIT: Final[int] = 300
 ABILITY_WORD_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*([A-Za-z][A-Za-z' -]{1,40}?)\s+[—-]\s+", re.MULTILINE)
@@ -127,6 +128,21 @@ def _parse_code_filter(raw_value: str | None, value_map: dict[str, str], field_n
         raise HTTPException(status_code=422, detail=f"Duplicate {field_name} codes in filter")
 
     return [value_map[code] for code in codes]
+
+
+def _parse_ability_ixs(raw_value: str | None, field_name: str) -> list[int] | None:
+    if raw_value is None:
+        return None
+    parts = [part.strip() for part in raw_value.split(",") if part.strip()]
+    if not parts:
+        return None
+    try:
+        values = [int(part) for part in parts]
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid {field_name}: expected comma-separated integers") from None
+    if any(value < 0 for value in values):
+        raise HTTPException(status_code=422, detail=f"Invalid {field_name}: indices must be non-negative")
+    return sorted(set(values))
 
 
 def _to_similar_cards(results: list[SimilarityHit], db: Session) -> list[SimilarCard]:
@@ -245,7 +261,12 @@ def search_cards(
 @log_performance(logger=logger)
 def get_card_by_id(oracle_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     ensure_schema_ready()
-    card = db.query(Card).options(joinedload(Card.faces)).filter(Card.oracle_id == oracle_id).first()
+    card = (
+        db.query(Card)
+        .options(joinedload(Card.faces).selectinload(CardFace.abilities))
+        .filter(Card.oracle_id == oracle_id)
+        .first()
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     return card.to_dict()
@@ -308,10 +329,17 @@ def get_similar_cards(
     color_feature: Literal["identity", "colors"] = "identity",
     match_mode: Literal["at_least", "at_most", "exact"] = "at_least",
     ignore_keywords: bool = False,
+    include_abilities: str | None = Query(None, max_length=MAX_ABILITY_SELECTION_LENGTH),
+    exclude_abilities: str | None = Query(None, max_length=MAX_ABILITY_SELECTION_LENGTH),
 ) -> SimilarCardsPage:
     ensure_schema_ready()
     if oracle_id is None and not (q and q.strip()):
         raise HTTPException(status_code=422, detail="Provide either oracle_id or q")
+
+    include_ability_list = _parse_ability_ixs(include_abilities, "include_abilities")
+    exclude_ability_list = _parse_ability_ixs(exclude_abilities, "exclude_abilities")
+    if include_ability_list and exclude_ability_list and set(include_ability_list) & set(exclude_ability_list):
+        raise HTTPException(status_code=422, detail="An ability cannot be both included and excluded")
 
     rarity_list = _parse_rarity(rarity)
     card_type_list = _parse_code_filter(card_type, _CARD_TYPE_MAP, "card type")
@@ -336,6 +364,8 @@ def get_similar_cards(
             color_feature=color_feature,
             match_mode=match_mode,
             ignore_keywords=ignore_keywords,
+            include_abilities=include_ability_list,
+            exclude_abilities=exclude_ability_list,
         )
     else:
         assert q is not None
@@ -371,6 +401,8 @@ def get_similar_cards(
             "color_feature": color_feature,
             "match_mode": match_mode,
             "ignore_keywords": ignore_keywords or None,
+            "include_abilities": include_ability_list,
+            "exclude_abilities": exclude_ability_list,
         }.items()
         if v is not None
     }
