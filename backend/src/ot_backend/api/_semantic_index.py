@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from typing import Callable, Protocol, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Callable, Protocol, cast
 
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    # Type-only: this module exists so the API degrades gracefully when the
+    # semantic extras are missing, so nothing from `semantic.index` may be
+    # imported at runtime outside the guarded block below.
+    from ..semantic.index import SimilarityHit
 
 try:
     from ..semantic.index import get_semantic_index as get_semantic_index_fn
@@ -26,7 +33,10 @@ class SemanticIndexProtocol(Protocol):
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-    ) -> list[tuple[tuple[str, int], float]]: ...
+        ignore_keywords: bool = False,
+        include_abilities: Sequence[int] | None = None,
+        exclude_abilities: Sequence[int] | None = None,
+    ) -> list[SimilarityHit]: ...
 
     def search_oracle(
         self,
@@ -41,7 +51,8 @@ class SemanticIndexProtocol(Protocol):
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-    ) -> list[tuple[tuple[str, int], float]]: ...
+        ignore_keywords: bool = False,
+    ) -> list[SimilarityHit]: ...
 
 
 def get_semantic_index() -> SemanticIndexProtocol | None:

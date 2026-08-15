@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SearchShell } from './SearchShell'
 import { renderWithQueryClient } from '../lib/testQueryClient'
 import type { Card, FilterState, SimilarCardsPage } from '../types/api'
+import type { AbilitySelection } from '../types/ui'
 
 const { searchOracleTextMock, getOracleSamplesMock, getSimilarCardsMock, getCardMock } = vi.hoisted(() => ({
   searchOracleTextMock: vi.fn<
@@ -10,7 +11,15 @@ const { searchOracleTextMock, getOracleSamplesMock, getSimilarCardsMock, getCard
   >(),
   getOracleSamplesMock: vi.fn(() => Promise.resolve({ texts: [], terms: [] })),
   getSimilarCardsMock: vi.fn<
-    (oracleId: string, faceIx: number, offset: number, limit: number, filters?: FilterState, signal?: AbortSignal) => Promise<SimilarCardsPage>
+    (
+      oracleId: string,
+      faceIx: number,
+      offset: number,
+      limit: number,
+      filters?: FilterState,
+      abilities?: AbilitySelection,
+      signal?: AbortSignal
+    ) => Promise<SimilarCardsPage>
   >(),
   getCardMock: vi.fn<(id: string, signal?: AbortSignal) => Promise<Card>>(),
 }))
@@ -287,5 +296,97 @@ describe('SearchShell integration', () => {
 
     expect(await screen.findByText('Results unavailable.')).toBeInTheDocument()
     expect(screen.queryByText('Oracle Tutor offline.')).not.toBeInTheDocument()
+  })
+})
+
+describe('SearchShell ability tuning', () => {
+  const TUNABLE_CARD: Card = {
+    id: 'scryfall-serra',
+    oracle_id: 'oracle-serra',
+    scryfall_id: 'scryfall-serra',
+    name: 'Serra Angel',
+    faces: [
+      {
+        oracle_id: 'oracle-serra',
+        face_ix: 0,
+        name: 'Serra Angel',
+        abilities: [
+          { ability_ix: 0, text: 'Flying', is_keyword: true },
+          { ability_ix: 1, text: 'Whenever this creature attacks, draw a card.', is_keyword: false },
+        ],
+      },
+    ],
+  }
+
+  beforeEach(() => {
+    searchOracleTextMock.mockReset()
+    getSimilarCardsMock.mockReset()
+    getCardMock.mockReset()
+    getOracleSamplesMock.mockClear()
+    window.history.replaceState({}, '', '/?card=oracle-serra')
+    getCardMock.mockResolvedValue(TUNABLE_CARD)
+    getSimilarCardsMock.mockResolvedValue(createPage('Baneslayer Angel'))
+  })
+
+  async function renderPinned() {
+    renderWithQueryClient(<SearchShell />)
+    await waitFor(() => {
+      expect(getSimilarCardsMock).toHaveBeenCalledWith(
+        'oracle-serra', 0, 0, 24, {}, undefined, expect.any(AbortSignal)
+      )
+    })
+  }
+
+  it('refetches with the forced ability and records it in the url', async () => {
+    await renderPinned()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Flying/ }))
+
+    await waitFor(() => {
+      expect(getSimilarCardsMock).toHaveBeenLastCalledWith(
+        'oracle-serra', 0, 0, 24, {}, { 0: 'include' }, expect.any(AbortSignal)
+      )
+    })
+    expect(window.location.search).toBe('?card=oracle-serra&inc=0')
+  })
+
+  it('rejects every keyword from the header action', async () => {
+    await renderPinned()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'reject keywords' }))
+
+    await waitFor(() => {
+      expect(getSimilarCardsMock).toHaveBeenLastCalledWith(
+        'oracle-serra', 0, 0, 24, {}, { 0: 'exclude' }, expect.any(AbortSignal)
+      )
+    })
+    expect(window.location.search).toBe('?card=oracle-serra&exc=0')
+  })
+
+  it('restores the untuned request when the tuning is reset', async () => {
+    await renderPinned()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Flying/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'reset tuning' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'reset tuning' }))
+
+    await waitFor(() => {
+      expect(getSimilarCardsMock).toHaveBeenLastCalledWith(
+        'oracle-serra', 0, 0, 24, {}, undefined, expect.any(AbortSignal)
+      )
+    })
+    expect(window.location.search).toBe('?card=oracle-serra')
+  })
+
+  it('hydrates a shared tuned url without a click', async () => {
+    window.history.replaceState({}, '', '/?card=oracle-serra&exc=1&inc=0')
+
+    renderWithQueryClient(<SearchShell />)
+
+    await waitFor(() => {
+      expect(getSimilarCardsMock).toHaveBeenCalledWith(
+        'oracle-serra', 0, 0, 24, {}, { 0: 'include', 1: 'exclude' }, expect.any(AbortSignal)
+      )
+    })
   })
 })

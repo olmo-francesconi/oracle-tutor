@@ -1,0 +1,173 @@
+"""Split a card face's oracle text into its individual abilities.
+
+Oracle text is authored one ability per line, with three wrinkles this module
+handles:
+
+* A line of comma-separated *keyword* abilities ("Flying, vigilance, haste") is
+  several abilities sharing a line. Splitting is driven by Scryfall's
+  keyword-ability catalog rather than a shape heuristic, because ordinary rules
+  text is full of commas too ("Search your library for a Forest, reveal it,
+  ...") and must stay intact.
+* Modal bullet lines ("• Draw a card.") are *modes* of the ability that
+  introduces them, not abilities in their own right, so they stay attached.
+* Ability words ("Landfall — Whenever ...") are flavor prefixes on a single
+  ability and are deliberately not split.
+
+The catalog is baked in rather than fetched: it changes a few times a year, and
+a stale entry only means a keyword line stays merged, which is harmless.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass
+
+from .text_prep import EMPTY_ORACLE_TOKEN, normalize_oracle_text
+
+# Scryfall /catalog/keyword-abilities. Keyword *actions* (sacrifice, exile, ...)
+# are intentionally excluded: they appear mid-sentence in ordinary rules text,
+# and including them would shred multi-clause abilities into fragments.
+KEYWORD_ABILITIES: frozenset[str] = frozenset(
+    {
+        'absorb', 'affinity', 'afflict', 'afterlife', 'aftermath', 'amplify', 'annihilator', 'ascend',
+        'assist', 'augment', 'aura swap', 'awaken', 'backup', 'banding', 'bargain', 'basic landcycling',
+        'battle cry', 'bestow', 'blitz', 'bloodthirst', 'boast', 'bushido', 'buyback', 'cascade',
+        'casualty', 'champion', 'changeling', 'choose a background', 'cipher', 'cleave',
+        'commander ninjutsu', 'companion', 'compleated', 'conspire', 'convoke', 'craft', 'crew',
+        'cumulative upkeep', 'cycling', 'dash', 'daybound', 'deathtouch', 'decayed', 'defender',
+        'delve', 'demonstrate', 'desertwalk', 'dethrone', 'devoid', 'devour', 'disguise', 'disturb',
+        "doctor's companion", 'double agenda', 'double strike', 'double team', 'dredge', 'echo',
+        'embalm', 'emerge', 'enchant', 'encore', 'enlist', 'entwine', 'epic', 'equip', 'escalate',
+        'escape', 'eternalize', 'evoke', 'evolve', 'exalted', 'exhaust', 'exploit', 'extort',
+        'fabricate', 'fading', 'fear', 'firebending', 'first strike', 'flanking', 'flash', 'flashback',
+        'flying', 'for mirrodin!', 'forecast', 'forestcycling', 'forestwalk', 'foretell', 'fortify',
+        'freerunning', 'frenzy', 'friends forever', 'fuse', 'gift', 'graft', 'gravestorm', 'harmonize',
+        'haste', 'haunt', 'hexproof', 'hexproof from', 'hidden agenda', 'hideaway', 'horsemanship',
+        'impending', 'improvise', 'increment', 'indestructible', 'infect', 'ingest', 'intensity',
+        'intimidate', 'islandcycling', 'islandwalk', 'job select', 'jump-start', 'kicker',
+        'landcycling', 'landwalk', 'legendary landwalk', 'level up', 'lifelink', 'living metal',
+        'living weapon', 'madness', 'max speed', 'mayhem', 'megamorph', 'melee', 'menace', 'mentor',
+        'miracle', 'mobilize', 'modular', 'more than meets the eye', 'morph', 'mountaincycling',
+        'mountainwalk', 'multikicker', 'mutate', 'myriad', 'nightbound', 'ninjutsu',
+        'nonbasic landwalk', 'offering', 'offspring', 'outlast', 'overload', 'paradigm', 'partner',
+        'partner with', 'persist', 'phasing', 'plainscycling', 'plainswalk', 'poisonous', 'power-up',
+        'protection', 'prototype', 'provoke', 'prowess', 'prowl', 'rampage', 'ravenous', 'reach',
+        'read ahead', 'rebound', 'reconfigure', 'recover', 'reinforce', 'renown', 'replicate',
+        'retrace', 'riot', 'ripple', 'saddle', 'scavenge', 'shadow', 'shroud', 'skulk', 'slivercycling',
+        'sneak', 'solved', 'soulbond', 'soulshift', 'specialize', 'spectacle', 'splice', 'split second',
+        'spree', 'squad', 'station', 'storm', 'sunburst', 'surge', 'suspend', 'swampcycling',
+        'swampwalk', 'teamwork', 'tiered', 'toxic', 'training', 'trample', 'transfigure', 'transmute',
+        'tribute', 'typecycling', 'umbra armor', 'undaunted', 'undying', 'unearth', 'unleash',
+        'vanishing', 'vigilance', 'ward', 'warp', 'web-slinging', 'wither', 'wizardcycling',
+    }
+)
+
+_REMINDER = re.compile(r"\s*\([^)]*\)")
+# Trailing cost or argument on a keyword: "Ward {2}", "Cycling {1}{G}", "Annihilator 2".
+_KEYWORD_ARGUMENT = re.compile(r"\s*(\{[^}]*\}|[\u2014-]\s*.*|\d+)+$")
+_MODAL_BULLET = "\u2022"
+
+
+@dataclass(frozen=True)
+class Ability:
+    ability_ix: int
+    text: str
+    normalized_text: str
+    text_hash: str
+    # Bare evergreen/keyword abilities ("Flying", "Ward {2}"). Kept in the index
+    # so "flying" is still searchable and keyword-only creatures still exist,
+    # but flagged so callers can exclude them from scoring.
+    is_keyword: bool = False
+
+
+def ability_text_hash(normalized_text: str) -> str:
+    """Stable dedup key. Distinct ability texts are embedded once and shared by
+    every face that has them ("flying" occurs on ~3.2k faces)."""
+    return hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+
+
+def _is_keyword_ability(part: str) -> bool:
+    candidate = part.strip().rstrip(".").lower()
+    if not candidate:
+        return False
+    if candidate in KEYWORD_ABILITIES:
+        return True
+    if _KEYWORD_ARGUMENT.sub("", candidate).strip() in KEYWORD_ABILITIES:
+        return True
+    # "Protection from black", "Landwalk"-style variants: the head word carries
+    # the keyword and the rest is its argument.
+    return candidate.split(" from ")[0] in KEYWORD_ABILITIES
+
+
+def split_ability_lines(oracle_text: str | None) -> list[str]:
+    """Return the raw ability strings for one face, in printed order."""
+    if not oracle_text or not oracle_text.strip():
+        return []
+
+    abilities: list[str] = []
+    for raw_line in oracle_text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith(_MODAL_BULLET) and abilities:
+            abilities[-1] = abilities[-1] + "\n" + line
+            continue
+
+        without_reminder = _REMINDER.sub("", line).strip()
+        parts = [part for part in without_reminder.split(",") if part.strip()]
+        # Split only when *every* part is a keyword; one non-keyword part means
+        # this is prose that happens to contain commas.
+        if len(parts) > 1 and all(_is_keyword_ability(part) for part in parts):
+            abilities.extend(part.strip().rstrip(".") for part in parts)
+            continue
+
+        abilities.append(line)
+    return abilities
+
+
+def build_face_abilities(
+    *,
+    oracle_text: str | None,
+    card_name: str = "",
+    type_line: str = "",
+) -> list[Ability]:
+    """Segment and normalize one face's oracle text into embeddable abilities.
+
+    Faces with no rules text (vanilla creatures) still get a single
+    placeholder ability so they remain represented in the index.
+    """
+    abilities: list[Ability] = []
+    seen_hashes: set[str] = set()
+    for text in split_ability_lines(oracle_text):
+        normalized = normalize_oracle_text(text=text, card_name=card_name, type_line=type_line)
+        # A line that was pure reminder text normalizes away to nothing.
+        if normalized == EMPTY_ORACLE_TOKEN:
+            continue
+        text_hash = ability_text_hash(normalized)
+        # Some cards print a keyword twice ("Flying, vigilance, prowess, prowess").
+        # Keep one copy so a repeated keyword doesn't get extra weight when
+        # ability sets are averaged during scoring.
+        if text_hash in seen_hashes:
+            continue
+        seen_hashes.add(text_hash)
+        abilities.append(
+            Ability(
+                ability_ix=len(abilities),
+                text=text,
+                normalized_text=normalized,
+                text_hash=text_hash,
+                is_keyword=_is_keyword_ability(_REMINDER.sub("", text)),
+            )
+        )
+
+    if not abilities:
+        return [
+            Ability(
+                ability_ix=0,
+                text="",
+                normalized_text=EMPTY_ORACLE_TOKEN,
+                text_hash=ability_text_hash(EMPTY_ORACLE_TOKEN),
+            )
+        ]
+    return abilities

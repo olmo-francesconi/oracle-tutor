@@ -9,7 +9,13 @@ const RESULTS_PAGE_SIZE = 24
 export function useSimilarQuery(pinnedCard: PinnedCard | null, filters: FilterState) {
   const apiReady = useApiReadyValue()
   return useInfiniteQuery({
-    queryKey: ['similar', pinnedCard?.oracle_id, pinnedCard?.face_ix, filters],
+    queryKey: [
+      'similar',
+      pinnedCard?.oracle_id,
+      pinnedCard?.face_ix,
+      pinnedCard?.abilities,
+      filters,
+    ],
     enabled: apiReady && pinnedCard !== null,
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) =>
@@ -19,6 +25,7 @@ export function useSimilarQuery(pinnedCard: PinnedCard | null, filters: FilterSt
         pageParam,
         RESULTS_PAGE_SIZE,
         filters,
+        pinnedCard!.abilities,
         signal
       ),
     getNextPageParam: (lastPage, allPages) =>

@@ -25,6 +25,9 @@ class SimilarCard(BaseModel):
     name: str
     card_name: str
     similarity: float
+    # The single ability on this card that best matched the query or seed card.
+    # None only for faces with no rules text.
+    matched_ability: str | None = None
     rank: int | None = None
     type_line: str | None = None
     mana_cost: str | None = None

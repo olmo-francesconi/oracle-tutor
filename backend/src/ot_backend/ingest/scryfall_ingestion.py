@@ -1,21 +1,22 @@
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import shutil
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 from urllib.parse import urlparse
 
-import ijson
 import requests
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from ..core.config import (
-    CARDS_JSON,
+    CARDS_BULK_FILE,
     DATA_DIR,
     DB_SCHEMA_VERSION,
     SCRYFALL_DATA_KEY,
@@ -27,12 +28,14 @@ from ..core.logging_config import setup_loggers
 from ..core.models import (
     Card,
     CardFace,
+    CardFaceAbility,
     CardRaw,
     CardRelationship,
     CardTagging,
     IngestionLog,
     SystemMetadata,
 )
+from ..semantic.ability_split import build_face_abilities
 from ..semantic.semantic_state import bump_semantic_data_version
 from .fetch_tags import run_fetch_tags
 
@@ -58,7 +61,8 @@ SKIPPED_LAYOUTS = (
 )
 
 META_JSON = DATA_DIR / "scryfall_meta.json"
-TEMP_CARDS_JSON = DATA_DIR / "scryfall-cards-temp.json"
+TEMP_CARDS_FILE = DATA_DIR / "scryfall-cards-temp.jsonl.gz"
+GZIP_MAGIC = b"\x1f\x8b"
 
 
 def _utcnow_naive() -> datetime:
@@ -139,7 +143,23 @@ def load_local_metadata() -> dict[str, Any] | None:
         return None
 
 
-def download_bulk_file(download_url: str, destination: Path = CARDS_JSON) -> None:
+def resolve_bulk_download_url(metadata: dict[str, Any]) -> str:
+    """Extract the bulk-file URL from a Scryfall `bulk_data` object.
+
+    Scryfall replaced the single-JSON-array `download_uri` with a gzipped
+    JSON Lines `jsonl_download_uri`. Only the new key exists now; fail loudly
+    rather than silently downloading nothing if that ever changes again.
+    """
+    download_url = metadata.get("jsonl_download_uri")
+    if not isinstance(download_url, str) or not download_url:
+        raise RuntimeError(
+            "Scryfall bulk metadata has no 'jsonl_download_uri'; "
+            f"available keys: {sorted(metadata)}"
+        )
+    return download_url
+
+
+def download_bulk_file(download_url: str, destination: Path = CARDS_BULK_FILE) -> None:
     logger.info("Downloading bulk data...")
     _validate_scryfall_download_url(download_url)
     with requests.get(
@@ -155,13 +175,37 @@ def download_bulk_file(download_url: str, destination: Path = CARDS_JSON) -> Non
     logger.info("Download complete.")
 
 
+def _open_bulk_stream(path: Path) -> gzip.GzipFile | IO[bytes]:
+    """Open a bulk file, transparently gunzipping it.
+
+    Scryfall serves `.jsonl.gz` with `Content-Type: application/gzip` and no
+    `Content-Encoding`, so the bytes we wrote are still compressed. Sniff the
+    magic anyway: if a proxy ever decompresses in transit we'd have plain
+    JSONL under a `.gz` name.
+    """
+    with path.open("rb") as probe:
+        is_gzip = probe.read(2) == GZIP_MAGIC
+    return gzip.open(path, "rb") if is_gzip else path.open("rb")
+
+
+def iter_bulk_cards(path: Path) -> Iterator[dict[str, Any]]:
+    """Stream card objects out of a Scryfall JSON Lines bulk file."""
+    with _open_bulk_stream(path) as stream:
+        for raw_line in stream:
+            line = raw_line.strip()
+            if not line:
+                continue
+            yield json.loads(line)
+
+
 def should_skip_card(card: dict[str, Any]) -> bool:
     """
     Return True for Scryfall records we don't want in the playable search corpus.
 
     Notes:
-    - We intentionally ingest from Scryfall's `oracle-cards` bulk file, which includes
-      several non-game-piece records.
+    - We intentionally ingest from Scryfall's `default-cards` bulk file (every printing,
+      so `cards_raw` is complete and `select_best_printing` can pick a representative).
+      It includes several non-game-piece records.
     - A common culprit is "Theme Cards" used in Jumpstart-style products. These have
       `type_line == "Card"` and oracle text like "(Theme color: {R})".
     """
@@ -382,6 +426,27 @@ def prepare_card_face(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -
     }
 
 
+def prepare_face_abilities(oracle_id: str, face_ix: int, face_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Segment a face's oracle text into the rows backing `card_face_abilities`."""
+    abilities = build_face_abilities(
+        oracle_text=face_data.get("oracle_text"),
+        card_name=face_data.get("name") or "",
+        type_line=face_data.get("type_line") or "",
+    )
+    return [
+        {
+            "oracle_id": oracle_id,
+            "face_ix": face_ix,
+            "ability_ix": ability.ability_ix,
+            "text": ability.text,
+            "normalized_text": ability.normalized_text,
+            "text_hash": ability.text_hash,
+            "is_keyword": ability.is_keyword,
+        }
+        for ability in abilities
+    ]
+
+
 def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
     if not batch_cards:
         return
@@ -389,6 +454,7 @@ def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
     raw_cards: list[dict[str, Any]] = []
     parents: list[dict[str, Any]] = []
     faces_to_insert: list[dict[str, Any]] = []
+    abilities_to_insert: list[dict[str, Any]] = []
     face_oracle_ids: set[str] = set()
 
     for card in batch_cards:
@@ -404,6 +470,7 @@ def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
         faces = card.get("card_faces") or [card]
         for face_ix, face in enumerate(faces):
             faces_to_insert.append(prepare_card_face(oracle_id, face_ix, face))
+            abilities_to_insert.extend(prepare_face_abilities(oracle_id, face_ix, face))
 
     raw_stmt = insert(CardRaw).values(raw_cards)
     raw_stmt = raw_stmt.on_conflict_do_update(
@@ -438,6 +505,10 @@ def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
 
     if faces_to_insert:
         session.execute(insert(CardFace).values(faces_to_insert))
+    # Must follow the face insert: card_face_abilities FKs (oracle_id, face_ix).
+    # The delete above removed the previous generation via ON DELETE CASCADE.
+    if abilities_to_insert:
+        session.execute(insert(CardFaceAbility).values(abilities_to_insert))
 
 
 def select_best_printing(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
@@ -519,33 +590,31 @@ def ingest_data_diff(
         seen_scryfall_ids: set[str] = set()
         stats = {"seen": 0, "kept": 0, "skipped": 0}
 
-        with new_path.open("rb") as f:
-            stream = ijson.items(f, "item")
-            for card in stream:
-                stats["seen"] += 1
-                if stats["seen"] % REDUCTION_LOG_INTERVAL == 0:
-                    logger.info(
-                        "Reduce progress seen=%d kept=%d skipped=%d",
-                        stats["seen"],
-                        len(best_printings),
-                        stats["skipped"],
-                    )
-                scryfall_id = card.get("id")
-                if isinstance(scryfall_id, str) and scryfall_id:
-                    seen_scryfall_ids.add(scryfall_id)
-                if should_skip_card(card):
-                    stats["skipped"] += 1
-                    continue
+        for card in iter_bulk_cards(new_path):
+            stats["seen"] += 1
+            if stats["seen"] % REDUCTION_LOG_INTERVAL == 0:
+                logger.info(
+                    "Reduce progress seen=%d kept=%d skipped=%d",
+                    stats["seen"],
+                    len(best_printings),
+                    stats["skipped"],
+                )
+            scryfall_id = card.get("id")
+            if isinstance(scryfall_id, str) and scryfall_id:
+                seen_scryfall_ids.add(scryfall_id)
+            if should_skip_card(card):
+                stats["skipped"] += 1
+                continue
 
-                oracle_id = card.get("oracle_id")
-                if not oracle_id:
-                    # Fallback for cards without oracle_id (rare, usually tokens/etc we skip anyway)
-                    continue
+            oracle_id = card.get("oracle_id")
+            if not oracle_id:
+                # Fallback for cards without oracle_id (rare, usually tokens/etc we skip anyway)
+                continue
 
-                if oracle_id not in best_printings:
-                    best_printings[oracle_id] = card
-                else:
-                    best_printings[oracle_id] = select_best_printing(best_printings[oracle_id], card)
+            if oracle_id not in best_printings:
+                best_printings[oracle_id] = card
+            else:
+                best_printings[oracle_id] = select_best_printing(best_printings[oracle_id], card)
 
         stats["kept"] = len(best_printings)
         logger.info("Reduction complete. Stats: %s", stats)
@@ -730,7 +799,7 @@ def update_scryfall_data(
 
     local_meta = load_local_metadata()
     local_updated_at = local_meta.get("updated_at") if local_meta else None
-    file_exists = CARDS_JSON.exists()
+    file_exists = CARDS_BULK_FILE.exists()
 
     # DB metadata check
     session = SessionLocal()
@@ -792,18 +861,18 @@ def update_scryfall_data(
     elif remote_updated_at and remote_updated_at != local_updated_at:
         download_needed = True
 
-    ingestion_source = CARDS_JSON
+    ingestion_source = CARDS_BULK_FILE
     if download_needed and remote_meta:
         try:
-            download_bulk_file(remote_meta["download_uri"], TEMP_CARDS_JSON)
-            ingestion_source = TEMP_CARDS_JSON
+            download_bulk_file(resolve_bulk_download_url(remote_meta), TEMP_CARDS_FILE)
+            ingestion_source = TEMP_CARDS_FILE
         except Exception as e:
             logger.error("Download failed: %s", e)
             if strict:
                 raise
             return False
     else:
-        if not CARDS_JSON.exists():
+        if not CARDS_BULK_FILE.exists():
             logger.error("No local data found and download skipped.")
             if strict:
                 raise RuntimeError("No local cards.json and remote download was unavailable/skipped.")
@@ -811,7 +880,7 @@ def update_scryfall_data(
 
     # Ingestion decision
     ingestion_needed = False
-    if ingestion_source == TEMP_CARDS_JSON:
+    if ingestion_source == TEMP_CARDS_FILE:
         ingestion_needed = True
     elif force:
         ingestion_needed = True
@@ -836,9 +905,9 @@ def update_scryfall_data(
                 trigger_type=effective_trigger,
             )
 
-            if ingestion_source == TEMP_CARDS_JSON:
+            if ingestion_source == TEMP_CARDS_FILE:
                 logger.info("Stage: promote downloaded bulk file")
-                shutil.move(str(TEMP_CARDS_JSON), str(CARDS_JSON))
+                shutil.move(str(TEMP_CARDS_FILE), str(CARDS_BULK_FILE))
                 if remote_meta:
                     save_local_metadata(remote_meta)
 
@@ -848,9 +917,9 @@ def update_scryfall_data(
             logger.error("Update process failed: %s", e, exc_info=True)
             if strict:
                 raise
-            if TEMP_CARDS_JSON.exists():
+            if TEMP_CARDS_FILE.exists():
                 try:
-                    TEMP_CARDS_JSON.unlink()
+                    TEMP_CARDS_FILE.unlink()
                 except Exception:
                     logger.warning("Failed to cleanup temp cards file.")
             return False

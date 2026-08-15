@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font-size",
+        "value": "0.85rem",
+        "createdAt": "2026-08-15T15:06:50.356Z",
+        "reason": "pre-existing step used 7x in src (ResultsView pinned summary, CardDetailOverlay); AbilityTuner replaces that exact oracle-text block and must match its size"
+      }
+    ]
+  }
+}

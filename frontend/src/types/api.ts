@@ -1,3 +1,10 @@
+/** One segmented ability of a face — the unit similarity is scored over. */
+export interface CardAbility {
+  ability_ix: number
+  text: string
+  is_keyword: boolean
+}
+
 export interface CardFace {
   oracle_id: string
   face_ix: number
@@ -9,6 +16,7 @@ export interface CardFace {
   toughness?: string | null
   colors?: string[] | null
   image_uris?: Record<string, string> | null
+  abilities?: CardAbility[] | null
 }
 
 export interface Card {
@@ -36,6 +44,8 @@ export interface SimilarCard extends Card {
   face_ix: number
   image_side: 'front' | 'back'
   similarity: number
+  /** The single ability that drove the match, for highlighting why this card ranked. */
+  matched_ability?: string | null
   card_name?: string | null
 }
 
@@ -65,6 +75,8 @@ export interface FilterState {
   rarities?: string[]
   matchMode?: 'exact' | 'at_most' | 'at_least'
   colorFeature?: 'identity' | 'colors'
+  /** Exclude bare keyword abilities (Flying, Trample, ...) from similarity scoring. */
+  ignoreKeywords?: boolean
 }
 
 export interface OracleSamples {

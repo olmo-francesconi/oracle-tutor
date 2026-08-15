@@ -14,7 +14,7 @@ def test_fetch_bulk_metadata_sends_required_headers(monkeypatch) -> None:
             pass
 
         def json(self) -> dict[str, str]:
-            return {"download_uri": "https://data.scryfall.io/default-cards/x.json"}
+            return {"jsonl_download_uri": "https://data.scryfall.io/default-cards/x.jsonl.gz"}
 
     def fake_get(url: str, **kwargs: Any) -> FakeResponse:
         captured["url"] = url
@@ -25,7 +25,7 @@ def test_fetch_bulk_metadata_sends_required_headers(monkeypatch) -> None:
 
     meta = si.fetch_bulk_metadata()
 
-    assert meta["download_uri"].startswith("https://")
+    assert si.resolve_bulk_download_url(meta).startswith("https://")
     assert captured["url"] == si.BULK_DATA_URL
     assert captured["headers"]["User-Agent"] == si.SCRYFALL_HEADERS["User-Agent"]
     assert captured["headers"]["Accept"] == "application/json"

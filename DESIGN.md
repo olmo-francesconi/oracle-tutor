@@ -124,6 +124,7 @@ A warm, off-white press sheet inked deep, pulled in a single editor's red.
 
 ### Tertiary
 - **Highlighter** (#f5c400): Held in reserve for future emphasis. Not currently in use on the public surface.
+- **Press Green** (#0f7d3b): The ability tuner only, where it is the sole signal that an ability is *forced* against `editors-red` for *rejected*. Matched to the red's weight so neither state dominates the run. It exists nowhere else on the surface, and a second use is a sign the tuner's state language is leaking.
 
 ### Named Rules
 

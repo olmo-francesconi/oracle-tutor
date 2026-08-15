@@ -13,6 +13,12 @@ import {
   OracleSamplesSchema,
   SimilarCardsPageSchema,
 } from '../types/schemas'
+import type { AbilitySelection } from '../types/ui'
+import {
+  encodeAbilityList,
+  excludedAbilities,
+  includedAbilities,
+} from './abilitySelection'
 import { encodeCardTypeFilter, encodeFormatFilter } from './filters'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
@@ -30,6 +36,9 @@ type SimilarCardsParams = {
   rarity?: string
   match_mode?: MatchMode
   color_feature?: 'identity' | 'colors'
+  ignore_keywords?: string
+  include_abilities?: string
+  exclude_abilities?: string
 }
 
 type OracleSearchParams = SimilarCardsParams & {
@@ -158,6 +167,7 @@ export function buildSimilarCardsParams(
   }
   if (filters.matchMode) params.match_mode = filters.matchMode
   if (filters.colorFeature) params.color_feature = filters.colorFeature
+  if (filters.ignoreKeywords) params.ignore_keywords = 'true'
 
   return params
 }
@@ -184,6 +194,7 @@ export async function getSimilarCards(
   offset: number = 0,
   limit: number = 24,
   filters?: FilterState,
+  abilities?: AbilitySelection,
   signal?: AbortSignal
 ): Promise<SimilarCardsPage> {
   const data = await getJson(
@@ -193,6 +204,8 @@ export async function getSimilarCards(
       ...buildSimilarCardsParams(limit, offset, filters),
       oracle_id: id,
       face_ix: faceIx,
+      include_abilities: encodeAbilityList(includedAbilities(abilities)),
+      exclude_abilities: encodeAbilityList(excludedAbilities(abilities)),
     },
     signal
   )

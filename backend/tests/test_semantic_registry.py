@@ -11,10 +11,11 @@ from ot_backend.core.db_init import init_db
 from ot_backend.core.models import (
     Card,
     CardFace,
+    CardFaceAbility,
     CardRaw,
+    SemanticAbilityEmbedding,
     SemanticModel,
     SemanticModelArtifact,
-    SemanticModelEmbedding,
     SystemMetadata,
 )
 from ot_backend.semantic import index
@@ -55,8 +56,7 @@ def _make_model_bundle(tmp_path, *, include_pytorch: bool = True, include_embedd
     embeddings_dir.mkdir(parents=True)
     np.savez_compressed(
         embeddings_dir / "embeddings.npz",
-        oracle_ids=np.asarray(["o1", "o2"]),
-        face_ixs=np.asarray([0, 0], dtype=np.int32),
+        text_hashes=np.asarray([_ABILITY_HASHES[0], _ABILITY_HASHES[1]]),
         embeddings=np.asarray([[1.0] + [0.0] * 383, [0.0, 1.0] + [0.0] * 382], dtype=np.float32),
     )
     training_dir = model_root / "training"
@@ -80,9 +80,16 @@ def _make_model_bundle(tmp_path, *, include_pytorch: bool = True, include_embedd
     return bundle_model_directory(model_root)
 
 
+# One ability per seeded face. Ability embeddings are keyed by text hash, so
+# tests that store or assert on vectors address them through these.
+_ABILITY_TEXTS = ("deal three damage to any target", "deal two damage to any target")
+_ABILITY_HASHES = tuple(hashlib.sha256(t.encode()).hexdigest() for t in _ABILITY_TEXTS)
+
+
 def _reset_registry_tables() -> None:
     with SessionLocal() as db:
-        db.query(SemanticModelEmbedding).delete()
+        db.query(SemanticAbilityEmbedding).delete()
+        db.query(CardFaceAbility).delete()
         db.query(SemanticModelArtifact).delete()
         db.query(SemanticModel).delete()
         db.query(SystemMetadata).filter(SystemMetadata.key.in_(["semantic_data", "semantic_dataset_export", "semantic_active_model"])).delete()
@@ -93,7 +100,7 @@ def _reset_registry_tables() -> None:
 
 def _seed_minimal_cards() -> None:
     """Seed the minimal (oracle_id, face_ix) rows referenced by promotion tests
-    so that `semantic_model_embeddings` FK constraints pass on Postgres.
+    plus one ability per face, so ability embeddings have something to join to.
     """
     with SessionLocal() as db:
         if db.query(CardFace).filter(CardFace.oracle_id == "o1").count() > 0:
@@ -145,6 +152,21 @@ def _seed_minimal_cards() -> None:
             [
                 CardFace(oracle_id="o1", face_ix=0, name="Lightning Bolt", type_line="Instant", colors=["R"]),
                 CardFace(oracle_id="o2", face_ix=0, name="Shock", type_line="Instant", colors=["R"]),
+            ]
+        )
+        db.flush()
+
+        db.add_all(
+            [
+                CardFaceAbility(
+                    oracle_id=oracle_id,
+                    face_ix=0,
+                    ability_ix=0,
+                    text=_ABILITY_TEXTS[i],
+                    normalized_text=_ABILITY_TEXTS[i],
+                    text_hash=_ABILITY_HASHES[i],
+                )
+                for i, oracle_id in enumerate(("o1", "o2"))
             ]
         )
         db.commit()
@@ -277,8 +299,7 @@ def test_register_model_bundle_bytes_rejects_embedding_dimension_mismatch(tmp_pa
     (model_root / "embeddings").mkdir(parents=True)
     np.savez_compressed(
         model_root / "embeddings" / "embeddings.npz",
-        oracle_ids=np.asarray(["o1"]),
-        face_ixs=np.asarray([0], dtype=np.int32),
+        text_hashes=np.asarray([_ABILITY_HASHES[0]]),
         embeddings=np.asarray([[1.0] + [0.0] * 767], dtype=np.float32),
     )
     (model_root / "training").mkdir(parents=True)
@@ -347,8 +368,8 @@ def test_run_semantic_model_promotion_activates_candidate_and_stores_embeddings(
             store_model_embeddings(
                 model_id,
                 [
-                    ("o1", 0, [1.0] + [0.0] * 383),
-                    ("o2", 0, [0.0, 1.0] + [0.0] * 382),
+                    (_ABILITY_HASHES[0], [1.0] + [0.0] * 383),
+                    (_ABILITY_HASHES[1], [0.0, 1.0] + [0.0] * 382),
                 ],
             ),
             "onnx",
@@ -366,7 +387,11 @@ def test_run_semantic_model_promotion_activates_candidate_and_stores_embeddings(
         assert candidate.is_active is True
         assert active.status == SEMANTIC_MODEL_STATUS_READY
         assert active.is_active is False
-        embeddings = db.query(SemanticModelEmbedding).filter(SemanticModelEmbedding.model_id == candidate_id).all()
+        embeddings = (
+            db.query(SemanticAbilityEmbedding)
+            .filter(SemanticAbilityEmbedding.model_id == candidate_id)
+            .all()
+        )
         assert len(embeddings) == 2
         assert get_active_model_data_version(db) == 1
         assert candidate.metrics_json is not None

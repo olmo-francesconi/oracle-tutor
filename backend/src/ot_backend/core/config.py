@@ -8,14 +8,22 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 DATA_DIR = PROJECT_ROOT / "data"
-CARDS_JSON = DATA_DIR / "cards.json"
+# Scryfall now publishes bulk data only as gzipped JSON Lines (`jsonl_download_uri`);
+# the old single-JSON-array `download_uri` was removed. Stored compressed on disk.
+CARDS_BULK_FILE = DATA_DIR / "cards.jsonl.gz"
 DEFAULT_HF_CACHE_DIR = DATA_DIR / "huggingface"
 SCRYFALL_DATA_KEY = "scryfall_data"
 
 # Semantic Versioning for DB Schema (Major.Minor.Patch)
 # Increment Major for breaking DB changes requiring full rebuild.
 # Reset to 1.0.0 alongside the migration squash for v2.0.0.
-DB_SCHEMA_VERSION = "1.0.0"
+# 1.1.0 adds the ability layer: abilities are derived from oracle text at
+# ingest time, so the worker must re-ingest to populate card_face_abilities
+# even when Scryfall's bulk timestamp is unchanged.
+# 1.2.0 makes the card-name self-reference type-aware ("this creature" rather
+# than "this card"), which changes normalized_text and therefore every
+# text_hash — abilities must be re-derived and the model re-promoted.
+DB_SCHEMA_VERSION = "1.2.0"
 
 # API startup migration wait behavior
 SCHEMA_WAIT_TIMEOUT_SECONDS = float(os.getenv("OT_SCHEMA_WAIT_TIMEOUT_SECONDS", "30"))

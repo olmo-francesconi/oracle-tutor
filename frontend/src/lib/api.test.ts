@@ -4,6 +4,7 @@ import {
   assertOk,
   buildSimilarCardsParams,
   getOracleSamples,
+  getSimilarCards,
   normalizeCard,
   normalizeCardMatch,
   normalizeSimilarCard,
@@ -171,5 +172,45 @@ describe('normalizers', () => {
       oracle_text: 'Mystery text',
       similarity: 0.92,
     })
+  })
+})
+
+describe('getSimilarCards ability selection', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock)
+    fetchMock.mockResolvedValue(createJsonResponse({ items: [], has_more: false }, { status: 200 }))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+  })
+
+  function requestedParams(): URLSearchParams {
+    const path = fetchMock.mock.calls[0]?.[0]
+    return new URL(String(path), 'http://oracle.test').searchParams
+  }
+
+  it('sends forced and rejected abilities as sorted index lists', async () => {
+    await getSimilarCards('o1', 0, 0, 24, undefined, { 2: 'include', 0: 'include', 1: 'exclude' })
+
+    expect(requestedParams().get('include_abilities')).toBe('0,2')
+    expect(requestedParams().get('exclude_abilities')).toBe('1')
+  })
+
+  it('omits both params when nothing is tuned', async () => {
+    await getSimilarCards('o1', 0, 0, 24, undefined, undefined)
+
+    expect(requestedParams().has('include_abilities')).toBe(false)
+    expect(requestedParams().has('exclude_abilities')).toBe(false)
+  })
+
+  it('sends only the rejected list when nothing is forced', async () => {
+    await getSimilarCards('o1', 0, 0, 24, undefined, { 1: 'exclude' })
+
+    expect(requestedParams().has('include_abilities')).toBe(false)
+    expect(requestedParams().get('exclude_abilities')).toBe('1')
   })
 })

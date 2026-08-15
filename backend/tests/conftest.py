@@ -55,10 +55,11 @@ from ot_backend.core.db_init import init_db  # noqa: E402
 from ot_backend.core.models import (  # noqa: E402
     Card,
     CardFace,
+    CardFaceAbility,
     CardRaw,
+    SemanticAbilityEmbedding,
     SemanticModel,
     SemanticModelArtifact,
-    SemanticModelEmbedding,
     SystemMetadata,
 )
 
@@ -95,7 +96,8 @@ def _make_card_raw(
 def _seed_db() -> None:
     init_db()
     with SessionLocal() as db:
-        db.query(SemanticModelEmbedding).delete()
+        db.query(SemanticAbilityEmbedding).delete()
+        db.query(CardFaceAbility).delete()
         db.query(SemanticModelArtifact).delete()
         db.query(SemanticModel).delete()
         db.query(CardFace).delete()

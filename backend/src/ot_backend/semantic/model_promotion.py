@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..core.database import SessionLocal
-from ..core.models import CardFace, SemanticModel, SemanticModelEmbedding
+from ..core.models import CardFaceAbility, SemanticAbilityEmbedding, SemanticModel
 from .model_registry import (
     SEMANTIC_MODEL_STATUS_ACTIVE,
     SEMANTIC_MODEL_STATUS_EMBEDDING,
@@ -20,7 +20,6 @@ from .model_registry import (
     materialize_semantic_model,
 )
 from .semantic_state import get_semantic_data_version, record_active_model_data_version
-from .text_prep import normalize_oracle_text
 from .training_service import load_sentence_transformer_class
 
 logger = logging.getLogger("ot_backend.semantic.model_promotion")
@@ -133,30 +132,28 @@ def promote_semantic_model(model_id: str, *, embed_batch_size: int = _DEFAULT_RE
             _release_promotion_lock(lock_db)
 
 
-def _iter_face_rows(batch_size: int) -> Iterator[list[tuple[str, int, str]]]:
+def _iter_ability_rows(batch_size: int) -> Iterator[list[tuple[str, str]]]:
+    """Yield batches of (text_hash, normalized_text) for every DISTINCT ability.
+
+    Deduplicating here is the whole point of hashing ability text: ~63k ability
+    instances collapse to ~37k distinct texts, so each one is encoded once and
+    shared by every face that has it.
+    """
     effective_batch_size = max(1, batch_size)
     with SessionLocal() as db:
         rows = db.execute(
             select(
-                CardFace.oracle_id,
-                CardFace.face_ix,
-                CardFace.name,
-                CardFace.type_line,
-                CardFace.oracle_text,
-            ).order_by(CardFace.oracle_id, CardFace.face_ix)
+                CardFaceAbility.text_hash,
+                func.min(CardFaceAbility.normalized_text),
+            )
+            .group_by(CardFaceAbility.text_hash)
+            .order_by(CardFaceAbility.text_hash)
         )
         while True:
             chunk = rows.fetchmany(effective_batch_size)
             if not chunk:
                 return
-            yield [
-                (
-                    oracle_id,
-                    face_ix,
-                    normalize_oracle_text(text=oracle_text or "", card_name=name or "", type_line=type_line or ""),
-                )
-                for oracle_id, face_ix, name, type_line, oracle_text in chunk
-            ]
+            yield [(text_hash, normalized_text) for text_hash, normalized_text in chunk]
 
 
 def _resolve_embeddings_archive_path(bundle_root: Path) -> Path | None:
@@ -171,11 +168,15 @@ def _resolve_pytorch_model_path(bundle_root: Path) -> Path | None:
     return None
 
 
+class _MissingTorchError(RuntimeError):
+    """The PyTorch embedding backend isn't installed in this environment."""
+
+
 def _store_model_embeddings_batches(
     model_id: str,
-    row_batches: Iterable[list[tuple[str, int, list[float]]]],
+    row_batches: Iterable[list[tuple[str, list[float]]]],
 ) -> int:
-    """Replace all embeddings for `model_id` atomically.
+    """Replace all ability embeddings for `model_id` atomically.
 
     Staging-via-single-transaction: the old rows and all new batches sit in one
     transaction, so concurrent readers always see the pre-txn state until the
@@ -184,18 +185,17 @@ def _store_model_embeddings_batches(
     """
     total = 0
     with SessionLocal() as db:
-        db.query(SemanticModelEmbedding).filter(SemanticModelEmbedding.model_id == model_id).delete()
+        db.query(SemanticAbilityEmbedding).filter(SemanticAbilityEmbedding.model_id == model_id).delete()
         for rows in row_batches:
             if not rows:
                 continue
             db.add_all(
-                SemanticModelEmbedding(
+                SemanticAbilityEmbedding(
                     model_id=model_id,
-                    oracle_id=oracle_id,
-                    face_ix=face_ix,
+                    text_hash=text_hash,
                     embedding=embedding,
                 )
-                for oracle_id, face_ix, embedding in rows
+                for text_hash, embedding in rows
             )
             db.flush()
             total += len(rows)
@@ -203,49 +203,66 @@ def _store_model_embeddings_batches(
     return total
 
 
-def store_model_embeddings(model_id: str, rows: list[tuple[str, int, list[float]]]) -> int:
+def store_model_embeddings(model_id: str, rows: list[tuple[str, list[float]]]) -> int:
     return _store_model_embeddings_batches(model_id, [rows])
 
 
-def _store_precomputed_embeddings_from_archive(model_id: str, archive_path: Path, *, batch_size: int) -> int:
+def _store_precomputed_embeddings_from_archive(
+    model_id: str, archive_path: Path, *, batch_size: int
+) -> int | None:
+    """Load ability vectors from a bundle's precomputed archive.
+
+    Returns None when the archive predates the ability layer, signalling the
+    caller to recompute from the bundled model weights.
+    """
     logger.info("Loading precomputed semantic embeddings from %s", archive_path)
     with np.load(archive_path, allow_pickle=False) as archive:
-        oracle_ids = archive["oracle_ids"]
-        face_ixs = archive["face_ixs"]
+        if "text_hashes" not in archive:
+            # Legacy face-granular bundle (oracle_ids/face_ixs). Not usable for
+            # ability search; the caller recomputes from the bundled model
+            # weights instead of failing the promotion.
+            logger.warning(
+                "Ignoring face-granular precomputed archive %s; recomputing at ability granularity.",
+                archive_path,
+            )
+            return None
+        text_hashes = archive["text_hashes"]
         embeddings = np.asarray(archive["embeddings"], dtype=np.float32)
 
-        if len(oracle_ids) != len(face_ixs) or len(oracle_ids) != len(embeddings):
+        if len(text_hashes) != len(embeddings):
             raise RuntimeError(
                 f"Precomputed embeddings archive {archive_path} has inconsistent lengths: "
-                f"oracle_ids={len(oracle_ids)} face_ixs={len(face_ixs)} embeddings={len(embeddings)}."
+                f"text_hashes={len(text_hashes)} embeddings={len(embeddings)}."
             )
 
-        def iter_batches() -> Iterator[list[tuple[str, int, list[float]]]]:
+        def iter_batches() -> Iterator[list[tuple[str, list[float]]]]:
             step = max(1, batch_size)
-            for start in range(0, len(oracle_ids), step):
-                end = min(start + step, len(oracle_ids))
+            for start in range(0, len(text_hashes), step):
+                end = min(start + step, len(text_hashes))
                 yield [
                     (
-                        str(oracle_ids[idx]),
-                        int(face_ixs[idx]),
+                        str(text_hashes[idx]),
                         np.asarray(embeddings[idx], dtype=np.float32).tolist(),
                     )
                     for idx in range(start, end)
                 ]
 
         count = _store_model_embeddings_batches(model_id, iter_batches())
-        logger.info("Loaded precomputed embeddings. faces=%d", count)
+        logger.info("Loaded precomputed embeddings. abilities=%d", count)
         return count
 
 
 def _compute_and_store_embeddings_from_pytorch_model(model_id: str, model_path: Path, *, batch_size: int) -> int:
-    SentenceTransformer = load_sentence_transformer_class()
+    try:
+        SentenceTransformer = load_sentence_transformer_class()
+    except Exception as exc:
+        raise _MissingTorchError(str(exc)) from exc
     logger.info("Computing semantic embeddings with PyTorch model at %s (batch_size=%d)", model_path, batch_size)
     model = SentenceTransformer(str(model_path), local_files_only=True)
 
-    def iter_batches() -> Iterator[list[tuple[str, int, list[float]]]]:
-        for face_rows in _iter_face_rows(batch_size):
-            texts = [text for _, _, text in face_rows]
+    def iter_batches() -> Iterator[list[tuple[str, list[float]]]]:
+        for ability_rows in _iter_ability_rows(batch_size):
+            texts = [text for _, text in ability_rows]
             vectors = np.asarray(
                 model.encode(
                     texts,
@@ -256,16 +273,12 @@ def _compute_and_store_embeddings_from_pytorch_model(model_id: str, model_path: 
                 dtype=np.float32,
             )
             yield [
-                (
-                    oracle_id,
-                    face_ix,
-                    np.asarray(vectors[idx], dtype=np.float32).tolist(),
-                )
-                for idx, (oracle_id, face_ix, _text) in enumerate(face_rows)
+                (text_hash, np.asarray(vectors[idx], dtype=np.float32).tolist())
+                for idx, (text_hash, _text) in enumerate(ability_rows)
             ]
 
     count = _store_model_embeddings_batches(model_id, iter_batches())
-    logger.info("PyTorch embedding complete. faces=%d", count)
+    logger.info("PyTorch embedding complete. abilities=%d", count)
     return count
 
 
@@ -275,35 +288,42 @@ def _compute_and_store_embeddings_from_onnx_model(model_id: str, model_root: Pat
     logger.info("Computing semantic embeddings with ONNX model at %s (batch_size=%d)", model_root, batch_size)
     encoder = OnnxTextEncoder(model_root=model_root)
 
-    def iter_batches() -> Iterator[list[tuple[str, int, list[float]]]]:
-        for face_rows in _iter_face_rows(batch_size):
-            texts = [text for _, _, text in face_rows]
+    def iter_batches() -> Iterator[list[tuple[str, list[float]]]]:
+        for ability_rows in _iter_ability_rows(batch_size):
+            texts = [text for _, text in ability_rows]
             vectors = encoder.encode_many(texts, batch_size=max(1, batch_size), normalize_inputs=False)
-            yield [
-                (oracle_id, face_ix, vectors[idx])
-                for idx, (oracle_id, face_ix, _text) in enumerate(face_rows)
-            ]
+            yield [(text_hash, vectors[idx]) for idx, (text_hash, _text) in enumerate(ability_rows)]
 
     count = _store_model_embeddings_batches(model_id, iter_batches())
-    logger.info("ONNX embedding complete. faces=%d", count)
+    logger.info("ONNX embedding complete. abilities=%d", count)
     return count
 
 
 def _populate_model_embeddings(model_id: str, model_root: Path, bundle_root: Path, *, batch_size: int) -> tuple[int, str]:
     archive_path = _resolve_embeddings_archive_path(bundle_root)
     if archive_path is not None:
-        return _store_precomputed_embeddings_from_archive(model_id, archive_path, batch_size=batch_size), "precomputed"
+        precomputed = _store_precomputed_embeddings_from_archive(model_id, archive_path, batch_size=batch_size)
+        if precomputed is not None:
+            return precomputed, "precomputed"
 
     pytorch_model_path = _resolve_pytorch_model_path(bundle_root)
     if pytorch_model_path is not None:
-        return (
-            _compute_and_store_embeddings_from_pytorch_model(
-                model_id,
-                pytorch_model_path,
-                batch_size=batch_size,
-            ),
-            "pytorch",
-        )
+        try:
+            return (
+                _compute_and_store_embeddings_from_pytorch_model(
+                    model_id,
+                    pytorch_model_path,
+                    batch_size=batch_size,
+                ),
+                "pytorch",
+            )
+        except _MissingTorchError as exc:
+            # Bundles ship both PyTorch and ONNX weights, but the API image is
+            # built with `--extra api` and has no torch. Falling back to the
+            # ONNX weights in the same bundle keeps promotion runnable there;
+            # without this, promotion only ever works on a machine with the
+            # training extras. Any other failure propagates.
+            logger.info("PyTorch backend unavailable (%s); embedding via the bundle's ONNX weights.", exc)
 
     return _compute_and_store_embeddings_from_onnx_model(model_id, model_root, batch_size=batch_size), "onnx"
 
@@ -352,7 +372,7 @@ def _mark_model_failed(model_id: str, error_message: str) -> None:
 
 def _clear_model_embeddings(model_id: str) -> None:
     with SessionLocal() as db:
-        db.query(SemanticModelEmbedding).filter(SemanticModelEmbedding.model_id == model_id).delete()
+        db.query(SemanticAbilityEmbedding).filter(SemanticAbilityEmbedding.model_id == model_id).delete()
         db.commit()
 
 
