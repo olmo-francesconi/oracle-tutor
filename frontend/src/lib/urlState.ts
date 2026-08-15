@@ -143,7 +143,7 @@ export function writeSearchStateToUrl(
 export function buildCanonicalUrl(
   origin: string,
   query: string | null,
-  pinnedCard?: { oracle_id: string; face_ix: number } | null
+  pinnedCard?: UrlPinnedCard | null
 ): string {
   const cleanOrigin = origin.replace(/\/+$/, '')
   // The canonical URL strips filters and ability selections: the same card or

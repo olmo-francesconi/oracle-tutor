@@ -5,7 +5,7 @@ import { SearchBox } from '../components/SearchBox/SearchBox'
 import { SymbolText } from '../components/SymbolText'
 import { SearchErrorPanel } from '../components/errors/SearchErrorPanel'
 import type { CardAbility, CardMatch, FilterState, SimilarCard } from '../types/api'
-import type { AbilitySelection, SearchShellState } from '../types/ui'
+import type { AbilityChoice, AbilitySelection, SearchShellState } from '../types/ui'
 
 type PinnedSummary = {
   oracleText: string | null
