@@ -1,6 +1,6 @@
 [project]
 name = "ot-backend"
-version = "2.2.0"
+dynamic = ["version"]
 description = "FastAPI service for MTG oracle search (uv-managed)."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -52,6 +52,9 @@ dev = [
   "basedpyright>=1.38.3",
   "modal>=0.73",
 ]
+
+[tool.hatch.version]
+path = "src/ot_backend/__init__.py"
 
 [build-system]
 requires = ["hatchling>=1.25.0"]

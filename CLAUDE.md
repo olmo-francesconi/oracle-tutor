@@ -165,10 +165,12 @@ When `develop` is release-ready:
 1. **Bump versions on develop first** so the release commit reflects the new version. Tag must match the version in both files.
 
    ```bash
-   # edit backend/pyproject.toml and frontend/package.json to vX.Y.Z
+   # edit backend/src/ot_backend/__init__.py (__version__) and frontend/package.json to vX.Y.Z
+   # backend/pyproject.toml has NO version field — hatchling reads __version__
+   # from the package, which is also what /version serves.
    uv lock --project backend                # refresh backend/uv.lock
    ( cd frontend && npm install )           # refresh frontend/package-lock.json
-   git add backend/pyproject.toml backend/uv.lock frontend/package.json frontend/package-lock.json
+   git add backend/src/ot_backend/__init__.py backend/uv.lock frontend/package.json frontend/package-lock.json
    git commit -m "chore: bump version to X.Y.Z"
    git push origin develop
    ```
@@ -313,7 +315,7 @@ Secrets that must never appear in code or committed files: `ADMIN_PASSWORD`, `AD
 
 ## Rules
 
-- Backend versioned independently from frontend: `backend/pyproject.toml` = `2.0.0`, `frontend/package.json` = `2.0.0`
+- Backend versioned independently from frontend: `backend/src/ot_backend/__init__.py` (`__version__`, the single source of truth `pyproject.toml` derives from) and `frontend/package.json`
 - Worker is a one-shot container; runs daily via Railway Cron and exits
 - Never run destructive Alembic migrations in production without reviewing the migration file first
 - Tests run against a real Postgres (via testcontainers + `pgvector/pgvector:pg17`). Docker must be running locally and in CI.

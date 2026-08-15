@@ -492,3 +492,19 @@ def test_card_detail_exposes_segmented_abilities(client):
         {"ability_ix": 0, "text": "Flying", "is_keyword": True},
         {"ability_ix": 1, "text": "Draw a card.", "is_keyword": False},
     ]
+
+
+def test_version_endpoint_reports_the_package_version(client):
+    """/version must not fall back to a placeholder.
+
+    The runtime image never installs the project as a distribution, so this
+    previously resolved through `importlib.metadata` to a hardcoded "1.2.0"
+    in production while the real version moved on.
+    """
+    from ot_backend import __version__
+
+    res = client.get("/version")
+
+    assert res.status_code == 200
+    assert res.json() == {"version": __version__}
+    assert __version__ not in {"unknown", "1.2.0"}

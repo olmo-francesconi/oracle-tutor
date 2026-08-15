@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.metadata
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -16,6 +15,7 @@ from sqlalchemy.exc import TimeoutError as SQLTimeoutError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .. import __version__
 from ..core.config import (
     MAX_REQUEST_BYTES,
     SCHEMA_WAIT_INTERVAL_SECONDS,
@@ -41,14 +41,14 @@ _SEMANTIC_ADMIN_PREFIX: Final[str] = "/admin/semantic-models"
 _SEMANTIC_ADMIN_JOBS_PREFIX: Final[str] = "/admin/semantic-jobs"
 
 
-def _get_api_version() -> str:
-    try:
-        return importlib.metadata.version("oracle-tutor-api")
-    except importlib.metadata.PackageNotFoundError:
-        return "1.2.0"
-
-
-API_VERSION: Final[str] = _get_api_version()
+# Read straight from the package rather than from distribution metadata: the
+# runtime image installs dependencies with `uv sync --no-install-project` and
+# copies the source in, so no distribution named `ot-backend` exists to look up.
+# The old `importlib.metadata.version("oracle-tutor-api")` lookup therefore
+# always raised and served its hardcoded fallback, and /version reported 1.2.0
+# in production for several releases. pyproject derives its version from the
+# same attribute (hatchling `dynamic`), so the two cannot drift.
+API_VERSION: Final[str] = __version__
 
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
