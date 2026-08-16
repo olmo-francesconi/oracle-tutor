@@ -6,6 +6,7 @@ colors:
   pure-surface: "#ffffff"
   pressed-ink: "#111111"
   editors-red: "#cc1100"
+  press-green: "#0f7d3b"
   faded-mark: "#7a7670"
   newsprint-rule: "#d8d2c8"
   highlighter: "#f5c400"
@@ -39,6 +40,12 @@ typography:
     fontWeight: 500
     lineHeight: 1.2
     letterSpacing: "0.18em"
+  metadata:
+    fontFamily: "Big Shoulders Display, sans-serif"
+    fontSize: "1.05rem"
+    fontWeight: 900
+    lineHeight: 1
+    letterSpacing: "-0.01em"
 rounded:
   none: "0"
   card: "0.75rem"

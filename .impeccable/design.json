@@ -1,0 +1,349 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-16T08:05:00Z",
+  "title": "Design System: Oracle Tutor",
+  "extensions": {
+    "colorMeta": {
+      "newsprint-cream": {
+        "role": "neutral",
+        "displayName": "Newsprint Cream",
+        "canonical": "#f0ede6",
+        "tonalRamp": [
+          "#353533",
+          "#6b6966",
+          "#a09e99",
+          "#d5d3cc",
+          "#f2efe9",
+          "#f5f3ee",
+          "#f8f7f4",
+          "#fcfbf9"
+        ]
+      },
+      "pure-surface": {
+        "role": "neutral",
+        "displayName": "Pure Surface",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#393939",
+          "#717171",
+          "#aaaaaa",
+          "#e3e3e3",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff"
+        ]
+      },
+      "pressed-ink": {
+        "role": "neutral",
+        "displayName": "Pressed Ink",
+        "canonical": "#111111",
+        "tonalRamp": [
+          "#040404",
+          "#080808",
+          "#0b0b0b",
+          "#0f0f0f",
+          "#2b2b2b",
+          "#606060",
+          "#959595",
+          "#cacaca"
+        ]
+      },
+      "editors-red": {
+        "role": "primary",
+        "displayName": "Editor's Red",
+        "canonical": "#cc1100",
+        "tonalRamp": [
+          "#2d0400",
+          "#5b0800",
+          "#880b00",
+          "#b50f00",
+          "#d22b1c",
+          "#dd6055",
+          "#e8958e",
+          "#f4cac6"
+        ]
+      },
+      "press-green": {
+        "role": "tertiary",
+        "displayName": "Press Green",
+        "canonical": "#0f7d3b",
+        "tonalRamp": [
+          "#031c0d",
+          "#07381a",
+          "#0a5327",
+          "#0d6f34",
+          "#2a8b51",
+          "#5fa87c",
+          "#94c5a8",
+          "#cae2d3"
+        ]
+      },
+      "faded-mark": {
+        "role": "neutral",
+        "displayName": "Faded Mark",
+        "canonical": "#7a7670",
+        "tonalRamp": [
+          "#1b1a19",
+          "#363432",
+          "#514f4b",
+          "#6c6964",
+          "#898580",
+          "#a6a4a0",
+          "#c4c2bf",
+          "#e1e1df"
+        ]
+      },
+      "newsprint-rule": {
+        "role": "neutral",
+        "displayName": "Newsprint Rule",
+        "canonical": "#d8d2c8",
+        "tonalRamp": [
+          "#302f2c",
+          "#605d59",
+          "#908c85",
+          "#c0bbb2",
+          "#dcd7ce",
+          "#e5e1da",
+          "#eeebe7",
+          "#f6f5f3"
+        ]
+      },
+      "highlighter": {
+        "role": "tertiary",
+        "displayName": "Highlighter",
+        "canonical": "#f5c400",
+        "tonalRamp": [
+          "#362c00",
+          "#6d5700",
+          "#a38300",
+          "#daae00",
+          "#f6cb1c",
+          "#f8d855",
+          "#fbe58e",
+          "#fdf2c6"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "hero": {
+        "displayName": "Hero",
+        "purpose": "The homepage 'Oracle Tutor' mark, two stacked words. Nowhere else."
+      },
+      "display": {
+        "displayName": "Display",
+        "purpose": "Pinned-card title in the results header. Fixed, never fluid."
+      },
+      "card-name": {
+        "displayName": "Card Name",
+        "purpose": "The card detail overlay's primary heading. Fluid: a one-off plate, not a dense surface."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Oracle text and any prose. Always monospace, never display."
+      },
+      "label": {
+        "displayName": "Label / Eyebrow",
+        "purpose": "Section eyebrows, carried by the .eyebrow class."
+      },
+      "metadata": {
+        "displayName": "Metadata Value",
+        "purpose": "Right-aligned values in the detail overlay's metadata list, and the results-header wordmark. Display type at small size."
+      }
+    },
+    "shadows": [
+      {
+        "name": "detail-overlay-plate",
+        "value": "0 36px 80px -30px rgba(17,17,17,0.55)",
+        "purpose": "The single large shadow in the system, anchoring the detail overlay panel against the dimmed scrim. Reads as light, not as floating."
+      },
+      {
+        "name": "card-image-lift",
+        "value": "0 22px 40px -26px rgba(17,17,17,0.45)",
+        "purpose": "Under the framed card image inside the detail overlay only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Every hover and state colour transition, 150ms."
+      },
+      {
+        "name": "ease-overlay",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Detail overlay open/close, 240ms opacity + translate."
+      },
+      {
+        "name": "fade-slide-in",
+        "value": "ot-fade-slide-in 180ms cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Entry for autocomplete and filter surfaces."
+      },
+      {
+        "name": "fade-in",
+        "value": "ot-fade-in 120ms cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Cheapest entry; used where movement would be noise."
+      },
+      {
+        "name": "loading-pulse",
+        "value": "ot-loading-pulse 900ms ease-in-out infinite alternate",
+        "purpose": "Skeleton fills while results load."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "35rem"
+      },
+      {
+        "name": "md",
+        "value": "47.5rem"
+      },
+      {
+        "name": "lg",
+        "value": "65rem"
+      },
+      {
+        "name": "compact-shell",
+        "value": "720px"
+      },
+      {
+        "name": "overlay-stack",
+        "value": "860px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action Bar",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Full-width CTA closing the detail overlay's right column. Inverts to ink on hover.",
+      "html": "<button class=\"ds-btn-primary\"><span>Find similar cards</span><svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M3 8h9.5L9 4.5l1-1L15 8.5 10 13.5l-1-1L12.5 9H3z\"/></svg></button>",
+      "css": ".ds-btn-primary{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;border:0;border-top:2px solid var(--color-ot-ink, #111111);background:transparent;padding:16px 28px;font-family:'Big Shoulders Display', sans-serif;font-size:0.95rem;font-weight:900;text-transform:uppercase;letter-spacing:0.04em;color:var(--color-ot-ink, #111111);cursor:pointer;transition:background 150ms cubic-bezier(0.25, 1, 0.5, 1),color 150ms cubic-bezier(0.25, 1, 0.5, 1)}.ds-btn-primary:hover{background:var(--color-ot-ink, #111111);color:var(--color-ot-bg, #f0ede6)}.ds-btn-primary:focus-visible{outline:2px solid var(--color-ot-red, #cc1100);outline-offset:-2px}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Bordered secondary action (Flip, Find similar to <face>). 2px ink frame, inverts on hover.",
+      "html": "<button class=\"ds-btn-ghost\">Flip <span class=\"ds-btn-ghost-count\">1/2</span></button>",
+      "css": ".ds-btn-ghost{display:inline-flex;align-items:center;gap:8px;border:2px solid var(--color-ot-ink, #111111);background:transparent;padding:8px 12px;font-family:'Big Shoulders Display', sans-serif;font-size:0.7rem;font-weight:900;text-transform:uppercase;letter-spacing:0.14em;color:var(--color-ot-ink, #111111);cursor:pointer;transition:background 150ms cubic-bezier(0.25, 1, 0.5, 1),color 150ms cubic-bezier(0.25, 1, 0.5, 1)}.ds-btn-ghost:hover{background:var(--color-ot-ink, #111111);color:var(--color-ot-bg, #f0ede6)}.ds-btn-ghost-count{color:var(--color-ot-muted, #7a7670)}.ds-btn-ghost:hover .ds-btn-ghost-count{color:inherit}"
+    },
+    {
+      "name": "Close Button",
+      "kind": "button",
+      "refersTo": "button-close",
+      "description": "58px square in the overlay header. The one place red fills a whole field.",
+      "html": "<button class=\"ds-btn-close\" aria-label=\"Close\"><svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\"><path d=\"M3 3l10 10M13 3L3 13\"/></svg></button>",
+      "css": ".ds-btn-close{display:flex;width:58px;height:58px;align-items:center;justify-content:center;border:0;border-left:2px solid var(--color-ot-ink, #111111);background:transparent;color:var(--color-ot-ink, #111111);cursor:pointer;transition:background 150ms cubic-bezier(0.25, 1, 0.5, 1),color 150ms cubic-bezier(0.25, 1, 0.5, 1)}.ds-btn-close:hover{background:var(--color-ot-red, #cc1100);color:#fff}.ds-btn-close:focus-visible{outline:2px solid var(--color-ot-red, #cc1100);outline-offset:-4px}"
+    },
+    {
+      "name": "Search Editor",
+      "kind": "input",
+      "refersTo": "search-box",
+      "description": "The floating search field. Pure Surface inset with a red tick at the left edge.",
+      "html": "<div class=\"ds-input-search\" role=\"textbox\" aria-label=\"Search cards\">lightning bolt</div>",
+      "css": ".ds-input-search{min-height:52px;display:flex;align-items:center;border:2px solid var(--color-ot-ink, #111111);background:linear-gradient(to right,color-mix(in srgb,var(--color-ot-red, #cc1100) 10%,transparent) 0 6px,transparent 6px),color-mix(in srgb,var(--color-ot-surface, #ffffff) 82%,var(--color-ot-bg, #f0ede6));padding:14px 18px;font-family:'DM Mono', monospace;font-size:0.95rem;line-height:1.65;color:var(--color-ot-ink, #111111);caret-color:var(--color-ot-red, #cc1100)}.ds-input-search:focus-within{outline:2px solid var(--color-ot-red, #cc1100);outline-offset:2px}"
+    },
+    {
+      "name": "Filter Toggle",
+      "kind": "chip",
+      "refersTo": "filter-toggle",
+      "description": "Header filter control; the count badge inverts with the button's active state.",
+      "html": "<button class=\"ds-filter-toggle\"><svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" fill=\"currentColor\"><path d=\"M1 3h14l-5 5.5V13l-4 1.5V8.5L1 3Z\"/></svg><span>Filters</span><span class=\"ds-filter-count\">2</span></button>",
+      "css": ".ds-filter-toggle{display:flex;align-items:center;gap:8px;border:0;border-left:2px solid var(--color-ot-ink, #111111);background:var(--color-ot-ink, #111111);padding:0 16px;height:58px;font-family:'Big Shoulders Display', sans-serif;font-size:0.6875rem;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:var(--color-ot-bg, #f0ede6);cursor:pointer;transition:background 150ms cubic-bezier(0.25, 1, 0.5, 1),color 150ms cubic-bezier(0.25, 1, 0.5, 1)}.ds-filter-count{display:flex;width:16px;height:16px;align-items:center;justify-content:center;background:var(--color-ot-bg, #f0ede6);color:var(--color-ot-ink, #111111);font-size:0.6875rem;font-weight:900}"
+    },
+    {
+      "name": "Ability Tuner",
+      "kind": "custom",
+      "refersTo": "ability-tuner",
+      "description": "Signature component. Each ability of the pinned card cycles untouched -> forced -> rejected; state is carried by colour alone, with the accessible name reporting it.",
+      "html": "<div class=\"ds-tuner\"><p class=\"ds-eyebrow\">Abilities</p><p class=\"ds-tuner-line\"><button class=\"ds-ability is-forced\">Flying</button><span class=\"ds-tuner-sep\">,</span><button class=\"ds-ability is-rejected\">Vigilance</button></p><button class=\"ds-ability ds-ability-block\">Whenever this creature attacks, draw a card.</button></div>",
+      "css": ".ds-tuner{display:grid;gap:6px}.ds-tuner-line{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;font-size:0.85rem;line-height:1.55}.ds-tuner-sep{padding-right:4px;color:var(--color-ot-muted, #7a7670)}.ds-ability{border:0;background:transparent;padding:0;font-family:'DM Mono', monospace;font-size:0.85rem;line-height:1.55;text-align:left;color:var(--color-ot-ink, #111111);cursor:pointer;text-underline-offset:4px;transition:color 150ms cubic-bezier(0.25, 1, 0.5, 1)}.ds-ability:hover{text-decoration:underline;text-decoration-style:dotted}.ds-ability.is-forced{color:var(--color-ot-green, #0f7d3b)}.ds-ability.is-rejected{color:var(--color-ot-red, #cc1100)}.ds-ability-block{display:block;width:100%;white-space:pre-line}.ds-eyebrow{margin:0;font-family:'DM Mono', monospace;font-size:0.6875rem;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:var(--color-ot-muted, #7a7670)}"
+    },
+    {
+      "name": "Card Image",
+      "kind": "card",
+      "refersTo": "card-image",
+      "description": "Frameless card art at uniform 0.75rem corners. No border, no shadow in the grid.",
+      "html": "<div class=\"ds-card-image\" role=\"img\" aria-label=\"Card art\"></div>",
+      "css": ".ds-card-image{aspect-ratio:63/88;width:160px;border-radius:0.75rem;background:color-mix(in srgb,var(--color-ot-line, #d8d2c8) 72%,var(--color-ot-bg, #f0ede6));object-fit:cover}"
+    },
+    {
+      "name": "Eyebrow Label",
+      "kind": "custom",
+      "refersTo": "eyebrow-label",
+      "description": "The margin-note voice: every section label on every surface.",
+      "html": "<p class=\"ds-eyebrow-standalone\">Similar to</p>",
+      "css": ".ds-eyebrow-standalone{margin:0;font-family:'DM Mono', monospace;font-size:0.6875rem;font-weight:500;line-height:1.2;letter-spacing:0.18em;text-transform:uppercase;color:var(--color-ot-muted, #7a7670)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Oracle Spread",
+    "overview": "Oracle Tutor is laid out like a magazine spread, not an app shell. Every page is a composition: hard 2px ink rules section the canvas, big uppercase display type carries titles, monospace carries oracle text and labels. The dense oracle-text background lives behind the entire shell, drifting at 8.8% opacity like newsprint pulled close to the eye. The single accent, an editor's red stripe down the left edge of the viewport, is the brand mark that never moves.\n\nThe personality is editorial, confident, and quietly playful. Restraint is the dominant gesture, but the system permits theatrics where they earn it: the homepage hero swells to 7rem, the detail overlay opens into a two-plate spread with the card framed against a hush of `newsprint-rule` gray, and the result grid drops every frame so the cards themselves are the content. The system rejects SaaS chrome, Scryfall's database styling, crypto/fintech ornament, and the gray-on-white Vercel-template default in equal measure.",
+    "keyCharacteristics": [
+      "2px ink rules, never 1px hairlines or soft shadows",
+      "Display type for titles, monospace for body and labels, no third family",
+      "Restrained color: tinted neutrals + one accent, used at < 5% of any surface",
+      "Frameless card images at uniform `rounded-xl` (0.75rem) corners",
+      "A persistent dense-text background and a persistent left red stripe across all routes",
+      "No drop shadows except a single low-key shadow under the detail overlay panel"
+    ],
+    "rules": [
+      {
+        "name": "The One Stripe Rule",
+        "body": "The 6px `editors-red` left stripe is sacred. It paints over every shell, never collides with content, and is the only place red appears at full bleed. Anywhere else, red is \u2264 1% of the visible surface (a hover state, a close button's filled hover field, a focus-visible outline).",
+        "section": "colors"
+      },
+      {
+        "name": "The Display-Stays-Out-Of-Body Rule",
+        "body": "Big Shoulders Display never sets paragraphs. If the text is more than ~5 words, it's body, and body is monospace.",
+        "section": "colors"
+      },
+      {
+        "name": "The Uppercase-Is-Structural Rule",
+        "body": "Every uppercase string is structural (a title, a label, a button). Never decorative. Lowercase belongs to taglines and prose, exclusively.",
+        "section": "typography"
+      },
+      {
+        "name": "The No-Fluid-Title Rule",
+        "body": "The pinned-card results title is fixed at 2.4rem because the user lands on it repeatedly across a session and a fluid clamp made the surface feel unstable. Hero and card-name fluid clamps are tolerated only where the surface is one-shot.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Surfaces are flat at rest. Card frames are forbidden. Soft shadows are forbidden. The only allowed shadow is the detail-overlay pair above, and they exist because the overlay is the only surface that floats.",
+        "section": "typography"
+      },
+      {
+        "name": "The Rule-Over-Shadow Rule",
+        "body": "Where a SaaS dashboard would draw a 1px gray hairline and add a soft shadow to imply depth, this system draws a 2px `pressed-ink` rule and stops. Hard contrast replaces softness everywhere.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use 2px `pressed-ink` (#111111) rules to section the canvas. Hard rules are the entire elevation language.",
+      "Do keep the 6px `editors-red` (#cc1100) left stripe unbroken across every route. It's the brand mark.",
+      "Do let the dense oracle-text background show through gaps in the layout. The result grid's gaps are intentionally background-transparent.",
+      "Do invert ghost buttons on hover to `pressed-ink` fill / `newsprint-cream` text. That single language carries every interactive element.",
+      "Do drop chrome that doesn't pull weight: card frames, card-count tags, redundant \"Results\" titles for free-text searches, set-symbol decorations. If a label restates a heading, kill it.",
+      "Do use `.eyebrow` class for every secondary label (`faded-mark`, 0.6875rem, letter-spacing 0.18em, uppercase). Labels never freelance their own type.",
+      "Do gate every transition on `motion-reduce:transition-none`. Reduced motion is non-negotiable.",
+      "Do pin header bars at fixed `min-height` (e.g. 112px on the results summary, 58px on the topbar). Do not let header heights breathe with content."
+    ],
+    "donts": [
+      "Don't ship Linear / Stripe / Notion product chrome: sidebars, soft drop shadows, blue accents, `rounded-2xl` cards, gradient buttons. This is the SaaS-dashboard anti-reference from PRODUCT.md, by name.",
+      "Don't ape Scryfall or EDHREC: dense data tables, set-symbol decorations, Wizards-of-the-Coast house typography, mana-symbol clutter outside legitimate cost rendering. The competition's visual language is the explicit anti-reference.",
+      "Don't introduce neon glows, animated gradients, glassmorphism, or backdrop blurs as decoration. Crypto / fintech maximalism is forbidden.",
+      "Don't retreat to Inter + gray-on-white + `rounded-2xl` + evenly-spaced empty space. Generic minimalism is the silent failure mode.",
+      "Don't put display type on body copy. Big Shoulders Display never sets paragraphs.",
+      "Don't introduce a third type family. Two families, no exceptions.",
+      "Don't use `border-left` or `border-right` greater than 1px as a colored stripe on a card or list item. Side-stripe borders are banned. The single 6px `editors-red` left stripe is the page-level signature, not a component pattern.",
+      "Don't use `#000` or `#fff` directly. `pressed-ink` (#111111) and `newsprint-cream` (#f0ede6) are the floors and the ceilings.",
+      "Don't add `box-shadow` to anything outside the detail overlay's two declared shadows. Hard rules replace soft shadows everywhere else.",
+      "Don't make titles or grid columns fluid where they're read repeatedly. The pinned-card results title is fixed at 2.4rem on purpose; the result grid uses fixed integer breakpoints, not `auto-fill`.",
+      "Don't open a modal as the first thought. The detail overlay exists because it's the right affordance for a magazine-style detail spread, not because modals are easy. New surfaces should exhaust inline / progressive options before going modal."
+    ]
+  }
+}
