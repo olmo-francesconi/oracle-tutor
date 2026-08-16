@@ -211,14 +211,22 @@ def _generate_llm_query_pairs(face_rows: list[dict[str, str]], *, llm_config: di
     return direct_text_pairs
 
 
+_SUPPORTED_BUILD_PAYLOAD_VERSIONS = frozenset({1, 2})
+
+
 def _build_dataset_state(
     build_payload: dict[str, Any],
     *,
     augmentation_mode: str,
     llm_config: dict[str, Any] | None = None,
 ) -> tuple[TrainingDatasetState, dict[str, object]]:
-    if int(build_payload.get("version", 0)) != 1:
-        raise ValueError(f"Unsupported training build payload version: {build_payload.get('version')!r}.")
+    # v1 carried one anchor string per tag, v2 a list; the tag_descriptions
+    # reader below accepts both, so both versions build.
+    if int(build_payload.get("version", 0)) not in _SUPPORTED_BUILD_PAYLOAD_VERSIONS:
+        raise ValueError(
+            f"Unsupported training build payload version: {build_payload.get('version')!r}. "
+            f"Supported: {sorted(_SUPPORTED_BUILD_PAYLOAD_VERSIONS)}."
+        )
 
     selected_augmentations = set(parse_train_augmentation_mode(augmentation_mode))
     raw_features = build_payload.get("features")

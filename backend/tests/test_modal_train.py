@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from ot_backend.semantic import modal_train
 
 
@@ -102,3 +104,57 @@ def test_select_llm_gap_faces_skips_blank_oracle_rows(monkeypatch) -> None:
     )
 
     assert selected == [{"oracle_text": "Draw a card.", "text": "Draw a card."}]
+
+
+def _tag_payload(version: int, anchors: object) -> dict[str, object]:
+    """Minimal payload exercising only the tag_descriptions path."""
+    return {
+        "version": version,
+        "features": {
+            "tag_pairs": False,
+            "tag_descriptions": True,
+            "template_queries": False,
+            "llm_queries": False,
+        },
+        "options": {"max_tag_desc_pairs_per_tag": 10},
+        "faces": [
+            {
+                "oracle_id": "o1",
+                "face_ix": 0,
+                "name": "Llanowar Elves",
+                "type_line": "Creature — Elf Druid",
+                "oracle_text": "{T}: Add {G}.",
+                "text": "tap this card: Add one green mana.",
+            }
+        ],
+        "tag_to_desc": {"mana dork": anchors},
+        "tag_to_desc_faces": {"mana dork": [["o1", 0]]},
+        "metadata": {"semantic_data_version": 7},
+    }
+
+
+def test_v2_payload_teaches_both_anchors() -> None:
+    """The bare name is the string players type; it must reach training."""
+    payload = _tag_payload(2, ["mana dork", "mana dork. Low-cost creatures which generate mana"])
+
+    state, _ = modal_train._build_dataset_state(payload, augmentation_mode="tag_descriptions")
+
+    anchors = {anchor for anchor, _text in state.direct_text_pairs}
+    assert "mana dork" in anchors
+    assert "mana dork. Low-cost creatures which generate mana" in anchors
+
+
+def test_v1_payload_with_a_single_string_anchor_still_builds() -> None:
+    """A payload built before the anchor list must not break the worker."""
+    payload = _tag_payload(1, "mana dork. Low-cost creatures which generate mana")
+
+    state, _ = modal_train._build_dataset_state(payload, augmentation_mode="tag_descriptions")
+
+    assert state.direct_text_pairs == [
+        ("mana dork. Low-cost creatures which generate mana", "tap this card: Add one green mana.")
+    ]
+
+
+def test_an_unknown_payload_version_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unsupported training build payload version"):
+        modal_train._build_dataset_state(_tag_payload(99, ["x"]), augmentation_mode="tag_descriptions")
