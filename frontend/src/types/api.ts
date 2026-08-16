@@ -52,6 +52,8 @@ export interface SimilarCard extends Card {
 export interface SimilarCardsPage {
   items: SimilarCard[]
   has_more: boolean
+  /** How the backend segmented a free-text query into abilities. */
+  query_abilities?: string[] | null
 }
 
 export interface CardMatch {
@@ -75,8 +77,6 @@ export interface FilterState {
   rarities?: string[]
   matchMode?: 'exact' | 'at_most' | 'at_least'
   colorFeature?: 'identity' | 'colors'
-  /** Exclude bare keyword abilities (Flying, Trample, ...) from similarity scoring. */
-  ignoreKeywords?: boolean
 }
 
 export interface OracleSamples {

@@ -18,6 +18,7 @@ type Props = {
   activeFilterCount: number
   lastTextQuery?: string | null
   pinnedSummary?: PinnedSummary
+  queryAbilities?: string[]
   abilitySelection: AbilitySelection
   onCycleAbility: (abilityIx: number) => void
   onSetAbilities: (abilityIxs: number[], choice: AbilityChoice | null) => void
@@ -41,6 +42,7 @@ export function ResultsView({
   activeFilterCount,
   lastTextQuery,
   pinnedSummary,
+  queryAbilities,
   abilitySelection,
   onCycleAbility,
   onSetAbilities,
@@ -63,9 +65,12 @@ export function ResultsView({
       <div className="relative z-10">
         <div className="sticky top-0 z-30 max-[720px]:static">
           <header className="grid min-h-[58px] grid-cols-[clamp(148px,16vw,176px)_minmax(0,1fr)_auto] items-stretch border-b-2 border-ot-ink bg-ot-bg max-[720px]:grid-cols-[auto_minmax(0,1fr)_auto]">
+            {/* Metadata Value (1.05rem), not Hero: Hero is reserved for the
+                homepage mark, and Display at 2.4rem cannot fit a 58px bar.
+                See DESIGN.md typography.metadata. */}
             <button
               type="button"
-              className="flex min-w-0 cursor-pointer items-center justify-center border-0 border-r-2 border-ot-ink bg-transparent px-[18px] py-0 font-display text-[20px] font-black uppercase leading-none tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[720px]:min-h-14 max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0 max-[720px]:text-[18px]"
+              className="flex min-w-0 cursor-pointer items-center justify-center border-0 border-r-2 border-ot-ink bg-transparent px-[18px] py-0 font-display text-[1.05rem] font-black uppercase leading-none tracking-[-0.02em] text-ot-ink transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:bg-ot-ink hover:text-ot-bg motion-reduce:transition-none max-[720px]:min-h-14 max-[720px]:w-14 max-[720px]:min-w-14 max-[720px]:px-0"
               onClick={onReset}
             >
               <span className="max-[720px]:hidden">Oracle Tutor</span>
@@ -102,7 +107,7 @@ export function ResultsView({
               {activeFilterCount > 0 && (
                 <span
                   className={[
-                    'flex h-4 w-4 shrink-0 items-center justify-center font-display text-[0.5625rem] font-black max-[720px]:hidden',
+                    'flex h-4 w-4 shrink-0 items-center justify-center font-display text-[0.6875rem] font-black max-[720px]:hidden',
                     showFilters ? 'bg-ot-bg text-ot-ink' : 'bg-ot-ink text-ot-bg',
                   ].join(' ')}
                 >
@@ -122,8 +127,7 @@ export function ResultsView({
                   <button
                     type="button"
                     onClick={onRestoreTextQuery}
-                    className="m-0 inline-flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 pb-1 text-left lowercase tracking-[0.04em] text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:text-ot-red motion-reduce:transition-none"
-                    style={{ fontSize: '0.78rem' }}
+                    className="m-0 inline-flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 pb-1 text-left text-[0.95rem] lowercase tracking-[0.04em] text-ot-muted transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] hover:text-ot-red motion-reduce:transition-none"
                   >
                     <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="currentColor" aria-hidden="true">
                       <path d="M13 8H3.5L7 11.5l-1 1L1 7.5 6 2.5l1 1L3.5 7H13z" />
@@ -168,6 +172,27 @@ export function ResultsView({
             </section>
           ) : null}
 
+          {!state.pinnedCard && (queryAbilities?.length ?? 0) > 1 ? (
+            <section
+              className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b-2 border-ot-ink bg-ot-bg px-6 py-2.5 pl-[38px] max-[720px]:px-4 max-[720px]:pl-6"
+              aria-label="Searched abilities"
+            >
+              <p className="eyebrow">Matching each of</p>
+              {queryAbilities?.map((ability, index) => (
+                <span key={`${ability}-${index}`} className="flex items-baseline gap-2">
+                  {index > 0 ? (
+                    <span aria-hidden="true" className="text-[0.7rem] text-ot-line">
+                      //
+                    </span>
+                  ) : null}
+                  <span className="text-[0.85rem] leading-[1.55] text-ot-ink">
+                    <SymbolText text={ability} />
+                  </span>
+                </span>
+              ))}
+            </section>
+          ) : null}
+
           {showFilters && (
             <FilterBar filters={state.filters} onChange={onFiltersChange} onClear={onClearFilters} />
           )}
@@ -193,7 +218,7 @@ export function ResultsView({
           {!state.isLoading && !state.error && state.results.length === 0 ? (
             <div className="grid max-w-[28rem] gap-2">
               <p className="eyebrow">No matches</p>
-              <p className="m-0 font-display text-[1.55rem] font-black uppercase leading-[0.95] tracking-[-0.02em] text-ot-ink">
+              <p className="m-0 font-display text-[2.4rem] font-black uppercase leading-[0.95] tracking-[-0.02em] text-ot-ink">
                 Nothing landed for {state.submittedQuery ? `"${state.submittedQuery}"` : 'this search'}.
               </p>
               <p className="m-0 text-[0.85rem] leading-[1.55] text-ot-muted">

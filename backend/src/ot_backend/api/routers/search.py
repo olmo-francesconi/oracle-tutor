@@ -14,6 +14,7 @@ from ...core.config import MAX_QUERY_LENGTH
 from ...core.database import get_db
 from ...core.logging_config import log_performance
 from ...core.models import Card, CardFace, SemanticQueryLog
+from ...semantic.ability_split import MAX_QUERY_ABILITIES, split_query_abilities
 from .. import _semantic_index as _sem_idx_mod
 from .._ensure_schema_ready import ensure_schema_ready
 from ..schemas import CardMatch, OracleSamplesResponse, SimilarCard, SimilarCardsPage
@@ -328,13 +329,22 @@ def get_similar_cards(
     rarity: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
     color_feature: Literal["identity", "colors"] = "identity",
     match_mode: Literal["at_least", "at_most", "exact"] = "at_least",
-    ignore_keywords: bool = False,
     include_abilities: str | None = Query(None, max_length=MAX_ABILITY_SELECTION_LENGTH),
     exclude_abilities: str | None = Query(None, max_length=MAX_ABILITY_SELECTION_LENGTH),
 ) -> SimilarCardsPage:
     ensure_schema_ready()
     if oracle_id is None and not (q and q.strip()):
         raise HTTPException(status_code=422, detail="Provide either oracle_id or q")
+
+    query_abilities = split_query_abilities(q) if oracle_id is None else []
+    if len(query_abilities) > MAX_QUERY_ABILITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Query has {len(query_abilities)} abilities; the limit is {MAX_QUERY_ABILITIES}. "
+                "Each one costs a separate similarity probe."
+            ),
+        )
 
     include_ability_list = _parse_ability_ixs(include_abilities, "include_abilities")
     exclude_ability_list = _parse_ability_ixs(exclude_abilities, "exclude_abilities")
@@ -363,7 +373,6 @@ def get_similar_cards(
             rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,
-            ignore_keywords=ignore_keywords,
             include_abilities=include_ability_list,
             exclude_abilities=exclude_ability_list,
         )
@@ -381,12 +390,15 @@ def get_similar_cards(
             rarity=rarity_list,
             color_feature=color_feature,
             match_mode=match_mode,
-            ignore_keywords=ignore_keywords,
         )
 
     page_results = results[offset : offset + limit]
     has_more = len(results) > offset + limit
-    response = SimilarCardsPage(items=_to_similar_cards(page_results, db), has_more=has_more)
+    response = SimilarCardsPage(
+        items=_to_similar_cards(page_results, db),
+        has_more=has_more,
+        query_abilities=query_abilities or None,
+    )
     latency_ms = int((time.monotonic() - t0) * 1000)
 
     filters: dict[str, object] = {
@@ -400,7 +412,6 @@ def get_similar_cards(
             "rarity": rarity,
             "color_feature": color_feature,
             "match_mode": match_mode,
-            "ignore_keywords": ignore_keywords or None,
             "include_abilities": include_ability_list,
             "exclude_abilities": exclude_ability_list,
         }.items()

@@ -266,9 +266,9 @@ class CardFaceAbility(Base):
     # Normalized form actually fed to the encoder.
     normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
     text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    # True for bare keyword abilities ("Flying", "Ward {2}"). They stay indexed
-    # so keyword-only creatures remain searchable, but scoring can exclude them
-    # (`ignore_keywords`) and IDF de-emphasises them by default.
+    # True for bare keyword abilities ("Flying", "Ward {2}"). Read by the UI so
+    # the ability tuner can reject a face's keywords in one action; scoring never
+    # filters on it directly, and IDF de-emphasises them by default.
     # NB: `server_default="false"` as a plain string, not `text("false")` —
     # the `text` column above shadows sqlalchemy's `text()` inside this class body.
     is_keyword: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")

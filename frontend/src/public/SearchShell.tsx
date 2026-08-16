@@ -125,6 +125,13 @@ export function SearchShell() {
     [activeQuery.data]
   )
 
+  // Server-side segmentation of a `//` query. Echoed back so the user can see
+  // how their text was split rather than inferring it from the results.
+  const queryAbilities = useMemo(
+    () => activeQuery.data?.pages[0]?.query_abilities ?? [],
+    [activeQuery.data]
+  )
+
   const apiDownError = useMemo(() => {
     for (const q of [activeQuery, oracleSamplesQuery]) {
       if (q.isError && isApiDownError(q.error)) return q.error
@@ -373,6 +380,7 @@ export function SearchShell() {
           activeFilterCount={activeFilterCount}
           lastTextQuery={lastTextQuery}
           pinnedSummary={pinnedSummary}
+          queryAbilities={queryAbilities}
           abilitySelection={ui.pinnedCard?.abilities ?? EMPTY_ABILITY_SELECTION}
           onCycleAbility={handleCycleAbility}
           onSetAbilities={handleSetAbilities}

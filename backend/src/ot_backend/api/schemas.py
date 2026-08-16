@@ -45,6 +45,11 @@ class SimilarCard(BaseModel):
 class SimilarCardsPage(BaseModel):
     items: list[SimilarCard]
     has_more: bool
+    # How a free-text query was segmented into abilities. Returned so the UI can
+    # show the user what was actually searched without shipping a second copy of
+    # the splitter (and Scryfall's keyword catalog) to the browser. None in card
+    # mode, where the abilities come from `/card/{oracle_id}` instead.
+    query_abilities: list[str] | None = None
 
 
 class OracleSamplesResponse(BaseModel):

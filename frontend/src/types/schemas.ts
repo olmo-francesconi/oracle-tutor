@@ -52,6 +52,9 @@ export const SimilarCardSchema = CardSchema.extend({
 export const SimilarCardsPageSchema = z.object({
   items: z.array(SimilarCardSchema),
   has_more: z.boolean(),
+  // How the backend segmented a free-text query. Authoritative: the splitter
+  // needs Scryfall's keyword catalog, so it is not duplicated in the browser.
+  query_abilities: z.array(z.string()).nullish(),
 })
 
 export const CardMatchSchema = z.object({

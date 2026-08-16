@@ -108,8 +108,8 @@ def tuning_db():
                     CardFaceAbility(
                         oracle_id=oracle_id, face_ix=0, ability_ix=ability_ix,
                         text=ability, normalized_text=ability, text_hash=_hash(ability),
-                        # a0 stands in for a bare keyword so the ignore_keywords
-                        # interaction has something to bite on.
+                        # a0 stands in for a bare keyword so keyword-specific
+                        # behaviour has something to bite on.
                         is_keyword=ability == "a0",
                     )
                 )
@@ -224,32 +224,89 @@ def test_unrelated_cards_are_not_scaled_by_a_rejection(tuning_db) -> None:
 
 
 # ---------------------------------------------------------------------------
-# ignore_keywords interaction
+# Keyword abilities
 # ---------------------------------------------------------------------------
 
 
-def test_forced_keyword_seeds_the_search_even_with_ignore_keywords(tuning_db) -> None:
-    """The seed load is by index alone, so the keyword filter can't drop it.
+def test_a_keyword_can_be_forced_or_rejected_like_any_ability(tuning_db) -> None:
+    """Keywords carry no special status in scoring; only `is_keyword` marks them.
 
-    Candidate generation still honours `ignore_keywords`, so matches can only
-    come back through non-keyword abilities — the two controls are independent
-    on purpose, and this pins that split down.
+    The retired `ignore_keywords` filter used to exclude them wholesale. Now the
+    tuner rejects them explicitly, so a keyword must behave as an ordinary
+    ability on both sides of the selection.
     """
     with SessionLocal() as db:
-        index = _index()
-        seed = index._load_face_abilities(db, ("seed", 0), ability_ixs=[0])
+        seed = _index()._load_face_abilities(db, ("seed", 0), ability_ixs=[0])
         assert seed is not None and seed[2] == [0]
 
-        keyword_filtered = index._load_face_abilities(db, ("seed", 0), ignore_keywords=True)
-        assert keyword_filtered is not None and 0 not in keyword_filtered[2]
+    assert "same" not in _hits(exclude_abilities=[0])
+    assert _hits(include_abilities=[0])["both"] == pytest.approx(1.0, abs=1e-6)
 
 
-def test_ignore_keywords_alone_keeps_bidirectional_scoring(tuning_db) -> None:
-    """`noKw` is not a hand-picked subset, so it must not flip the pooling.
+# ---------------------------------------------------------------------------
+# Multi-ability text queries
+# ---------------------------------------------------------------------------
 
-    If it did, `extra` would tie with `both` the way it does under an explicit
-    force (see `test_forcing_a_subset_...`) instead of being demoted for its
-    unrelated third ability.
+
+def _text_index() -> SemanticIndex:
+    """Index whose query encoder resolves ability names to the seeded vectors.
+
+    Shadows `encode_queries` with an instance attribute so the ONNX encoder is
+    never constructed; `search_oracle` is otherwise exercised for real.
     """
-    hits = _hits(ignore_keywords=True)
-    assert hits["extra"] < hits["both"]
+    vectors = _vectors()
+    index = _index()
+    index.encode_queries = lambda texts: [vectors[t].tolist() for t in texts]  # type: ignore[method-assign]
+    return index
+
+
+def _search(query: str) -> dict[str, float]:
+    with SessionLocal() as db:
+        return {
+            hit.face_key[0]: hit.score
+            for hit in _text_index().search_oracle(query, limit=20, db=db)
+        }
+
+
+def test_single_ability_query_is_unchanged(tuning_db) -> None:
+    """No separator means one probe — the behaviour that shipped before."""
+    hits = _search("a0")
+
+    # Every face printing a0 matches it fully, whatever else it does.
+    for name in ("both", "same", "near", "extra"):
+        assert hits[name] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_multi_ability_query_requires_every_ability(tuning_db) -> None:
+    """The point of the feature: `//` is AND, not a blurred average.
+
+    `extra` is the only face printing both a0 and a3. Faces holding just one of
+    them score about half, because `forward` averages over what was typed.
+    """
+    hits = _search("a0 // a3")
+
+    assert hits["extra"] == pytest.approx(1.0, abs=1e-6)
+    assert hits["both"] == pytest.approx(0.5, abs=0.05)   # has a0, not a3
+    assert hits["other"] == pytest.approx(0.5, abs=0.05)  # has a3, not a0
+    assert hits["extra"] > hits["both"]
+    assert hits["extra"] > hits["other"]
+
+
+def test_a_face_matching_one_typed_ability_still_appears(tuning_db) -> None:
+    """Candidates are unioned across probes, so partial matches rank, not vanish."""
+    assert "other" in _search("a0 // a3")
+
+
+def test_adding_an_unmatched_ability_halves_the_score(tuning_db) -> None:
+    """`forward` is a plain mean over typed abilities, so each one counts equally.
+
+    `both` fully matches a0 and does not print a3 at all, so naming a3 as well
+    drops it from 1.0 to ~0.5. The tolerance covers cosine noise between
+    near-orthogonal vectors, which does not sit at exactly 0.
+    """
+    assert _search("a0")["both"] == pytest.approx(1.0, abs=1e-6)
+    assert _search("a0 // a3")["both"] == pytest.approx(0.5, abs=0.06)
+
+
+def test_empty_query_returns_nothing(tuning_db) -> None:
+    assert _search(" // ") == {}

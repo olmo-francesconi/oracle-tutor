@@ -199,21 +199,6 @@ export function FilterBar({ filters, onChange, onClear }: FilterBarProps) {
               onChange={(nextValue) => onChange(normalizeFilterState({ ...filters, format: nextValue }))}
               formatOptionLabel={toTitleCase}
             />
-
-            <button
-              type="button"
-              aria-pressed={filters.ignoreKeywords ?? false}
-              title="Exclude bare keyword abilities (Flying, Trample, …) when scoring similarity"
-              className={[
-                'min-h-10 min-w-0 border-2 px-3 text-left font-display text-[0.6875rem] font-black uppercase tracking-[0.12em] transition-colors duration-150 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none md:col-span-2',
-                filters.ignoreKeywords
-                  ? 'border-ot-ink bg-ot-ink text-ot-bg'
-                  : 'border-ot-line bg-transparent text-ot-ink hover:border-ot-ink',
-              ].join(' ')}
-              onClick={() => onChange({ ...filters, ignoreKeywords: !filters.ignoreKeywords })}
-            >
-              {filters.ignoreKeywords ? 'Keywords ignored' : 'Ignore keywords'}
-            </button>
           </div>
         </div>
       </div>

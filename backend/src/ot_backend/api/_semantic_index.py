@@ -33,7 +33,6 @@ class SemanticIndexProtocol(Protocol):
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-        ignore_keywords: bool = False,
         include_abilities: Sequence[int] | None = None,
         exclude_abilities: Sequence[int] | None = None,
     ) -> list[SimilarityHit]: ...
@@ -51,7 +50,6 @@ class SemanticIndexProtocol(Protocol):
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-        ignore_keywords: bool = False,
     ) -> list[SimilarityHit]: ...
 
 

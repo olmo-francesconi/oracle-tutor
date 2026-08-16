@@ -3,11 +3,11 @@
 Oracle text is authored one ability per line, with three wrinkles this module
 handles:
 
-* A line of comma-separated *keyword* abilities ("Flying, vigilance, haste") is
-  several abilities sharing a line. Splitting is driven by Scryfall's
-  keyword-ability catalog rather than a shape heuristic, because ordinary rules
-  text is full of commas too ("Search your library for a Forest, reveal it,
-  ...") and must stay intact.
+* A line of comma- or semicolon-separated *keyword* abilities ("Flying,
+  vigilance, haste", "First strike; banding") is several abilities sharing a
+  line. Splitting is driven by Scryfall's keyword-ability catalog rather than a
+  shape heuristic, because ordinary rules text is full of commas too ("Search
+  your library for a Forest, reveal it, ...") and must stay intact.
 * Modal bullet lines ("• Draw a card.") are *modes* of the ability that
   introduces them, not abilities in their own right, so they stay attached.
 * Ability words ("Landfall — Whenever ...") are flavor prefixes on a single
@@ -64,6 +64,17 @@ KEYWORD_ABILITIES: frozenset[str] = frozenset(
 )
 
 _REMINDER = re.compile(r"\s*\([^)]*\)")
+# Oracle joins keywords on one line with either separator: "Flying, vigilance"
+# and "First strike; banding" are both two abilities. Reminder text is stripped
+# before this is applied, so a semicolon inside a reminder ("{2}: Attach to
+# target creature you control; or unattach...") cannot trigger a split.
+_KEYWORD_LINE_SEPARATOR = re.compile(r"[;,]")
+# Free-text queries use the MTG-native "separate halves" mark. Chosen over `;`,
+# `|` and `&`, which all occur far more often inside real ability text.
+_QUERY_SEPARATOR = re.compile(r"\s*//\s*")
+# Each query ability costs one exact-kNN probe over every distinct ability
+# vector, so the count is capped rather than left open.
+MAX_QUERY_ABILITIES = 6
 # Trailing cost or argument on a keyword: "Ward {2}", "Cycling {1}{G}", "Annihilator 2".
 _KEYWORD_ARGUMENT = re.compile(r"\s*(\{[^}]*\}|[\u2014-]\s*.*|\d+)+$")
 _MODAL_BULLET = "\u2022"
@@ -115,15 +126,32 @@ def split_ability_lines(oracle_text: str | None) -> list[str]:
             continue
 
         without_reminder = _REMINDER.sub("", line).strip()
-        parts = [part for part in without_reminder.split(",") if part.strip()]
+        parts = [part for part in _KEYWORD_LINE_SEPARATOR.split(without_reminder) if part.strip()]
         # Split only when *every* part is a keyword; one non-keyword part means
-        # this is prose that happens to contain commas.
+        # this is prose that happens to contain commas or semicolons.
         if len(parts) > 1 and all(_is_keyword_ability(part) for part in parts):
             abilities.extend(part.strip().rstrip(".") for part in parts)
             continue
 
         abilities.append(line)
     return abilities
+
+
+def split_query_abilities(query: str | None) -> list[str]:
+    """Segment a free-text query into abilities, exactly as card text is segmented.
+
+    ` // ` becomes a line break and the result goes through `split_ability_lines`,
+    so a query is subject to the same rules as the corpus it searches: one
+    ability per line, modal bullets stay attached to their parent, and a line of
+    comma- or semicolon-separated keywords ("flying, vigilance") is two
+    abilities. Pasting real oracle text therefore works without extra handling.
+
+    Returns every ability found; enforcing `MAX_QUERY_ABILITIES` is the caller's
+    job, so an over-long query is rejected outright rather than quietly cut.
+    """
+    if not query or not query.strip():
+        return []
+    return split_ability_lines(_QUERY_SEPARATOR.sub("\n", query))
 
 
 def build_face_abilities(

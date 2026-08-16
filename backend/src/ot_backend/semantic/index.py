@@ -27,6 +27,7 @@ from ..core.config import (
 )
 from ..core.database import SessionLocal
 from ..core.models import Card, CardFace, CardFaceAbility, SemanticAbilityEmbedding, SemanticModel
+from .ability_split import split_query_abilities
 from .model_registry import get_active_semantic_model_id, materialize_semantic_model
 from .text_prep import normalize_oracle_text
 
@@ -413,6 +414,9 @@ class SemanticIndex:
     def encode_query(self, text: str) -> list[float]:
         return self.model.encode(text)
 
+    def encode_queries(self, texts: Sequence[str]) -> list[list[float]]:
+        return self.model.encode_many(list(texts), batch_size=max(1, len(texts)))
+
     def similar_to_face(
         self,
         face_key: tuple[str, int],
@@ -426,7 +430,6 @@ class SemanticIndex:
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-        ignore_keywords: bool = False,
         include_abilities: Sequence[int] | None = None,
         exclude_abilities: Sequence[int] | None = None,
     ) -> list[SimilarityHit]:
@@ -452,15 +455,14 @@ class SemanticIndex:
         """
         if self.model_id is None:
             return []
-        default = self._load_face_abilities(db, face_key, ignore_keywords=ignore_keywords)
+        default = self._load_face_abilities(db, face_key)
         if default is None:
-            # Every ability was a keyword and keywords were excluded: there is
-            # nothing left to match on, so return nothing rather than garbage.
+            # No embedded abilities for this face (unknown oracle_id, or a model
+            # whose embeddings predate it): nothing to match on.
             return []
         default_ixs = default[2]
 
         if include_abilities:
-            # Loaded by index alone: an explicit pick overrides ignore_keywords.
             seed = self._load_face_abilities(db, face_key, ability_ixs=include_abilities)
         elif exclude_abilities:
             rejected_ixs = set(exclude_abilities)
@@ -485,7 +487,6 @@ class SemanticIndex:
             bidirectional=set(seed_ixs) == set(default_ixs),
             seed_hashes=seed_hashes,
             reject_vectors=reject_vectors,
-            ignore_keywords=ignore_keywords,
             exclude=face_key,
             card_type=card_type,
             colors=colors,
@@ -510,24 +511,36 @@ class SemanticIndex:
         rarity: list[str] | None = None,
         color_feature: str = "identity",
         match_mode: str = "at_least",
-        ignore_keywords: bool = False,
     ) -> list[SimilarityHit]:
         """Find faces that *have* an ability matching the query text.
+
+        The query is segmented the same way card text is (see
+        `split_query_abilities`), so "flying // draw a card when this attacks"
+        searches for two abilities rather than one muddled average of both.
+        Each becomes its own probe, and `forward` then averages, over the
+        abilities the user typed, how well the card's best ability matches each
+        — i.e. AND semantics across the query.
 
         Deliberately max-pooled rather than bidirectional: someone searching
         "draw a card when a creature dies" wants cards with that ability, and
         should not see them demoted for also having flying and four other
         abilities the query never mentioned.
+
+        The seed side is deliberately NOT IDF-weighted (`seed_hashes=None`),
+        unlike card-to-card search: the user typed each ability on purpose, so
+        a common one like "flying" must count as much as a rare one.
         """
         if self.model_id is None:
             return []
-        query_vec = np.asarray([self.encode_query(query)], dtype=np.float32)
+        query_abilities = split_query_abilities(query)
+        if not query_abilities:
+            return []
+        query_vecs = np.asarray(self.encode_queries(query_abilities), dtype=np.float32)
         return self._score(
             db,
-            query_vec,
+            query_vecs,
             limit,
             bidirectional=False,
-            ignore_keywords=ignore_keywords,
             card_type=card_type,
             colors=colors,
             cmc_min=cmc_min,
@@ -543,7 +556,6 @@ class SemanticIndex:
         db: Session,
         face_key: tuple[str, int],
         *,
-        ignore_keywords: bool = False,
         ability_ixs: Sequence[int] | None = None,
     ) -> tuple[FloatArray, list[str], list[int]] | None:
         """Return (vectors, text hashes, ability indices) for one face."""
@@ -566,11 +578,7 @@ class SemanticIndex:
             )
         )
         if ability_ixs is not None:
-            # A hand-picked subset overrides the keyword filter: the user named
-            # these abilities explicitly.
             stmt = stmt.where(CardFaceAbility.ability_ix.in_(list(ability_ixs)))
-        elif ignore_keywords:
-            stmt = stmt.where(CardFaceAbility.is_keyword.is_(False))
         rows = db.execute(stmt.order_by(CardFaceAbility.ability_ix)).all()
         if not rows:
             return None
@@ -584,7 +592,6 @@ class SemanticIndex:
         *,
         exclude: tuple[str, int] | None,
         filters: dict[str, Any],
-        ignore_keywords: bool,
     ) -> list[tuple[tuple[str, int], float]]:
         """Stage 1: cheap per-ability kNN, unioned across the seed's abilities.
 
@@ -623,8 +630,6 @@ class SemanticIndex:
                 )
                 .join(Card, Card.oracle_id == CardFaceAbility.oracle_id)
             )
-            if ignore_keywords:
-                stmt = stmt.where(CardFaceAbility.is_keyword.is_(False))
             if exclude is not None:
                 stmt = stmt.where(
                     or_(
@@ -647,7 +652,7 @@ class SemanticIndex:
         return sorted(best.items(), key=lambda item: item[1], reverse=True)
 
     def _load_candidate_abilities(
-        self, db: Session, face_keys: list[tuple[str, int]], *, ignore_keywords: bool
+        self, db: Session, face_keys: list[tuple[str, int]]
     ) -> dict[tuple[str, int], tuple[FloatArray, list[str], list[str]]]:
         """Return (vectors, display texts, text hashes) per candidate face."""
         if not face_keys:
@@ -669,8 +674,6 @@ class SemanticIndex:
             )
             .where(tuple_(CardFaceAbility.oracle_id, CardFaceAbility.face_ix).in_(face_keys))
         )
-        if ignore_keywords:
-            stmt = stmt.where(CardFaceAbility.is_keyword.is_(False))
         rows = db.execute(
             stmt.order_by(
                 CardFaceAbility.oracle_id, CardFaceAbility.face_ix, CardFaceAbility.ability_ix
@@ -698,7 +701,6 @@ class SemanticIndex:
         exclude: tuple[str, int] | None = None,
         seed_hashes: Sequence[str] | None = None,
         reject_vectors: FloatArray | None = None,
-        ignore_keywords: bool = False,
         card_type: list[str] | None = None,
         colors: str | None = None,
         cmc_min: float | None = None,
@@ -722,13 +724,13 @@ class SemanticIndex:
             "match_mode": match_mode,
         }
         candidates = self._candidate_faces(
-            db, seed_vectors, exclude=exclude, filters=filters, ignore_keywords=ignore_keywords
+            db, seed_vectors, exclude=exclude, filters=filters
         )
         if not candidates:
             return []
 
         candidate_keys = [key for key, _ in candidates]
-        ability_map = self._load_candidate_abilities(db, candidate_keys, ignore_keywords=ignore_keywords)
+        ability_map = self._load_candidate_abilities(db, candidate_keys)
 
         # A free-text query is one vector with no corpus frequency of its own,
         # so only the candidate side is IDF-weighted there.

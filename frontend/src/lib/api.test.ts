@@ -5,6 +5,7 @@ import {
   buildSimilarCardsParams,
   getOracleSamples,
   getSimilarCards,
+  searchOracleText,
   normalizeCard,
   normalizeCardMatch,
   normalizeSimilarCard,
@@ -212,5 +213,39 @@ describe('getSimilarCards ability selection', () => {
 
     expect(requestedParams().has('include_abilities')).toBe(false)
     expect(requestedParams().get('exclude_abilities')).toBe('1')
+  })
+})
+
+describe('multi-ability query passthrough', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+  })
+
+  it('surfaces the segmentation the backend reports', async () => {
+    fetchMock.mockResolvedValue(
+      createJsonResponse(
+        { items: [], has_more: false, query_abilities: ['flying', 'draw a card'] },
+        { status: 200 }
+      )
+    )
+
+    const page = await searchOracleText('flying // draw a card')
+
+    expect(page.query_abilities).toEqual(['flying', 'draw a card'])
+  })
+
+  it('tolerates a response without the field', async () => {
+    fetchMock.mockResolvedValue(createJsonResponse({ items: [], has_more: false }, { status: 200 }))
+
+    const page = await searchOracleText('flying')
+
+    expect(page.query_abilities).toBeUndefined()
   })
 })

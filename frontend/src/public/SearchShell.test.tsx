@@ -130,6 +130,35 @@ describe('SearchShell integration', () => {
     window.history.replaceState({}, '', '/')
   })
 
+  it('shows how a `//` query was segmented, using the backend split', async () => {
+    window.history.replaceState({}, '', '/?q=flying+%2F%2F+draw+a+card')
+    searchOracleTextMock.mockResolvedValue({
+      ...createPage('Faerie Vandal'),
+      query_abilities: ['flying', 'draw a card'],
+    })
+
+    renderWithQueryClient(<SearchShell />)
+
+    await screen.findByText('Faerie Vandal')
+    expect(screen.getByLabelText('Searched abilities')).toHaveTextContent('flying')
+    expect(screen.getByLabelText('Searched abilities')).toHaveTextContent('draw a card')
+  })
+
+  it('stays quiet for an ordinary single-ability query', async () => {
+    searchOracleTextMock.mockResolvedValue({
+      ...createPage('Shock'),
+      query_abilities: ['deal damage'],
+    })
+
+    renderWithQueryClient(<SearchShell />)
+
+    fireEvent.change(screen.getByLabelText('search input'), { target: { value: 'deal damage' } })
+    fireEvent.click(screen.getByText('submit search'))
+
+    await screen.findByText('Shock')
+    expect(screen.queryByLabelText('Searched abilities')).toBeNull()
+  })
+
   it('hydrates the initial query from the url and fetches results', async () => {
     window.history.replaceState({}, '', '/?q=burn')
     searchOracleTextMock.mockResolvedValue(createPage('Lightning Bolt'))

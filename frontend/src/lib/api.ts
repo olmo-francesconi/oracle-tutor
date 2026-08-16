@@ -36,7 +36,6 @@ type SimilarCardsParams = {
   rarity?: string
   match_mode?: MatchMode
   color_feature?: 'identity' | 'colors'
-  ignore_keywords?: string
   include_abilities?: string
   exclude_abilities?: string
 }
@@ -167,7 +166,6 @@ export function buildSimilarCardsParams(
   }
   if (filters.matchMode) params.match_mode = filters.matchMode
   if (filters.colorFeature) params.color_feature = filters.colorFeature
-  if (filters.ignoreKeywords) params.ignore_keywords = 'true'
 
   return params
 }
@@ -213,6 +211,7 @@ export async function getSimilarCards(
   return {
     items: data.items.map((card) => normalizeSimilarCard(card as ApiSimilarCard)),
     has_more: data.has_more,
+    query_abilities: data.query_abilities,
   }
 }
 
@@ -233,6 +232,7 @@ export async function searchOracleText(
   return {
     items: data.items.map((card) => normalizeSimilarCard(card as ApiSimilarCard)),
     has_more: data.has_more,
+    query_abilities: data.query_abilities,
   }
 }
 

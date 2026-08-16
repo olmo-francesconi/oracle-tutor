@@ -104,6 +104,7 @@ def test_similar_cards_includes_face_index(client, monkeypatch):
             }
         ],
         "has_more": False,
+        "query_abilities": None,
     }
 
 
@@ -508,3 +509,49 @@ def test_version_endpoint_reports_the_package_version(client):
     assert res.status_code == 200
     assert res.json() == {"version": __version__}
     assert __version__ not in {"unknown", "1.2.0"}
+
+
+# ---------------------------------------------------------------------------
+# Multi-ability text queries
+# ---------------------------------------------------------------------------
+
+
+def test_similar_cards_echoes_the_query_segmentation(client, monkeypatch):
+    """The UI shows how a query was split, so the split must be in the response."""
+    _capture_index(monkeypatch)
+
+    res = client.get("/similar-cards", params={"q": "flying // draw a card"})
+
+    assert res.status_code == 200
+    assert res.json()["query_abilities"] == ["flying", "draw a card"]
+
+
+def test_similar_cards_omits_query_abilities_in_card_mode(client, monkeypatch):
+    _capture_index(monkeypatch)
+
+    res = client.get("/similar-cards", params={"oracle_id": "o1"})
+
+    assert res.status_code == 200
+    assert res.json()["query_abilities"] is None
+
+
+def test_similar_cards_rejects_too_many_query_abilities(client, monkeypatch):
+    _capture_index(monkeypatch)
+    from ot_backend.semantic.ability_split import MAX_QUERY_ABILITIES
+
+    over_cap = " // ".join(f"ability {i}" for i in range(MAX_QUERY_ABILITIES + 1))
+    res = client.get("/similar-cards", params={"q": over_cap})
+
+    assert res.status_code == 422
+    assert "limit" in res.json()["detail"]
+
+
+def test_similar_cards_accepts_exactly_the_cap(client, monkeypatch):
+    _capture_index(monkeypatch)
+    from ot_backend.semantic.ability_split import MAX_QUERY_ABILITIES
+
+    at_cap = " // ".join(f"ability {i}" for i in range(MAX_QUERY_ABILITIES))
+    res = client.get("/similar-cards", params={"q": at_cap})
+
+    assert res.status_code == 200
+    assert len(res.json()["query_abilities"]) == MAX_QUERY_ABILITIES
