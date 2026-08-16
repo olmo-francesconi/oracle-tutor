@@ -588,8 +588,8 @@ def build_screen(ctx: AppContext) -> str | None:
         ctx,
         title="Build dataset — max_tag_pairs_per_tag",
         label="max_tag_pairs_per_tag",
-        default=50,
-        hint="Cap on positive face-pairs sampled from each shared-tag group. Higher = more training signal but more redundancy.  default 50",
+        default=150,
+        hint="Cap on positive face-pairs sampled from each shared-tag group. Higher = more training signal but more redundancy.  default 150",
     )
     if max_tag_pairs_per_tag is None:
         return "menu"
@@ -597,8 +597,8 @@ def build_screen(ctx: AppContext) -> str | None:
         ctx,
         title="Build dataset — max_tag_pair_group_size",
         label="max_tag_pair_group_size",
-        default=5,
-        hint="Minimum faces a tag must have before it contributes any tag-pair examples. Smaller = more tags qualify, noisier pairs.  default 5",
+        default=2,
+        hint="Minimum faces a tag must have before it contributes any tag-pair examples. At 2 the ~1.3k smallest (most specific) tags qualify.  default 2",
     )
     if max_tag_pair_group_size is None:
         return "menu"
@@ -606,8 +606,8 @@ def build_screen(ctx: AppContext) -> str | None:
         ctx,
         title="Build dataset — max_tag_desc_pairs_per_tag",
         label="max_tag_desc_pairs_per_tag",
-        default=50,
-        hint="Cap on (tag-description anchor, face) pairs sampled per tag. Drives the tag_descriptions augmentation volume.  default 50",
+        default=300,
+        hint="Cap on (tag-description anchor, face) pairs sampled per tag. Balances tags: ~97% are covered whole, only the generic mega-tags are truncated.  default 300",
     )
     if max_tag_desc_pairs_per_tag is None:
         return "menu"
@@ -620,8 +620,8 @@ def build_screen(ctx: AppContext) -> str | None:
             ctx,
             title="Build dataset — LLM model",
             label="llm.model_name",
-            default="Qwen/Qwen2.5-7B-Instruct",
-            hint="HuggingFace model id used on Modal to generate synthetic search queries from card oracle text.",
+            default="Qwen/Qwen2.5-14B-Instruct-AWQ",
+            hint="HuggingFace model id used on Modal to generate synthetic search queries. 4-bit AWQ so the 14B fits the L4's 24 GB (bf16 would need ~29 GB).",
         )
         if res is None or res[1] is not None:
             return "menu"
@@ -630,8 +630,8 @@ def build_screen(ctx: AppContext) -> str | None:
             ctx,
             title="Build dataset — LLM max_queries_per_face",
             label="llm.max_queries_per_face",
-            default=3,
-            hint="Number of synthetic queries the LLM produces per card face. Multiplies per-face cost.  default 3",
+            default=5,
+            hint="Number of synthetic queries the LLM produces per card face. Multiplies per-face cost.  default 5",
         )
         if llm_max_queries_per_face is None:
             return "menu"
@@ -639,8 +639,8 @@ def build_screen(ctx: AppContext) -> str | None:
             ctx,
             title="Build dataset — LLM max_faces",
             label="llm.max_faces",
-            default="2500",
-            hint='Hard cap on total faces sent through the LLM. Type a positive integer, or "all" to LLM-augment every face (no cap).  default 2500',
+            default="all",
+            hint='Hard cap on total faces sent through the LLM. Type a positive integer, or "all" to LLM-augment every face (no cap).  default all (~34k faces)',
             allow_chars=lambda ch: ch.isalnum(),
         )
         if max_faces_res is None or max_faces_res[1] is not None:
@@ -660,8 +660,8 @@ def build_screen(ctx: AppContext) -> str | None:
             ctx,
             title="Build dataset — LLM min_template_coverage",
             label="llm.min_template_coverage",
-            default="2",
-            hint='Skip faces already covered by at least this many template-generated queries. Type a non-negative integer, or "all" to LLM-augment regardless of existing coverage.  default 2',
+            default="all",
+            hint='Skip faces already covered by at least this many template-generated queries. Type a non-negative integer, or "all" to LLM-augment regardless of existing coverage.  default all, since template queries are off by default',
             allow_chars=lambda ch: ch.isalnum(),
         )
         if coverage_res is None or coverage_res[1] is not None:
@@ -680,8 +680,8 @@ def build_screen(ctx: AppContext) -> str | None:
             ctx,
             title="Build dataset — LLM temperature",
             label="llm.temperature",
-            default=0.6,
-            hint="LLM sampling temperature. Lower = more deterministic queries, higher = more varied / noisier.  default 0.6",
+            default=0.8,
+            hint="LLM sampling temperature. Lower = more deterministic queries, higher = more varied / noisier. Query vocabulary wants spread.  default 0.8",
         )
         if llm_temperature is None:
             return "menu"
@@ -689,8 +689,8 @@ def build_screen(ctx: AppContext) -> str | None:
             ctx,
             title="Build dataset — LLM max_tokens",
             label="llm.max_tokens",
-            default=500,
-            hint="Maximum output tokens per LLM call. Higher = more headroom for long query lists.  default 500",
+            default=600,
+            hint="Maximum output tokens per LLM call. Higher = more headroom for long query lists.  default 600",
         )
         if llm_max_tokens is None:
             return "menu"

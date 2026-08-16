@@ -28,10 +28,10 @@ logger = logging.getLogger("ot_backend.semantic.dataset_service")
 
 TRAINING_DATASET_FILE_NAME = "training-dataset.json"
 TRAINING_DATASET_VERSION = 6
-TRAINING_BUILD_PAYLOAD_VERSION = 1
-_DEFAULT_MAX_TAG_PAIRS_PER_TAG = 50
-_DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 5
-_DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG = 50
+TRAINING_BUILD_PAYLOAD_VERSION = 2
+_DEFAULT_MAX_TAG_PAIRS_PER_TAG = 150
+_DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 2
+_DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG = 300
 FaceIdentity = tuple[str, int]
 
 
@@ -64,6 +64,25 @@ def _lift_statement_timeout(db: Session) -> None:
     from sqlalchemy import text
 
     db.execute(text("SET LOCAL statement_timeout = 0"))
+
+
+def _tag_anchors(tag_name: str, tag_description: str | None) -> list[str]:
+    """The anchor texts a tag is taught by.
+
+    Two forms, both emitted. The bare name is what a player actually types
+    ("mana dork"); the name-plus-description form carries the meaning for tags
+    whose name alone is opaque. Training only on the descriptive form leaves the
+    typed query unclaimed, so it lands on whatever else happens to use those
+    words — which is how "mana dork" ended up meaning "taps for green mana",
+    learned mostly from lands.
+    """
+    normalized_name = tag_name.replace("-", " ").replace("_", " ").strip()
+    anchors = [normalized_name]
+    if tag_description:
+        described = f"{normalized_name}. {tag_description}".strip()
+        if described != normalized_name:
+            anchors.append(described)
+    return [a for a in anchors if a]
 
 
 def _face_text_records(db: Session) -> list[FaceTextRecord]:
@@ -132,7 +151,7 @@ def build_training_dataset_state(
 
     logger.info("Building tag-derived positive pairs.")
     tag_to_face_ids: dict[str, list[FaceIdentity]] = defaultdict(list)
-    tag_to_desc: dict[str, str] = {}
+    tag_to_anchors: dict[str, list[str]] = {}
     tag_to_desc_faces: dict[str, list[FaceIdentity]] = defaultdict(list)
 
     direct_oracle_taggings = db.execute(
@@ -145,9 +164,7 @@ def build_training_dataset_state(
         face_keys = [fk for fk in card_face_map.get(card_id, []) if fk in face_texts]
         for face_key in face_keys:
             tag_to_face_ids[tag_name].append(face_key)
-        normalized_name = tag_name.replace("-", " ").replace("_", " ")
-        anchor = f"{normalized_name}. {tag_description}".strip() if tag_description else normalized_name
-        tag_to_desc[tag_name] = anchor
+        tag_to_anchors[tag_name] = _tag_anchors(tag_name, tag_description)
         for face_key in face_keys:
             tag_to_desc_faces[tag_name].append(face_key)
 
@@ -165,12 +182,16 @@ def build_training_dataset_state(
     direct_text_pairs: list[tuple[str, str]] = []
     if TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
         for tag_name, face_ids in tag_to_desc_faces.items():
-            if not face_ids:
+            anchors = tag_to_anchors.get(tag_name) or []
+            if not face_ids or not anchors:
                 continue
-            anchor = tag_to_desc[tag_name]
-            sampled = random.sample(face_ids, min(len(face_ids), max_tag_desc_pairs_per_tag))
-            for face_key in sampled:
-                direct_text_pairs.append((anchor, face_texts[face_key]))
+            # The cap is a per-tag budget shared across anchors, so teaching the
+            # bare name too does not double this augmentation's share.
+            per_anchor = max(1, max_tag_desc_pairs_per_tag // len(anchors))
+            for anchor in anchors:
+                sampled = random.sample(face_ids, min(len(face_ids), per_anchor))
+                for face_key in sampled:
+                    direct_text_pairs.append((anchor, face_texts[face_key]))
 
     logger.info("Building template query pairs.")
     template_query_examples = 0
@@ -239,7 +260,7 @@ def build_training_dataset_build_payload(
         raise RuntimeError("Tag models are unavailable in the current codebase state.") from exc
 
     tag_to_face_ids: dict[str, list[FaceIdentity]] = defaultdict(list)
-    tag_to_desc: dict[str, str] = {}
+    tag_to_desc: dict[str, list[str]] = {}
     tag_to_desc_faces: dict[str, list[FaceIdentity]] = defaultdict(list)
 
     direct_oracle_taggings = db.execute(
@@ -253,9 +274,7 @@ def build_training_dataset_build_payload(
         for face_key in face_keys:
             tag_to_face_ids[tag_name].append(face_key)
             tag_to_desc_faces[tag_name].append(face_key)
-        normalized_name = tag_name.replace("-", " ").replace("_", " ")
-        anchor = f"{normalized_name}. {tag_description}".strip() if tag_description else normalized_name
-        tag_to_desc[tag_name] = anchor
+        tag_to_desc[tag_name] = _tag_anchors(tag_name, tag_description)
 
     return {
         "version": TRAINING_BUILD_PAYLOAD_VERSION,

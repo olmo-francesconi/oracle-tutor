@@ -151,11 +151,11 @@ def modal_environment_name() -> str:
 
 
 def semantic_llm_model_name() -> str:
-    return os.getenv("SEMANTIC_LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+    return os.getenv("SEMANTIC_LLM_MODEL", "Qwen/Qwen2.5-14B-Instruct-AWQ")
 
 
 def semantic_llm_max_queries_per_face() -> int:
-    return max(1, int(os.getenv("SEMANTIC_LLM_MAX_QUERIES_PER_FACE", "3")))
+    return max(1, int(os.getenv("SEMANTIC_LLM_MAX_QUERIES_PER_FACE", "5")))
 
 
 def semantic_llm_max_faces() -> int:
@@ -167,11 +167,11 @@ def semantic_llm_min_template_coverage() -> int:
 
 
 def semantic_llm_temperature() -> float:
-    return float(os.getenv("SEMANTIC_LLM_TEMPERATURE", "0.6"))
+    return float(os.getenv("SEMANTIC_LLM_TEMPERATURE", "0.8"))
 
 
 def semantic_llm_max_tokens() -> int:
-    return max(32, int(os.getenv("SEMANTIC_LLM_MAX_TOKENS", "500")))
+    return max(32, int(os.getenv("SEMANTIC_LLM_MAX_TOKENS", "600")))
 
 
 def artifact_bucket_client():

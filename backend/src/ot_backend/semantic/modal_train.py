@@ -265,22 +265,29 @@ def _build_dataset_state(
 
     direct_text_pairs: list[tuple[str, str]] = []
     if feature_flags.get("tag_descriptions") and TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
-        max_desc_pairs_per_tag = int(options.get("max_tag_desc_pairs_per_tag", 50))
+        max_desc_pairs_per_tag = int(options.get("max_tag_desc_pairs_per_tag", 300))
         raw_tag_to_desc = build_payload.get("tag_to_desc")
         tag_to_desc: dict[str, Any] = raw_tag_to_desc if isinstance(raw_tag_to_desc, dict) else {}
         raw_tag_to_desc_faces = build_payload.get("tag_to_desc_faces")
         tag_to_desc_faces: dict[str, Any] = raw_tag_to_desc_faces if isinstance(raw_tag_to_desc_faces, dict) else {}
         for tag_name, raw_face_ids in tag_to_desc_faces.items():
-            anchor = str(tag_to_desc.get(tag_name) or "").strip()
-            if not anchor:
+            # Payload v2 carries a list of anchors (bare name + name.description);
+            # v1 carried a single string. Accept both so a stale payload still builds.
+            raw_anchors = tag_to_desc.get(tag_name)
+            candidates = [raw_anchors] if isinstance(raw_anchors, str) else list(raw_anchors or [])
+            anchors = [a for a in (str(c).strip() for c in candidates) if a]
+            if not anchors:
                 continue
             face_ids = _parse_face_key_rows(list(raw_face_ids))
             if not face_ids:
                 continue
-            sampled = list(face_ids)
-            rng.shuffle(sampled)
-            for face_key in sampled[:max_desc_pairs_per_tag]:
-                direct_text_pairs.append((anchor, face_texts[face_key]))
+            # Cap is a per-tag budget shared across anchors (see _tag_anchors).
+            per_anchor = max(1, max_desc_pairs_per_tag // len(anchors))
+            for anchor in anchors:
+                sampled = list(face_ids)
+                rng.shuffle(sampled)
+                for face_key in sampled[:per_anchor]:
+                    direct_text_pairs.append((anchor, face_texts[face_key]))
 
     template_query_examples = 0
     if feature_flags.get("template_queries") and TRAIN_AUGMENTATION_TEMPLATE_QUERIES in selected_augmentations:
@@ -321,7 +328,7 @@ def _build_dataset_state(
 
 @app.function(
     gpu="L4",
-    timeout=3600,
+    timeout=28800,
     image=image,
     volumes={"/root/.cache/huggingface": hf_cache},
 )
@@ -349,7 +356,7 @@ def build_dataset(
 
 @app.function(
     gpu="L4",
-    timeout=3600,
+    timeout=28800,
     image=image,
     volumes={"/root/.cache/huggingface": hf_cache},
 )
