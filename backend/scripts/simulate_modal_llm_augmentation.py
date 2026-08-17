@@ -81,7 +81,7 @@ def _load_gap_faces(
             "oracle_text": "" if str(row.get("text") or "") == EMPTY_ORACLE_TOKEN else str(row.get("text") or ""),
             "text": str(row.get("text") or ""),
         }
-        for row in payload.get("face_texts", [])
+        for row in (payload.get("ability_texts") or payload.get("face_texts") or [])
         if str(row.get("text") or "").strip()
     ]
     return modal_train._select_llm_gap_faces(

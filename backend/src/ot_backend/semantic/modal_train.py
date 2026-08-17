@@ -125,8 +125,8 @@ _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _LIST_PREFIX = re.compile(r"^[\s\-\*•\d\.\)]+")
 
 
-def _parse_face_key_rows(rows: list[list[object]] | list[tuple[object, object]]) -> list[tuple[str, int]]:
-    return [(str(oracle_id), int(str(face_ix))) for oracle_id, face_ix in rows]
+def _parse_ability_key_rows(rows: list[list[object]]) -> list[tuple[str, int, int]]:
+    return [(str(row[0]), int(str(row[1])), int(str(row[2]))) for row in rows]
 
 
 def _parse_llm_queries(raw_text: str, *, max_queries: int) -> list[str]:
@@ -183,13 +183,20 @@ def _select_llm_gap_faces(
     max_faces: int,
 ) -> list[dict[str, str]]:
     selected: list[dict[str, str]] = []
+    seen_text: set[str] = set()
     for row in face_rows:
         raw_oracle_text = row.get("oracle_text", "").strip()
         normalized_text = row.get("text", "").strip()
         if not raw_oracle_text or normalized_text == EMPTY_ORACLE_TOKEN:
             continue
+        # Ability text repeats across cards — "Flying." alone is 3,235 rows —
+        # and generating the same queries again would burn the GPU budget for
+        # duplicate pairs.
+        if normalized_text in seen_text:
+            continue
         if len(generate_template_queries(row["text"])) >= min_template_coverage:
             continue
+        seen_text.add(normalized_text)
         selected.append(row)
         if len(selected) >= max_faces:
             break
@@ -255,7 +262,11 @@ def _generate_llm_query_pairs(face_rows: list[dict[str, str]], *, llm_config: di
     return direct_text_pairs
 
 
-_SUPPORTED_BUILD_PAYLOAD_VERSIONS = frozenset({1, 2})
+# v3 changed the unit from faces to abilities. A build payload is constructed
+# and shipped within a single run rather than archived, so older ones cannot be
+# in flight and there is nothing to stay compatible with — unlike the *dataset*
+# format, where v2-v7 remain loadable.
+_SUPPORTED_BUILD_PAYLOAD_VERSIONS = frozenset({3})
 
 # Which payload feature flag gates which augmentation key.
 _FEATURE_FLAG_BY_AUGMENTATION = {
@@ -272,8 +283,6 @@ def _build_dataset_state(
     augmentation_mode: str,
     llm_config: dict[str, Any] | None = None,
 ) -> tuple[TrainingDatasetState, dict[str, object]]:
-    # v1 carried one anchor string per tag, v2 a list; the tag_descriptions
-    # reader below accepts both, so both versions build.
     if int(build_payload.get("version", 0)) not in _SUPPORTED_BUILD_PAYLOAD_VERSIONS:
         raise ValueError(
             f"Unsupported training build payload version: {build_payload.get('version')!r}. "
@@ -285,24 +294,28 @@ def _build_dataset_state(
     feature_flags: dict[str, Any] = raw_features if isinstance(raw_features, dict) else {}
     raw_options = build_payload.get("options")
     options: dict[str, Any] = raw_options if isinstance(raw_options, dict) else {}
-    face_rows = list(build_payload.get("faces") or [])
+    ability_rows = list(build_payload.get("abilities") or [])
 
-    face_texts: dict[tuple[str, int], str] = {}
-    face_names: dict[tuple[str, int], str] = {}
-    normalized_faces: list[dict[str, str]] = []
-    for row in face_rows:
-        face_key = (str(row["oracle_id"]), int(row["face_ix"]))
+    ability_texts: dict[tuple[str, int, int], str] = {}
+    normalized_abilities: list[dict[str, str]] = []
+    for row in ability_rows:
+        ability_key = (str(row["oracle_id"]), int(row["face_ix"]), int(row["ability_ix"]))
         normalized_text = str(row["text"])
-        face_texts[face_key] = normalized_text
-        face_names[face_key] = str(row.get("name") or "")
-        normalized_faces.append(
+        ability_texts[ability_key] = normalized_text
+        normalized_abilities.append(
             {
-                "oracle_id": face_key[0],
-                "face_ix": str(face_key[1]),
-                "oracle_text": str(row.get("oracle_text") or ""),
+                "oracle_id": ability_key[0],
+                "face_ix": str(ability_key[1]),
+                # The LLM is prompted with the printed wording and taught the
+                # normalized form as the positive, as it was for faces.
+                "oracle_text": str(row.get("raw") or ""),
                 "text": normalized_text,
             }
         )
+    card_names = {
+        (str(row["oracle_id"]), int(row["face_ix"])): str(row.get("name") or "")
+        for row in build_payload.get("card_names") or []
+    }
 
     # A feature disabled when the payload was built cannot be turned back on
     # here — the payload simply lacks the rows — so the effective set is the
@@ -313,19 +326,15 @@ def _build_dataset_state(
         if feature_flags.get(_FEATURE_FLAG_BY_AUGMENTATION.get(key, ""), False)
     }
 
-    raw_tag_to_face_ids = build_payload.get("tag_to_face_ids")
-    tag_to_face_ids = {
-        tag_name: _parse_face_key_rows(list(raw_faces))
-        for tag_name, raw_faces in (raw_tag_to_face_ids if isinstance(raw_tag_to_face_ids, dict) else {}).items()
-    }
-    raw_tag_to_desc_faces = build_payload.get("tag_to_desc_faces")
-    tag_to_desc_faces = {
-        tag_name: _parse_face_key_rows(list(raw_faces))
-        for tag_name, raw_faces in (raw_tag_to_desc_faces if isinstance(raw_tag_to_desc_faces, dict) else {}).items()
+    raw_tag_to_ability_ids = build_payload.get("tag_to_ability_ids")
+    tag_to_ability_ids = {
+        tag_name: _parse_ability_key_rows(list(raw_ids))
+        for tag_name, raw_ids in (
+            raw_tag_to_ability_ids if isinstance(raw_tag_to_ability_ids, dict) else {}
+        ).items()
     }
     raw_tag_to_desc = build_payload.get("tag_to_desc")
-    # Payload v2 carries a list of anchors (bare name + name.description);
-    # v1 carried a single string. Accept both so a stale payload still builds.
+    # A tag carries a list of anchors: the bare name plus name.description.
     tag_to_anchors: dict[str, list[str]] = {}
     for tag_name, raw_anchors in (raw_tag_to_desc if isinstance(raw_tag_to_desc, dict) else {}).items():
         candidates = [raw_anchors] if isinstance(raw_anchors, str) else list(raw_anchors or [])
@@ -333,13 +342,12 @@ def _build_dataset_state(
 
     llm_pairs: list[tuple[str, str]] = []
     if TRAIN_AUGMENTATION_LLM_QUERIES in effective_augmentations:
-        llm_pairs = _generate_llm_query_pairs(normalized_faces, llm_config=llm_config)
+        llm_pairs = _generate_llm_query_pairs(normalized_abilities, llm_config=llm_config)
 
     state = build_state_from_maps(
-        face_texts=face_texts,
-        face_names=face_names,
-        tag_to_face_ids=tag_to_face_ids,
-        tag_to_desc_faces=tag_to_desc_faces,
+        ability_texts=ability_texts,
+        card_names=card_names,
+        tag_to_ability_ids=tag_to_ability_ids,
         tag_to_anchors=tag_to_anchors,
         selected_augmentations=effective_augmentations,
         max_tag_pairs_per_tag=int(options.get("max_tag_pairs_per_tag", 50)),
@@ -378,7 +386,7 @@ def build_dataset(
     )
     dataset_json = serialize_training_dataset(dataset_state, metadata=dataset_metadata)
     print(
-        f"Dataset built. faces={len(dataset_state.face_texts):,} "
+        f"Dataset built. abilities={len(dataset_state.ability_texts):,} "
         f"pairs={len(dataset_state.pair_ids):,} "
         f"direct={len(dataset_state.direct_text_pairs):,} "
         f"template_queries={dataset_state.template_query_examples:,} "
@@ -447,11 +455,11 @@ def train(
     dataset_payload = json.loads(dataset_json)
     dataset_state = load_training_dataset_bytes(dataset_json)
     dataset_metadata = dataset_payload.get("metadata") if isinstance(dataset_payload.get("metadata"), dict) else {}
-    face_texts = dataset_state.face_texts
-    face_names = dataset_state.face_names
+    ability_texts = dataset_state.ability_texts
+    card_names = dataset_state.card_names
     pair_ids = dataset_state.pair_ids
     direct_text_pairs = dataset_state.direct_text_pairs
-    print(f"Dataset loaded. faces={len(face_texts):,} pairs={len(pair_ids):,} direct={len(direct_text_pairs):,}")
+    print(f"Dataset loaded. abilities={len(ability_texts):,} pairs={len(pair_ids):,} direct={len(direct_text_pairs):,}")
 
     eval_queries_payload = json.loads(eval_queries_json)
     if not isinstance(eval_queries_payload, dict) or not isinstance(eval_queries_payload.get("queries"), list):
@@ -470,7 +478,7 @@ def train(
         def __getitem__(self, i: int) -> InputExample:
             if i < self._n:
                 left_key, right_key = self._pairs[i]
-                return InputExample(texts=[face_texts[left_key], face_texts[right_key]])
+                return InputExample(texts=[ability_texts[left_key], ability_texts[right_key]])
             # 2 texts = (anchor, positive) with in-batch negatives only.
             # 3 texts = MNRL also scores the explicit hard negative.
             return InputExample(texts=list(self._direct[i - self._n]))
@@ -553,11 +561,11 @@ def train(
 
         shutil.copytree(str(pytorch_path), str(artifact_root / "models" / "pytorch"))
 
-        ordered_face_rows = sorted(face_texts.items())
+        ordered_ability_rows = sorted(ability_texts.items())
         embed_batch_size = max(256, batch_size)
         embeddings = np.asarray(
             model.encode(
-                [text for (_face_key, text) in ordered_face_rows],
+                [text for (_ability_key, text) in ordered_ability_rows],
                 batch_size=embed_batch_size,
                 normalize_embeddings=True,
                 show_progress_bar=True,
@@ -566,16 +574,15 @@ def train(
         )
         embeddings_dir = artifact_root / "embeddings"
         embeddings_dir.mkdir(parents=True, exist_ok=True)
+        ability_keys = [key for (key, _text) in ordered_ability_rows]
         np.savez_compressed(
             embeddings_dir / "embeddings.npz",
-            oracle_ids=np.asarray([oracle_id for (oracle_id, _face_ix), _text in ordered_face_rows]),
-            face_ixs=np.asarray([face_ix for (_oracle_id, face_ix), _text in ordered_face_rows], dtype=np.int32),
+            oracle_ids=np.asarray([key[0] for key in ability_keys]),
+            face_ixs=np.asarray([key[1] for key in ability_keys], dtype=np.int32),
+            ability_ixs=np.asarray([key[2] for key in ability_keys], dtype=np.int32),
             embeddings=embeddings,
         )
         print("Embedding archive saved.")
-
-        oracle_ids = [oracle_id for (oracle_id, _face_ix), _text in ordered_face_rows]
-        face_ixs = [face_ix for (_oracle_id, face_ix), _text in ordered_face_rows]
         top_k = 5
         query_results: list[dict[str, object]] = []
         top1_hits = 0
@@ -596,24 +603,25 @@ def train(
             best_expected_rank: int | None = None
             results: list[dict[str, object]] = []
             for rank, idx in enumerate(top_indices, start=1):
-                face_key = (str(oracle_ids[idx]), int(face_ixs[idx]))
-                name = face_names.get(face_key, "")
+                ability_key = ability_keys[idx]
+                name = card_names.get((ability_key[0], ability_key[1]), "")
                 if best_expected_rank is None and name.casefold() in expected_lookup:
                     best_expected_rank = rank
                 results.append(
                     {
                         "rank": rank,
-                        "oracle_id": face_key[0],
-                        "face_ix": face_key[1],
+                        "oracle_id": ability_key[0],
+                        "face_ix": ability_key[1],
+                        "ability_ix": ability_key[2],
                         "name": name,
                         "score": round(float(scores[idx]), 6),
-                        "text_preview": face_texts.get(face_key, "")[:120].replace("\n", " "),
+                        "text_preview": ability_texts.get(ability_key, "")[:120].replace("\n", " "),
                     }
                 )
             if best_expected_rank is None and expected_lookup:
                 for rank, idx in enumerate(ranked_indices, start=1):
-                    face_key = (str(oracle_ids[idx]), int(face_ixs[idx]))
-                    if face_names.get(face_key, "").casefold() in expected_lookup:
+                    key = ability_keys[idx]
+                    if card_names.get((key[0], key[1]), "").casefold() in expected_lookup:
                         best_expected_rank = rank
                         break
 
@@ -690,7 +698,7 @@ def train(
         (artifact_root / "metrics.json").write_text(
             json.dumps(
                 {
-                    "face_count": len(face_texts),
+                    "ability_count": len(ability_texts),
                     "pair_count": len(pair_ids),
                     "direct_text_pair_count": len(direct_text_pairs),
                     "template_query_examples": dataset_state.template_query_examples,

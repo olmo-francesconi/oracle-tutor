@@ -132,7 +132,7 @@ def semantic_dataset_artifact_keys(db: Session, dataset_id: str) -> dict[str, st
 def semantic_dataset_summary_metrics(dataset_bytes: bytes) -> dict[str, object]:
     payload = json.loads(dataset_bytes.decode("utf-8"))
     return {
-        "face_count": len(payload.get("face_texts", [])),
+        "ability_count": len(payload.get("ability_texts", payload.get("face_texts", []))),
         "pair_count": len(payload.get("pair_ids", [])),
         "direct_text_pair_count": len(payload.get("direct_text_pairs", [])),
         "template_query_examples": int(payload.get("template_query_examples", 0)),

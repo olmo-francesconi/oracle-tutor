@@ -143,10 +143,15 @@ def _load_checkpoint(path: Path) -> dict[str, list[str]]:
 # Merge
 # ---------------------------------------------------------------------------
 
+def _text_rows(payload: dict) -> list[dict]:
+    """Dataset v8 keys text by ability; v2-v7 keyed it by face."""
+    return payload.get("ability_texts") or payload.get("face_texts") or []
+
+
 def _merge(base_path: Path, checkpoint: dict[str, list[str]], output_path: Path) -> None:
     payload = json.loads(base_path.read_text(encoding="utf-8"))
     face_lookup = {
-        (r["oracle_id"], r["face_ix"]): r["text"] for r in payload["face_texts"]
+        (r["oracle_id"], r["face_ix"]): r["text"] for r in _text_rows(payload)
     }
     existing_pairs = {
         (str(anchor), str(text)) for anchor, text in payload.get("direct_text_pairs", [])
@@ -236,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     # Load face texts
     payload = json.loads(args.dataset.read_text(encoding="utf-8"))
     face_texts: dict[tuple[str, int], str] = {
-        (r["oracle_id"], r["face_ix"]): r["text"] for r in payload["face_texts"]
+        (r["oracle_id"], r["face_ix"]): r["text"] for r in _text_rows(payload)
     }
 
     # Find gap faces: low template coverage and not yet processed

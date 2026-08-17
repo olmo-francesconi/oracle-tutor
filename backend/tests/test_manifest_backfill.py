@@ -205,7 +205,9 @@ def test_backfill_upgrades_v1_dataset_manifest(fake_s3) -> None:
 
     upgraded = json.loads(fake_s3.get(manifest_key).decode("utf-8"))
     assert upgraded["version"] == SEMANTIC_MANIFEST_VERSION
-    assert upgraded["dataset_metrics"]["face_count"] == 1
+    # A v5 dataset keys its text by face; the metric counts those rows under the
+    # current name rather than failing to read them.
+    assert upgraded["dataset_metrics"]["ability_count"] == 1
     assert upgraded["source_semantic_data_version"] == 11
 
 

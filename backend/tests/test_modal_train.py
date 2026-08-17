@@ -16,7 +16,7 @@ def test_build_dataset_state_adds_llm_query_pairs(monkeypatch) -> None:
     )
 
     payload = {
-        "version": 1,
+        "version": 3,
         "features": {
             "tag_pairs": False,
             "tag_descriptions": False,
@@ -24,16 +24,16 @@ def test_build_dataset_state_adds_llm_query_pairs(monkeypatch) -> None:
             "llm_queries": True,
         },
         "options": {},
-        "faces": [
+        "abilities": [
             {
                 "oracle_id": "o1",
                 "face_ix": 0,
-                "name": "Shock",
-                "type_line": "Instant",
-                "oracle_text": "Shock deals 2 damage to any target.",
+                "ability_ix": 0,
+                "raw": "Shock deals 2 damage to any target.",
                 "text": "this card deals two damage to any target.",
             }
         ],
+        "card_names": [{"oracle_id": "o1", "face_ix": 0, "name": "Shock"}],
         "metadata": {"semantic_data_version": 7},
     }
 
@@ -120,25 +120,25 @@ def _tag_payload(version: int, anchors: object) -> dict[str, object]:
             "llm_queries": False,
         },
         "options": {"max_tag_desc_pairs_per_tag": 10},
-        "faces": [
+        "abilities": [
             {
                 "oracle_id": "o1",
                 "face_ix": 0,
-                "name": "Llanowar Elves",
-                "type_line": "Creature — Elf Druid",
-                "oracle_text": "{T}: Add {G}.",
+                "ability_ix": 0,
+                "raw": "{T}: Add {G}.",
                 "text": "tap this card: Add one green mana.",
             }
         ],
+        "card_names": [{"oracle_id": "o1", "face_ix": 0, "name": "Llanowar Elves"}],
         "tag_to_desc": {"mana dork": anchors},
-        "tag_to_desc_faces": {"mana dork": [["o1", 0]]},
+        "tag_to_ability_ids": {"mana dork": [["o1", 0, 0]]},
         "metadata": {"semantic_data_version": 7},
     }
 
 
-def test_v2_payload_teaches_both_anchors() -> None:
+def test_a_tag_teaches_both_anchors() -> None:
     """The bare name is the string players type; it must reach training."""
-    payload = _tag_payload(2, ["mana dork", "mana dork. Low-cost creatures which generate mana"])
+    payload = _tag_payload(3, ["mana dork", "mana dork. Low-cost creatures which generate mana"])
 
     state, _ = modal_train._build_dataset_state(payload, augmentation_mode="tag_descriptions")
 
@@ -147,9 +147,9 @@ def test_v2_payload_teaches_both_anchors() -> None:
     assert "mana dork. Low-cost creatures which generate mana" in anchors
 
 
-def test_v1_payload_with_a_single_string_anchor_still_builds() -> None:
-    """A payload built before the anchor list must not break the worker."""
-    payload = _tag_payload(1, "mana dork. Low-cost creatures which generate mana")
+def test_a_single_string_anchor_still_builds() -> None:
+    """Anchors are a list, but a bare string must not break the worker."""
+    payload = _tag_payload(3, "mana dork. Low-cost creatures which generate mana")
 
     state, _ = modal_train._build_dataset_state(payload, augmentation_mode="tag_descriptions")
 
@@ -213,18 +213,17 @@ def test_a_normal_query_survives_the_length_guard() -> None:
 
 def test_every_anchor_gets_the_full_budget(tmp_path) -> None:
     """Splitting the cap starved the bare name, which is the form users type."""
-    faces = [["o%d" % i, 0] for i in range(10)]
     payload = {
-        "version": 2,
+        "version": 3,
         "features": {"tag_pairs": False, "tag_descriptions": True, "template_queries": False, "llm_queries": False},
         "options": {"max_tag_desc_pairs_per_tag": 10},
-        "faces": [
-            {"oracle_id": "o%d" % i, "face_ix": 0, "name": "n", "type_line": "t",
-             "oracle_text": "x", "text": "text %d" % i}
+        "abilities": [
+            {"oracle_id": "o%d" % i, "face_ix": 0, "ability_ix": 0, "raw": "x", "text": "text %d" % i}
             for i in range(10)
         ],
+        "card_names": [{"oracle_id": "o%d" % i, "face_ix": 0, "name": "n"} for i in range(10)],
         "tag_to_desc": {"mana dork": ["mana dork", "mana dork. Creatures that tap for mana"]},
-        "tag_to_desc_faces": {"mana dork": faces},
+        "tag_to_ability_ids": {"mana dork": [["o%d" % i, 0, 0] for i in range(10)]},
         "metadata": {"semantic_data_version": 7},
     }
 
@@ -234,6 +233,59 @@ def test_every_anchor_gets_the_full_budget(tmp_path) -> None:
     described = [p for p in state.direct_text_pairs if p[0].startswith("mana dork. ")]
     assert len(bare) == 10, "the bare name must get the whole budget, not half"
     assert len(described) == 10
+
+
+def test_repeated_ability_text_is_not_taught_over_and_over() -> None:
+    """Ability text deduplicates hard: "Flying." is 3,235 rows in the corpus.
+
+    Whole-face text differed per card so this could not arise before. Without
+    dedup a keyword-ish tag spends its entire budget on one identical string,
+    and the serve side embeds one vector per distinct text anyway.
+    """
+    payload = {
+        "version": 3,
+        "features": {"tag_pairs": False, "tag_descriptions": True, "template_queries": False, "llm_queries": False},
+        "options": {"max_tag_desc_pairs_per_tag": 50},
+        "abilities": [
+            {"oracle_id": "o%d" % i, "face_ix": 0, "ability_ix": 0, "raw": "Flying", "text": "flying."}
+            for i in range(20)
+        ],
+        "card_names": [],
+        "tag_to_desc": {"evasion": ["evasion"]},
+        "tag_to_ability_ids": {"evasion": [["o%d" % i, 0, 0] for i in range(20)]},
+        "metadata": {},
+    }
+
+    state, _ = modal_train._build_dataset_state(payload, augmentation_mode="tag_descriptions")
+
+    assert len(state.direct_text_pairs) == 1
+    assert state.simcse_examples == 1, "one self-pair per distinct text, not per row"
+
+
+def test_a_tag_is_taught_only_the_abilities_it_was_attributed_to() -> None:
+    """A card is a mana dork because of ONE of its abilities. Pairing the tag
+    with the whole face taught it that `mana dork` also means "Flying"."""
+    payload = {
+        "version": 3,
+        "features": {"tag_pairs": False, "tag_descriptions": True, "template_queries": False, "llm_queries": False},
+        "options": {"max_tag_desc_pairs_per_tag": 50},
+        "abilities": [
+            {"oracle_id": "birds", "face_ix": 0, "ability_ix": 0, "raw": "Flying", "text": "flying."},
+            {"oracle_id": "birds", "face_ix": 0, "ability_ix": 1, "raw": "{T}: Add one mana of any color.",
+             "text": "tap this creature: add one mana of any color."},
+        ],
+        "card_names": [{"oracle_id": "birds", "face_ix": 0, "name": "Birds of Paradise"}],
+        "tag_to_desc": {"mana dork": ["mana dork"]},
+        # Attribution resolved the tag to ability 1 only.
+        "tag_to_ability_ids": {"mana dork": [["birds", 0, 1]]},
+        "metadata": {},
+    }
+
+    state, _ = modal_train._build_dataset_state(payload, augmentation_mode="tag_descriptions")
+
+    positives = {positive for _anchor, positive, *_ in state.direct_text_pairs}
+    assert positives == {"tap this creature: add one mana of any color."}
+    assert "flying." not in positives
 
 
 def test_warmup_is_a_fraction_of_optimizer_steps_not_examples() -> None:

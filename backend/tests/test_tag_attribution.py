@@ -103,6 +103,21 @@ def test_a_tag_smaller_than_the_floor_does_not_attribute_multi_ability_faces() -
     assert picks == []
 
 
+def test_a_small_tag_keeps_its_single_ability_members() -> None:
+    """A tag below the floor is never *evaluated*, so it scores a resolution
+    rate of zero. Letting the tag-level gate act on that would discard members
+    whose attribution needed no evidence at all."""
+    corpus = {**_background(), **_dorks(n=10)}
+    members = _faces([f"dork{i}" for i in range(10)])
+    for i in range(4):
+        corpus[(f"solo{i}", 0, 0)] = f"destroy target creature. {i}"
+        members.append((f"solo{i}", 0))
+
+    picks = attribute_tags_to_abilities(corpus, {"rare tag": members})["rare tag"]
+
+    assert sorted(picks) == [(f"solo{i}", 0, 0) for i in range(4)]
+
+
 def test_an_unscoreable_ability_never_wins_on_a_fabricated_margin() -> None:
     """An ability that tokenizes to nothing cannot be scored. A prototype gave
     it a -99 sentinel, which made every ability beside it win by +100 and be

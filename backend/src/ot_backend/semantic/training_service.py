@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..core.config import configure_huggingface_env, huggingface_cache_dir
 from ..core.database import SessionLocal
 from ..core.models import CardFace
-from .dataset_service import FaceIdentity, TrainingDatasetState
+from .dataset_service import AbilityIdentity, TrainingDatasetState
 from .text_prep import face_to_text
 
 logger = logging.getLogger("ot_backend.semantic.training_service")
@@ -24,13 +24,13 @@ EMBED_WRITE_BATCH_SIZE = 512
 class LazyInputExampleDataset:
     def __init__(
         self,
-        pair_ids: list[tuple[FaceIdentity, FaceIdentity]],
-        face_texts: dict[FaceIdentity, str],
+        pair_ids: list[tuple[AbilityIdentity, AbilityIdentity]],
+        ability_texts: dict[AbilityIdentity, str],
         input_example_cls: Any,
         direct_text_pairs: list[tuple[str, str]] | None = None,
     ) -> None:
         self._pair_ids = pair_ids
-        self._face_texts = face_texts
+        self._ability_texts = ability_texts
         self._input_example_cls = input_example_cls
         self._direct_text_pairs = direct_text_pairs or []
         self._id_pair_count = len(pair_ids)
@@ -40,8 +40,8 @@ class LazyInputExampleDataset:
 
     def __getitem__(self, index: int) -> Any:
         if index < self._id_pair_count:
-            left_face_key, right_face_key = self._pair_ids[index]
-            return self._input_example_cls(texts=[self._face_texts[left_face_key], self._face_texts[right_face_key]])
+            left_key, right_key = self._pair_ids[index]
+            return self._input_example_cls(texts=[self._ability_texts[left_key], self._ability_texts[right_key]])
         anchor, positive = self._direct_text_pairs[index - self._id_pair_count]
         return self._input_example_cls(texts=[anchor, positive])
 
@@ -120,7 +120,7 @@ def train_sentence_transformer(
 
     training_dataset = LazyInputExampleDataset(
         dataset_state.pair_ids,
-        dataset_state.face_texts,
+        dataset_state.ability_texts,
         InputExample,
         direct_text_pairs=dataset_state.direct_text_pairs,
     )

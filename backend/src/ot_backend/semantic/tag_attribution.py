@@ -148,8 +148,9 @@ def attribute_tags_to_abilities(
         multis = [f for f in faces if len(face_abilities[f]) > 1]
         picks = list(singles)
         multi_resolved = 0
+        attribution_ran = bool(multis) and len(faces) >= min_members
 
-        if multis and len(faces) >= min_members:
+        if attribution_ran:
             lift = _lift_map(faces, face_abilities, global_df, total_abilities)
             for token in _tokenize(f"{tag_name.replace('-', ' ')} {tag_descriptions.get(tag_name) or ''}"):
                 if global_df[token] >= _MIN_GLOBAL_DF:
@@ -165,7 +166,15 @@ def attribute_tags_to_abilities(
                     picks.append(best[0])
                     multi_resolved += 1
 
-        if len(multis) >= _MIN_RATE_SAMPLE and multi_resolved / len(multis) < min_resolution_rate:
+        # Only a tag whose attribution actually ran can be judged by its
+        # resolution rate. A tag below `min_members` scores zero because it was
+        # never evaluated, and condemning it on that would also throw away its
+        # single-ability members, which need no evidence in the first place.
+        if (
+            attribution_ran
+            and len(multis) >= _MIN_RATE_SAMPLE
+            and multi_resolved / len(multis) < min_resolution_rate
+        ):
             # No ability-level meaning — see DEFAULT_MIN_RESOLUTION_RATE.
             attributed[tag_name] = []
             dropped_tags += 1

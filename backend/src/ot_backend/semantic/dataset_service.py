@@ -5,13 +5,14 @@ import json
 import logging
 import random
 from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from .query_gen import generate_template_queries
+from .tag_attribution import DEFAULT_MIN_MARGIN, attribute_tags_to_abilities
 from .tag_eval import is_held_out_tag
-from .text_prep import normalize_oracle_text
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -28,34 +29,45 @@ from .train_options import (
 logger = logging.getLogger("ot_backend.semantic.dataset_service")
 
 TRAINING_DATASET_FILE_NAME = "training-dataset.json"
-TRAINING_DATASET_VERSION = 7
-TRAINING_BUILD_PAYLOAD_VERSION = 2
+TRAINING_DATASET_VERSION = 8
+TRAINING_BUILD_PAYLOAD_VERSION = 3
 _DEFAULT_MAX_TAG_PAIRS_PER_TAG = 150
 _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 2
 _DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG = 600
 FaceIdentity = tuple[str, int]
+AbilityIdentity = tuple[str, int, int]
+_Identity = TypeVar("_Identity", FaceIdentity, AbilityIdentity)
 
 
 @dataclass(frozen=True)
-class FaceTextRecord:
+class AbilityTextRecord:
     oracle_id: str
     face_ix: int
+    ability_ix: int
     name: str
-    type_line: str
-    oracle_text: str
+    text: str
+    normalized_text: str
 
 
 @dataclass(frozen=True)
 class TrainingDatasetState:
-    face_texts: dict[FaceIdentity, str]
-    pair_ids: list[tuple[FaceIdentity, FaceIdentity]]
+    """The unit of training is an **ability**, not a face.
+
+    At serve time nothing ever embeds a face: `semantic_ability_embeddings` is
+    keyed by ability `text_hash`, retrieval probes per ability, and the rerank
+    is a Chamfer mean over ability sets. Training on face blobs while serving on
+    single abilities was a train/serve mismatch no amount of tag work fixes.
+    """
+
+    ability_texts: dict[AbilityIdentity, str]
+    pair_ids: list[tuple[AbilityIdentity, AbilityIdentity]]
     direct_text_pairs: list[tuple[str, ...]]
     simcse_examples: int
     tag_pair_examples: int
     tag_desc_pair_examples: int
     template_query_examples: int = 0
     llm_query_examples: int = 0
-    face_names: dict[FaceIdentity, str] = field(default_factory=dict)
+    card_names: dict[FaceIdentity, str] = field(default_factory=dict)
 
 
 def _lift_statement_timeout(db: Session) -> None:
@@ -80,15 +92,20 @@ _HARD_NEGATIVE_MIN_OVERLAP = 3
 
 
 def build_hard_negative_pools(
-    tag_to_face_ids: dict[str, list[FaceIdentity]],
-) -> dict[str, list[FaceIdentity]]:
-    """Per tag, faces that are semantically adjacent but definitively NOT in it."""
-    face_to_tags: dict[FaceIdentity, set[str]] = defaultdict(set)
+    tag_to_face_ids: Mapping[str, Sequence[_Identity]],
+) -> dict[str, list[_Identity]]:
+    """Per tag, members that are semantically adjacent but definitively NOT in it.
+
+    Generic over the unit: once tags are attributed to abilities the negative
+    for `mana dork` becomes "tap this land: Add one green mana" rather than a
+    whole land, which is a far sharper boundary.
+    """
+    face_to_tags: dict[_Identity, set[str]] = defaultdict(set)
     for tag_name, faces in tag_to_face_ids.items():
         for face_key in faces:
             face_to_tags[face_key].add(tag_name)
 
-    pools: dict[str, list[FaceIdentity]] = {}
+    pools: dict[str, list[_Identity]] = {}
     for tag_name, faces in tag_to_face_ids.items():
         members = set(faces)
         co_occurring: Counter[str] = Counter()
@@ -112,8 +129,8 @@ def build_hard_negative_pools(
             reverse=True,
         )
 
-        pool: list[FaceIdentity] = []
-        seen: set[FaceIdentity] = set()
+        pool: list[_Identity] = []
+        seen: set[_Identity] = set()
         for _score, other in ranked[:_HARD_NEGATIVE_CO_TAGS]:
             for face_key in tag_to_face_ids.get(other, ()):
                 if face_key in members or face_key in seen:
@@ -147,12 +164,33 @@ def _tag_anchors(tag_name: str, tag_description: str | None) -> list[str]:
     return [a for a in anchors if a]
 
 
+def _distinct_by_text(
+    ability_ids: Sequence[AbilityIdentity],
+    ability_texts: Mapping[AbilityIdentity, str],
+) -> list[AbilityIdentity]:
+    """One identity per distinct text, order preserved.
+
+    Ability text deduplicates hard — 63,289 instances collapse to ~37.3k
+    distinct, and "Flying." alone is 3,235 of them. Without this a tag whose
+    abilities are keywords would spend its whole budget on identical strings,
+    and the serve side embeds one vector per distinct text anyway.
+    """
+    seen: set[str] = set()
+    distinct: list[AbilityIdentity] = []
+    for ability_id in ability_ids:
+        text = ability_texts.get(ability_id) or ""
+        if not text.strip() or text in seen:
+            continue
+        seen.add(text)
+        distinct.append(ability_id)
+    return distinct
+
+
 def build_state_from_maps(
     *,
-    face_texts: dict[FaceIdentity, str],
-    face_names: dict[FaceIdentity, str],
-    tag_to_face_ids: dict[str, list[FaceIdentity]],
-    tag_to_desc_faces: dict[str, list[FaceIdentity]],
+    ability_texts: dict[AbilityIdentity, str],
+    card_names: dict[FaceIdentity, str],
+    tag_to_ability_ids: dict[str, list[AbilityIdentity]],
     tag_to_anchors: dict[str, list[str]],
     selected_augmentations: set[str],
     max_tag_pairs_per_tag: int = _DEFAULT_MAX_TAG_PAIRS_PER_TAG,
@@ -168,37 +206,41 @@ def build_state_from_maps(
     shipped payload and appends LLM-generated pairs it can only produce on a
     GPU. Both then land here, because two copies of this loop drift, and a
     dataset the TUI reports is not the one Modal trains on.
+
+    `tag_to_ability_ids` holds the abilities a tag was *attributed* to — see
+    `tag_attribution` — not every ability of every member card.
     """
     rng = rng or random.Random()
     llm_pairs = llm_pairs or []
 
-    self_pair_ids = [(face_key, face_key) for face_key, text in face_texts.items() if text.strip()]
+    distinct_abilities = _distinct_by_text(sorted(ability_texts), ability_texts)
+    self_pair_ids = [(ability_id, ability_id) for ability_id in distinct_abilities]
 
-    tag_pair_ids: list[tuple[FaceIdentity, FaceIdentity]] = []
+    tag_pair_ids: list[tuple[AbilityIdentity, AbilityIdentity]] = []
     if TRAIN_AUGMENTATION_TAG_PAIRS in selected_augmentations:
-        for face_ids in tag_to_face_ids.values():
-            if len(face_ids) < max_tag_pair_group_size:
+        for ability_ids in tag_to_ability_ids.values():
+            distinct = _distinct_by_text(ability_ids, ability_texts)
+            if len(distinct) < max_tag_pair_group_size:
                 continue
-            shuffled = list(face_ids)
-            rng.shuffle(shuffled)
-            for left, right in list(zip(shuffled[::2], shuffled[1::2], strict=False))[:max_tag_pairs_per_tag]:
-                if left[0] != right[0] and face_texts.get(left) and face_texts.get(right):
+            rng.shuffle(distinct)
+            for left, right in list(zip(distinct[::2], distinct[1::2], strict=False))[:max_tag_pairs_per_tag]:
+                if left[0] != right[0]:
                     tag_pair_ids.append((left, right))
 
     direct_text_pairs: list[tuple[str, ...]] = []
     if TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
-        negative_pools = build_hard_negative_pools(tag_to_face_ids)
+        negative_pools = build_hard_negative_pools(tag_to_ability_ids)
         logger.info(
             "Built hard-negative pools. tags=%d median_pool=%d",
             len(negative_pools),
             sorted(len(v) for v in negative_pools.values())[len(negative_pools) // 2] if negative_pools else 0,
         )
-        for tag_name, face_ids in tag_to_desc_faces.items():
+        for tag_name, ability_ids in tag_to_ability_ids.items():
             anchors = tag_to_anchors.get(tag_name) or []
-            usable = [f for f in face_ids if face_texts.get(f)]
+            usable = _distinct_by_text(ability_ids, ability_texts)
             if not usable or not anchors:
                 continue
-            pool = [f for f in (negative_pools.get(tag_name) or []) if f in face_texts]
+            pool = [a for a in (negative_pools.get(tag_name) or []) if ability_texts.get(a)]
             # Each anchor gets the full budget rather than a share of it. The
             # bare name is the form users actually type, and splitting starved
             # it: "mana dork" fell to 0.085% of the dataset, below the 0.182%
@@ -207,9 +249,9 @@ def build_state_from_maps(
             for anchor in anchors:
                 sampled = list(usable)
                 rng.shuffle(sampled)
-                for face_key in sampled[:max_tag_desc_pairs_per_tag]:
-                    positive = face_texts[face_key]
-                    negative = face_texts[rng.choice(pool)] if pool else None
+                for ability_id in sampled[:max_tag_desc_pairs_per_tag]:
+                    positive = ability_texts[ability_id]
+                    negative = ability_texts[rng.choice(pool)] if pool else None
                     if negative and negative != positive:
                         direct_text_pairs.append((anchor, positive, negative))
                     else:
@@ -217,9 +259,10 @@ def build_state_from_maps(
 
     template_query_examples = 0
     if TRAIN_AUGMENTATION_TEMPLATE_QUERIES in selected_augmentations:
-        for oracle_text in face_texts.values():
-            for query in generate_template_queries(oracle_text):
-                direct_text_pairs.append((query, oracle_text))
+        for ability_id in distinct_abilities:
+            text = ability_texts[ability_id]
+            for query in generate_template_queries(text):
+                direct_text_pairs.append((query, text))
                 template_query_examples += 1
 
     direct_text_pairs.extend(llm_pairs)
@@ -228,8 +271,8 @@ def build_state_from_maps(
     rng.shuffle(pair_ids)
     rng.shuffle(direct_text_pairs)
     return TrainingDatasetState(
-        face_texts=face_texts,
-        face_names=face_names,
+        ability_texts=ability_texts,
+        card_names=card_names,
         pair_ids=pair_ids,
         direct_text_pairs=direct_text_pairs,
         simcse_examples=len(self_pair_ids),
@@ -240,34 +283,88 @@ def build_state_from_maps(
     )
 
 
-def _face_text_records(db: Session) -> list[FaceTextRecord]:
+def _ability_records(db: Session) -> list[AbilityTextRecord]:
+    """Every ability, with the normalized text the runtime actually embeds.
+
+    `card_face_abilities.normalized_text` is read rather than re-normalized
+    here, so the training text and the served vector come from one string
+    produced at ingest time.
+    """
     from sqlalchemy import select
 
-    from ..core.models import CardFace
+    from ..core.models import CardFace, CardFaceAbility
 
-    records: list[FaceTextRecord] = []
-    query = select(
-        CardFace.oracle_id,
-        CardFace.face_ix,
-        CardFace.name,
-        CardFace.type_line,
-        CardFace.oracle_text,
-    ).order_by(CardFace.oracle_id, CardFace.face_ix)
-    for oracle_id, face_ix, name, type_line, oracle_text in db.execute(query):
-        records.append(
-            FaceTextRecord(
-                oracle_id=oracle_id,
-                face_ix=face_ix,
-                name=name or "",
-                type_line=type_line or "",
-                oracle_text=oracle_text or "",
-            )
+    query = (
+        select(
+            CardFaceAbility.oracle_id,
+            CardFaceAbility.face_ix,
+            CardFaceAbility.ability_ix,
+            CardFace.name,
+            CardFaceAbility.text,
+            CardFaceAbility.normalized_text,
         )
-    return records
+        .join(
+            CardFace,
+            (CardFace.oracle_id == CardFaceAbility.oracle_id) & (CardFace.face_ix == CardFaceAbility.face_ix),
+        )
+        .order_by(CardFaceAbility.oracle_id, CardFaceAbility.face_ix, CardFaceAbility.ability_ix)
+    )
+    return [
+        AbilityTextRecord(
+            oracle_id=oracle_id,
+            face_ix=face_ix,
+            ability_ix=ability_ix,
+            name=name or "",
+            text=text or "",
+            normalized_text=normalized_text or "",
+        )
+        for oracle_id, face_ix, ability_ix, name, text, normalized_text in db.execute(query)
+    ]
 
 
-def _normalize_face_record(face: FaceTextRecord) -> str:
-    return normalize_oracle_text(text=face.oracle_text, card_name=face.name, type_line=face.type_line)
+def _gather_tag_maps(
+    db: Session,
+    ability_texts: dict[AbilityIdentity, str],
+    *,
+    min_margin: float = DEFAULT_MIN_MARGIN,
+) -> tuple[dict[str, list[AbilityIdentity]], dict[str, list[str]]]:
+    """Tag membership resolved down to the abilities that justify each tag."""
+    from sqlalchemy import select
+
+    from ..core.models import CardTagging, Tag
+
+    card_faces: dict[str, list[FaceIdentity]] = defaultdict(list)
+    seen_faces: set[FaceIdentity] = set()
+    for oracle_id, face_ix, _ability_ix in ability_texts:
+        face_key = (oracle_id, face_ix)
+        if face_key not in seen_faces:
+            seen_faces.add(face_key)
+            card_faces[oracle_id].append(face_key)
+
+    tag_members: dict[str, list[FaceIdentity]] = defaultdict(list)
+    tag_descriptions: dict[str, str | None] = {}
+    rows = db.execute(
+        select(CardTagging.card_id, Tag.tag_name, Tag.tag_description)
+        .join(Tag, CardTagging.tag_id == Tag.id)
+        .filter(CardTagging.foreign_key == "oracleId")
+        .filter(Tag.tag_namespace == "card")
+    )
+    for card_id, tag_name, tag_description in rows:
+        # Held-out tags are the evaluation set. Training on them would turn the
+        # eval into a memorisation test — see semantic/tag_eval.py.
+        if is_held_out_tag(tag_name):
+            continue
+        tag_descriptions[tag_name] = tag_description
+        tag_members[tag_name].extend(card_faces.get(card_id, ()))
+
+    attributed = attribute_tags_to_abilities(
+        ability_texts, tag_members, tag_descriptions, min_margin=min_margin
+    )
+    tag_to_ability_ids = {name: ids for name, ids in attributed.items() if ids}
+    tag_to_anchors = {
+        name: _tag_anchors(name, tag_descriptions.get(name)) for name in tag_to_ability_ids
+    }
+    return tag_to_ability_ids, tag_to_anchors
 
 
 def build_training_dataset_state(
@@ -284,52 +381,21 @@ def build_training_dataset_state(
         else DEFAULT_TRAIN_AUGMENTATION_KEYS
     )
     _lift_statement_timeout(db)
-    logger.info("Loading face text for semantic training.")
-    face_records = _face_text_records(db)
-    face_texts: dict[FaceIdentity, str] = {}
-    face_names: dict[FaceIdentity, str] = {}
-    card_face_map: dict[str, list[FaceIdentity]] = defaultdict(list)
-    for face in face_records:
-        face_key = (face.oracle_id, face.face_ix)
-        face_texts[face_key] = _normalize_face_record(face)
-        face_names[face_key] = face.name
-        card_face_map[face.oracle_id].append((face.oracle_id, face.face_ix))
+    logger.info("Loading ability text for semantic training.")
+    ability_records = _ability_records(db)
+    ability_texts: dict[AbilityIdentity, str] = {}
+    card_names: dict[FaceIdentity, str] = {}
+    for ability in ability_records:
+        ability_texts[(ability.oracle_id, ability.face_ix, ability.ability_ix)] = ability.normalized_text
+        card_names[(ability.oracle_id, ability.face_ix)] = ability.name
 
-    try:
-        from sqlalchemy import select
-
-        from ..core.models import CardTagging, Tag
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("Tag models are unavailable in the current codebase state.") from exc
-
-    logger.info("Building tag-derived positive pairs.")
-    tag_to_face_ids: dict[str, list[FaceIdentity]] = defaultdict(list)
-    tag_to_anchors: dict[str, list[str]] = {}
-    tag_to_desc_faces: dict[str, list[FaceIdentity]] = defaultdict(list)
-
-    direct_oracle_taggings = db.execute(
-        select(CardTagging.card_id, Tag.tag_name, Tag.tag_description)
-        .join(Tag, CardTagging.tag_id == Tag.id)
-        .filter(CardTagging.foreign_key == "oracleId")
-        .filter(Tag.tag_namespace == "card")
-    )
-    for card_id, tag_name, tag_description in direct_oracle_taggings:
-        # Held-out tags are the evaluation set. Training on them would turn the
-        # eval into a memorisation test — see semantic/tag_eval.py.
-        if is_held_out_tag(tag_name):
-            continue
-        face_keys = [fk for fk in card_face_map.get(card_id, []) if fk in face_texts]
-        for face_key in face_keys:
-            tag_to_face_ids[tag_name].append(face_key)
-        tag_to_anchors[tag_name] = _tag_anchors(tag_name, tag_description)
-        for face_key in face_keys:
-            tag_to_desc_faces[tag_name].append(face_key)
+    logger.info("Attributing tags to abilities.")
+    tag_to_ability_ids, tag_to_anchors = _gather_tag_maps(db, ability_texts)
 
     return build_state_from_maps(
-        face_texts=face_texts,
-        face_names=face_names,
-        tag_to_face_ids=dict(tag_to_face_ids),
-        tag_to_desc_faces=dict(tag_to_desc_faces),
+        ability_texts=ability_texts,
+        card_names=card_names,
+        tag_to_ability_ids=tag_to_ability_ids,
         tag_to_anchors=tag_to_anchors,
         selected_augmentations=selected_augmentations,
         max_tag_pairs_per_tag=max_tag_pairs_per_tag,
@@ -354,48 +420,33 @@ def build_training_dataset_build_payload(
         else DEFAULT_TRAIN_AUGMENTATION_KEYS
     )
     _lift_statement_timeout(db)
-    face_records = _face_text_records(db)
-    face_payload_rows: list[dict[str, Any]] = []
-    card_face_map: dict[str, list[FaceIdentity]] = defaultdict(list)
-    for face in face_records:
-        face_key = (face.oracle_id, face.face_ix)
-        face_payload_rows.append(
+    ability_records = _ability_records(db)
+    ability_texts: dict[AbilityIdentity, str] = {}
+    ability_payload_rows: list[dict[str, Any]] = []
+    card_name_rows: list[dict[str, Any]] = []
+    seen_faces: set[FaceIdentity] = set()
+    for ability in ability_records:
+        ability_texts[(ability.oracle_id, ability.face_ix, ability.ability_ix)] = ability.normalized_text
+        ability_payload_rows.append(
             {
-                "oracle_id": face.oracle_id,
-                "face_ix": face.face_ix,
-                "name": face.name,
-                "type_line": face.type_line,
-                "oracle_text": face.oracle_text,
-                "text": _normalize_face_record(face),
+                "oracle_id": ability.oracle_id,
+                "face_ix": ability.face_ix,
+                "ability_ix": ability.ability_ix,
+                "raw": ability.text,
+                "text": ability.normalized_text,
             }
         )
-        card_face_map[face.oracle_id].append(face_key)
+        face_key = (ability.oracle_id, ability.face_ix)
+        if face_key not in seen_faces:
+            seen_faces.add(face_key)
+            card_name_rows.append(
+                {"oracle_id": ability.oracle_id, "face_ix": ability.face_ix, "name": ability.name}
+            )
 
-    try:
-        from sqlalchemy import select
-
-        from ..core.models import CardTagging, Tag
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("Tag models are unavailable in the current codebase state.") from exc
-
-    tag_to_face_ids: dict[str, list[FaceIdentity]] = defaultdict(list)
-    tag_to_desc: dict[str, list[str]] = {}
-    tag_to_desc_faces: dict[str, list[FaceIdentity]] = defaultdict(list)
-
-    direct_oracle_taggings = db.execute(
-        select(CardTagging.card_id, Tag.tag_name, Tag.tag_description)
-        .join(Tag, CardTagging.tag_id == Tag.id)
-        .filter(CardTagging.foreign_key == "oracleId")
-        .filter(Tag.tag_namespace == "card")
-    )
-    for card_id, tag_name, tag_description in direct_oracle_taggings:
-        if is_held_out_tag(tag_name):  # see build_training_dataset_state
-            continue
-        face_keys = card_face_map.get(card_id, [])
-        for face_key in face_keys:
-            tag_to_face_ids[tag_name].append(face_key)
-            tag_to_desc_faces[tag_name].append(face_key)
-        tag_to_desc[tag_name] = _tag_anchors(tag_name, tag_description)
+    # Attribution runs here, once, and ships its result: it needs corpus-wide
+    # token frequencies the remote side would otherwise have to recompute, and
+    # keeping the algorithm on one side of the wire keeps it testable locally.
+    tag_to_ability_ids, tag_to_anchors = _gather_tag_maps(db, ability_texts)
 
     return {
         "version": TRAINING_BUILD_PAYLOAD_VERSION,
@@ -411,16 +462,13 @@ def build_training_dataset_build_payload(
             "template_queries": TRAIN_AUGMENTATION_TEMPLATE_QUERIES in selected_augmentations,
             "llm_queries": TRAIN_AUGMENTATION_LLM_QUERIES in selected_augmentations,
         },
-        "faces": face_payload_rows,
-        "tag_to_face_ids": {
-            tag_name: [[oracle_id, face_ix] for oracle_id, face_ix in face_ids]
-            for tag_name, face_ids in sorted(tag_to_face_ids.items())
+        "abilities": ability_payload_rows,
+        "card_names": card_name_rows,
+        "tag_to_ability_ids": {
+            tag_name: [list(ability_id) for ability_id in ability_ids]
+            for tag_name, ability_ids in sorted(tag_to_ability_ids.items())
         },
-        "tag_to_desc": dict(sorted(tag_to_desc.items())),
-        "tag_to_desc_faces": {
-            tag_name: [[oracle_id, face_ix] for oracle_id, face_ix in face_ids]
-            for tag_name, face_ids in sorted(tag_to_desc_faces.items())
-        },
+        "tag_to_desc": dict(sorted(tag_to_anchors.items())),
         "metadata": build_training_dataset_metadata(db),
     }
 
@@ -432,18 +480,17 @@ def build_training_dataset_payload(
 ) -> dict[str, Any]:
     return {
         "version": TRAINING_DATASET_VERSION,
-        "face_texts": [
-            {
-                "oracle_id": oracle_id,
-                "face_ix": face_ix,
-                "text": text,
-                **({"name": dataset_state.face_names[(oracle_id, face_ix)]} if (oracle_id, face_ix) in dataset_state.face_names else {}),
-            }
-            for (oracle_id, face_ix), text in sorted(dataset_state.face_texts.items())
+        "ability_texts": [
+            {"oracle_id": oracle_id, "face_ix": face_ix, "ability_ix": ability_ix, "text": text}
+            for (oracle_id, face_ix, ability_ix), text in sorted(dataset_state.ability_texts.items())
+        ],
+        # Kept out of the ability rows: one name per face, not per ability.
+        "card_names": [
+            {"oracle_id": oracle_id, "face_ix": face_ix, "name": name}
+            for (oracle_id, face_ix), name in sorted(dataset_state.card_names.items())
         ],
         "pair_ids": [
-            [[left_oracle_id, left_face_ix], [right_oracle_id, right_face_ix]]
-            for (left_oracle_id, left_face_ix), (right_oracle_id, right_face_ix) in dataset_state.pair_ids
+            [list(left), list(right)] for left, right in dataset_state.pair_ids
         ],
         "direct_text_pairs": list(dataset_state.direct_text_pairs),
         "simcse_examples": dataset_state.simcse_examples,
@@ -489,28 +536,49 @@ def load_training_dataset_metadata(input_path: Path) -> dict[str, object]:
     return {str(key): value for key, value in metadata.items()}
 
 
+def _as_ability_id(row: Sequence[Any]) -> AbilityIdentity:
+    """Accept both the 2-element face keys of v2-v7 and the 3-element v8 keys."""
+    oracle_id, face_ix = str(row[0]), int(row[1])
+    return (oracle_id, face_ix, int(row[2]) if len(row) > 2 else 0)
+
+
 def _training_dataset_state_from_payload(payload: dict[str, Any]) -> TrainingDatasetState:
     version = int(payload["version"])
-    if version not in (2, 3, 4, 5, 6, 7):
+    if version not in (2, 3, 4, 5, 6, 7, 8):
         raise ValueError(f"Unsupported training dataset format version: {version}.")
-    face_texts = {
-        (str(r["oracle_id"]), int(r["face_ix"])): str(r["text"])
-        for r in payload["face_texts"]
-    }
-    face_names = {
-        (str(r["oracle_id"]), int(r["face_ix"])): str(r["name"])
-        for r in payload["face_texts"]
-        if r.get("name")
-    }
+
+    if version >= 8:
+        ability_texts = {
+            (str(r["oracle_id"]), int(r["face_ix"]), int(r["ability_ix"])): str(r["text"])
+            for r in payload["ability_texts"]
+        }
+        card_names = {
+            (str(r["oracle_id"]), int(r["face_ix"])): str(r["name"])
+            for r in payload.get("card_names", [])
+            if r.get("name")
+        }
+    else:
+        # Versions 2-7 trained on whole faces. Reading each face as a single
+        # unit reproduces those datasets exactly, so an archived one still
+        # retrains rather than becoming unloadable.
+        ability_texts = {
+            (str(r["oracle_id"]), int(r["face_ix"]), 0): str(r["text"])
+            for r in payload["face_texts"]
+        }
+        card_names = {
+            (str(r["oracle_id"]), int(r["face_ix"])): str(r["name"])
+            for r in payload["face_texts"]
+            if r.get("name")
+        }
+
     pair_ids = [
-        ((str(left_oracle_id), int(left_face_ix)), (str(right_oracle_id), int(right_face_ix)))
-        for [left_oracle_id, left_face_ix], [right_oracle_id, right_face_ix] in payload["pair_ids"]
+        (_as_ability_id(left), _as_ability_id(right)) for left, right in payload["pair_ids"]
     ]
     # 2-tuples (anchor, positive) and 3-tuples (anchor, positive, hard negative).
     direct_text_pairs: list[tuple[str, ...]] = [tuple(str(x) for x in row) for row in payload.get("direct_text_pairs", [])]
     return TrainingDatasetState(
-        face_texts=face_texts,
-        face_names=face_names,
+        ability_texts=ability_texts,
+        card_names=card_names,
         pair_ids=pair_ids,
         direct_text_pairs=direct_text_pairs,
         simcse_examples=int(payload["simcse_examples"]),

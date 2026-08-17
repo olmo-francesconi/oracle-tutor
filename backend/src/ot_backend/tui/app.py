@@ -1188,7 +1188,7 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
     from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
 
     from ot_backend.core.database import SessionLocal
-    from ot_backend.semantic.dataset_service import _face_text_records, _normalize_face_record
+    from ot_backend.semantic.dataset_service import _ability_records
     from ot_backend.semantic.train_options import (
         TRAIN_QUANTIZATION_INT8,
         validate_train_quantization,
@@ -1198,14 +1198,15 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
 
     lg = logging.getLogger("ot_backend.semantic.scripts.train_model")
 
-    lg.info("Loading card faces from DB.")
+    lg.info("Loading card abilities from DB.")
     with SessionLocal() as db:
-        face_records = _face_text_records(db)
-    oracle_ids = np.asarray([f.oracle_id for f in face_records])
-    face_ixs = np.asarray([f.face_ix for f in face_records], dtype=np.int32)
-    texts = [_normalize_face_record(f) for f in face_records]
-    n_faces = len(texts)
-    lg.info("Loaded %d card faces.", n_faces)
+        ability_records = _ability_records(db)
+    oracle_ids = np.asarray([a.oracle_id for a in ability_records])
+    face_ixs = np.asarray([a.face_ix for a in ability_records], dtype=np.int32)
+    ability_ixs = np.asarray([a.ability_ix for a in ability_records], dtype=np.int32)
+    texts = [a.normalized_text for a in ability_records]
+    n_abilities = len(texts)
+    lg.info("Loaded %d card abilities.", n_abilities)
 
     lg.info("Loading base model: %s", base_model)
     model = SentenceTransformer(base_model)
@@ -1215,10 +1216,10 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
         embedding_dim = 0
 
     encode_batch = 256
-    lg.info("Encoding %d faces (batch=%d).", n_faces, encode_batch)
+    lg.info("Encoding %d abilities (batch=%d).", n_abilities, encode_batch)
     parts: list[np.ndarray] = []
-    for offset in range(0, n_faces, encode_batch):
-        end = min(offset + encode_batch, n_faces)
+    for offset in range(0, n_abilities, encode_batch):
+        end = min(offset + encode_batch, n_abilities)
         vectors = model.encode(
             texts[offset:end],
             batch_size=encode_batch,
@@ -1226,7 +1227,7 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
             show_progress_bar=False,
         )
         parts.append(np.asarray(vectors, dtype=np.float32))
-        lg.info("Encoded %d / %d faces.", end, n_faces)
+        lg.info("Encoded %d / %d abilities.", end, n_abilities)
     embeddings = np.concatenate(parts, axis=0) if parts else np.zeros((0, embedding_dim), dtype=np.float32)
     if embedding_dim == 0 and embeddings.ndim == 2:
         embedding_dim = int(embeddings.shape[1])
@@ -1283,6 +1284,7 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
             embeddings_dir / "embeddings.npz",
             oracle_ids=oracle_ids,
             face_ixs=face_ixs,
+            ability_ixs=ability_ixs,
             embeddings=embeddings,
         )
 
@@ -1301,7 +1303,7 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
             encoding="utf-8",
         )
         (root / "metrics.json").write_text(
-            json.dumps({"face_count": n_faces, "embedding_dim": embedding_dim, "skip_fine_tune": True}, indent=2),
+            json.dumps({"ability_count": n_abilities, "embedding_dim": embedding_dim, "skip_fine_tune": True}, indent=2),
             encoding="utf-8",
         )
         (root / "manifest.json").write_text(
@@ -1323,7 +1325,7 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
                 if path.is_dir():
                     continue
                 archive.write(path, arcname=path.relative_to(root).as_posix())
-        lg.info("Bundle assembled. faces=%d embedding_dim=%d", n_faces, embedding_dim)
+        lg.info("Bundle assembled. abilities=%d embedding_dim=%d", n_abilities, embedding_dim)
         return buf.getvalue()
 
 
