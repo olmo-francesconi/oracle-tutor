@@ -147,6 +147,99 @@ def _tag_anchors(tag_name: str, tag_description: str | None) -> list[str]:
     return [a for a in anchors if a]
 
 
+def build_state_from_maps(
+    *,
+    face_texts: dict[FaceIdentity, str],
+    face_names: dict[FaceIdentity, str],
+    tag_to_face_ids: dict[str, list[FaceIdentity]],
+    tag_to_desc_faces: dict[str, list[FaceIdentity]],
+    tag_to_anchors: dict[str, list[str]],
+    selected_augmentations: set[str],
+    max_tag_pairs_per_tag: int = _DEFAULT_MAX_TAG_PAIRS_PER_TAG,
+    max_tag_pair_group_size: int = _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE,
+    max_tag_desc_pairs_per_tag: int = _DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG,
+    rng: random.Random | None = None,
+    llm_pairs: list[tuple[str, str]] | None = None,
+) -> TrainingDatasetState:
+    """Assemble training examples from already-gathered maps.
+
+    The single source of truth for what a training example *is*. The local
+    builder reads the maps from Postgres; the Modal builder reads them from the
+    shipped payload and appends LLM-generated pairs it can only produce on a
+    GPU. Both then land here, because two copies of this loop drift, and a
+    dataset the TUI reports is not the one Modal trains on.
+    """
+    rng = rng or random.Random()
+    llm_pairs = llm_pairs or []
+
+    self_pair_ids = [(face_key, face_key) for face_key, text in face_texts.items() if text.strip()]
+
+    tag_pair_ids: list[tuple[FaceIdentity, FaceIdentity]] = []
+    if TRAIN_AUGMENTATION_TAG_PAIRS in selected_augmentations:
+        for face_ids in tag_to_face_ids.values():
+            if len(face_ids) < max_tag_pair_group_size:
+                continue
+            shuffled = list(face_ids)
+            rng.shuffle(shuffled)
+            for left, right in list(zip(shuffled[::2], shuffled[1::2], strict=False))[:max_tag_pairs_per_tag]:
+                if left[0] != right[0] and face_texts.get(left) and face_texts.get(right):
+                    tag_pair_ids.append((left, right))
+
+    direct_text_pairs: list[tuple[str, ...]] = []
+    if TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
+        negative_pools = build_hard_negative_pools(tag_to_face_ids)
+        logger.info(
+            "Built hard-negative pools. tags=%d median_pool=%d",
+            len(negative_pools),
+            sorted(len(v) for v in negative_pools.values())[len(negative_pools) // 2] if negative_pools else 0,
+        )
+        for tag_name, face_ids in tag_to_desc_faces.items():
+            anchors = tag_to_anchors.get(tag_name) or []
+            usable = [f for f in face_ids if face_texts.get(f)]
+            if not usable or not anchors:
+                continue
+            pool = [f for f in (negative_pools.get(tag_name) or []) if f in face_texts]
+            # Each anchor gets the full budget rather than a share of it. The
+            # bare name is the form users actually type, and splitting starved
+            # it: "mana dork" fell to 0.085% of the dataset, below the 0.182%
+            # the (since-removed) template rule used to give it, and the model
+            # stopped ranking mana dorks for it at all.
+            for anchor in anchors:
+                sampled = list(usable)
+                rng.shuffle(sampled)
+                for face_key in sampled[:max_tag_desc_pairs_per_tag]:
+                    positive = face_texts[face_key]
+                    negative = face_texts[rng.choice(pool)] if pool else None
+                    if negative and negative != positive:
+                        direct_text_pairs.append((anchor, positive, negative))
+                    else:
+                        direct_text_pairs.append((anchor, positive))
+
+    template_query_examples = 0
+    if TRAIN_AUGMENTATION_TEMPLATE_QUERIES in selected_augmentations:
+        for oracle_text in face_texts.values():
+            for query in generate_template_queries(oracle_text):
+                direct_text_pairs.append((query, oracle_text))
+                template_query_examples += 1
+
+    direct_text_pairs.extend(llm_pairs)
+
+    pair_ids = self_pair_ids + tag_pair_ids
+    rng.shuffle(pair_ids)
+    rng.shuffle(direct_text_pairs)
+    return TrainingDatasetState(
+        face_texts=face_texts,
+        face_names=face_names,
+        pair_ids=pair_ids,
+        direct_text_pairs=direct_text_pairs,
+        simcse_examples=len(self_pair_ids),
+        tag_pair_examples=len(tag_pair_ids),
+        tag_desc_pair_examples=max(len(direct_text_pairs) - template_query_examples - len(llm_pairs), 0),
+        template_query_examples=template_query_examples,
+        llm_query_examples=len(llm_pairs),
+    )
+
+
 def _face_text_records(db: Session) -> list[FaceTextRecord]:
     from sqlalchemy import select
 
@@ -202,8 +295,6 @@ def build_training_dataset_state(
         face_names[face_key] = face.name
         card_face_map[face.oracle_id].append((face.oracle_id, face.face_ix))
 
-    self_pair_ids = [(face_key, face_key) for face_key, text in face_texts.items() if text.strip()]
-
     try:
         from sqlalchemy import select
 
@@ -234,69 +325,16 @@ def build_training_dataset_state(
         for face_key in face_keys:
             tag_to_desc_faces[tag_name].append(face_key)
 
-    tag_pair_ids: list[tuple[FaceIdentity, FaceIdentity]] = []
-    if TRAIN_AUGMENTATION_TAG_PAIRS in selected_augmentations:
-        for fids in tag_to_face_ids.values():
-            if len(fids) < max_tag_pair_group_size:
-                continue
-            random.shuffle(fids)
-            for a, b in list(zip(fids[::2], fids[1::2]))[:max_tag_pairs_per_tag]:
-                if a[0] != b[0] and face_texts.get(a) and face_texts.get(b):
-                    tag_pair_ids.append((a, b))
-
-    negative_pools = build_hard_negative_pools(tag_to_face_ids)
-    logger.info(
-        "Built hard-negative pools. tags=%d median_pool=%d",
-        len(negative_pools),
-        sorted(len(v) for v in negative_pools.values())[len(negative_pools) // 2] if negative_pools else 0,
-    )
-
-    logger.info("Building tag-description anchor pairs.")
-    direct_text_pairs: list[tuple[str, ...]] = []
-    if TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
-        for tag_name, face_ids in tag_to_desc_faces.items():
-            anchors = tag_to_anchors.get(tag_name) or []
-            if not face_ids or not anchors:
-                continue
-            # Each anchor gets the full budget rather than a share of it. The
-            # bare name is the form users actually type, and splitting starved
-            # it: "mana dork" fell to 0.085% of the dataset, below the 0.182%
-            # the (since-removed) template rule used to give it, and the model
-            # stopped ranking mana dorks for it at all.
-            pool = negative_pools.get(tag_name) or []
-            for anchor in anchors:
-                sampled = random.sample(face_ids, min(len(face_ids), max_tag_desc_pairs_per_tag))
-                for face_key in sampled:
-                    positive = face_texts[face_key]
-                    negative = face_texts.get(random.choice(pool)) if pool else None
-                    if negative and negative != positive:
-                        direct_text_pairs.append((anchor, positive, negative))
-                    else:
-                        direct_text_pairs.append((anchor, positive))
-
-    logger.info("Building template query pairs.")
-    template_query_examples = 0
-    if TRAIN_AUGMENTATION_TEMPLATE_QUERIES in selected_augmentations:
-        for face_key, oracle_text in face_texts.items():
-            for query in generate_template_queries(oracle_text):
-                direct_text_pairs.append((query, oracle_text))
-                template_query_examples += 1
-    logger.info("Template query pairs built. count=%d", template_query_examples)
-
-    pair_ids = self_pair_ids + tag_pair_ids
-    random.shuffle(pair_ids)
-    random.shuffle(direct_text_pairs)
-    tag_desc_count = len(direct_text_pairs) - template_query_examples
-    return TrainingDatasetState(
+    return build_state_from_maps(
         face_texts=face_texts,
         face_names=face_names,
-        pair_ids=pair_ids,
-        direct_text_pairs=direct_text_pairs,
-        simcse_examples=len(self_pair_ids),
-        tag_pair_examples=len(tag_pair_ids),
-        tag_desc_pair_examples=tag_desc_count,
-        template_query_examples=template_query_examples,
-        llm_query_examples=0,
+        tag_to_face_ids=dict(tag_to_face_ids),
+        tag_to_desc_faces=dict(tag_to_desc_faces),
+        tag_to_anchors=tag_to_anchors,
+        selected_augmentations=selected_augmentations,
+        max_tag_pairs_per_tag=max_tag_pairs_per_tag,
+        max_tag_pair_group_size=max_tag_pair_group_size,
+        max_tag_desc_pairs_per_tag=max_tag_desc_pairs_per_tag,
     )
 
 

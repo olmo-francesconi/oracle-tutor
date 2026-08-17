@@ -69,7 +69,7 @@ from ..core.config import (
 )
 from .dataset_service import (
     TrainingDatasetState,
-    build_hard_negative_pools,
+    build_state_from_maps,
     load_training_dataset_bytes,
     serialize_training_dataset,
 )
@@ -257,6 +257,14 @@ def _generate_llm_query_pairs(face_rows: list[dict[str, str]], *, llm_config: di
 
 _SUPPORTED_BUILD_PAYLOAD_VERSIONS = frozenset({1, 2})
 
+# Which payload feature flag gates which augmentation key.
+_FEATURE_FLAG_BY_AUGMENTATION = {
+    TRAIN_AUGMENTATION_TAG_PAIRS: "tag_pairs",
+    TRAIN_AUGMENTATION_TAG_DESCRIPTIONS: "tag_descriptions",
+    TRAIN_AUGMENTATION_TEMPLATE_QUERIES: "template_queries",
+    TRAIN_AUGMENTATION_LLM_QUERIES: "llm_queries",
+}
+
 
 def _build_dataset_state(
     build_payload: dict[str, Any],
@@ -296,97 +304,59 @@ def _build_dataset_state(
             }
         )
 
-    self_pair_ids = [(face_key, face_key) for face_key, text in face_texts.items() if text.strip()]
+    # A feature disabled when the payload was built cannot be turned back on
+    # here — the payload simply lacks the rows — so the effective set is the
+    # intersection of what was shipped and what this run asked for.
+    effective_augmentations = {
+        key
+        for key in selected_augmentations
+        if feature_flags.get(_FEATURE_FLAG_BY_AUGMENTATION.get(key, ""), False)
+    }
 
-    rng = random.Random(0)
-    tag_pair_ids: list[tuple[tuple[str, int], tuple[str, int]]] = []
-    if feature_flags.get("tag_pairs") and TRAIN_AUGMENTATION_TAG_PAIRS in selected_augmentations:
-        max_pairs_per_tag = int(options.get("max_tag_pairs_per_tag", 50))
-        min_group_size = int(options.get("max_tag_pair_group_size", 5))
-        raw_tag_to_face_ids = build_payload.get("tag_to_face_ids")
-        tag_to_face_ids: dict[str, Any] = raw_tag_to_face_ids if isinstance(raw_tag_to_face_ids, dict) else {}
-        for raw_face_ids in tag_to_face_ids.values():
-            face_ids = _parse_face_key_rows(list(raw_face_ids))
-            if len(face_ids) < min_group_size:
-                continue
-            shuffled = list(face_ids)
-            rng.shuffle(shuffled)
-            for left, right in list(zip(shuffled[::2], shuffled[1::2]))[:max_pairs_per_tag]:
-                if left[0] != right[0] and face_texts.get(left) and face_texts.get(right):
-                    tag_pair_ids.append((left, right))
-
-    direct_text_pairs: list[tuple[str, ...]] = []
-    if feature_flags.get("tag_descriptions") and TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
-        negative_pools = build_hard_negative_pools(
-            {
-                tag_name: _parse_face_key_rows(list(raw_faces))
-                for tag_name, raw_faces in (build_payload.get("tag_to_face_ids") or {}).items()
-            }
-        )
-        max_desc_pairs_per_tag = int(options.get("max_tag_desc_pairs_per_tag", 600))
-        raw_tag_to_desc = build_payload.get("tag_to_desc")
-        tag_to_desc: dict[str, Any] = raw_tag_to_desc if isinstance(raw_tag_to_desc, dict) else {}
-        raw_tag_to_desc_faces = build_payload.get("tag_to_desc_faces")
-        tag_to_desc_faces: dict[str, Any] = raw_tag_to_desc_faces if isinstance(raw_tag_to_desc_faces, dict) else {}
-        for tag_name, raw_face_ids in tag_to_desc_faces.items():
-            # Payload v2 carries a list of anchors (bare name + name.description);
-            # v1 carried a single string. Accept both so a stale payload still builds.
-            raw_anchors = tag_to_desc.get(tag_name)
-            candidates = [raw_anchors] if isinstance(raw_anchors, str) else list(raw_anchors or [])
-            anchors = [a for a in (str(c).strip() for c in candidates) if a]
-            if not anchors:
-                continue
-            face_ids = _parse_face_key_rows(list(raw_face_ids))
-            if not face_ids:
-                continue
-            pool = [f for f in (negative_pools.get(tag_name) or []) if f in face_texts]
-            # Each anchor gets the full budget, not a share (see dataset_service).
-            for anchor in anchors:
-                sampled = list(face_ids)
-                rng.shuffle(sampled)
-                for face_key in sampled[:max_desc_pairs_per_tag]:
-                    positive = face_texts[face_key]
-                    negative = face_texts[rng.choice(pool)] if pool else None
-                    if negative and negative != positive:
-                        direct_text_pairs.append((anchor, positive, negative))
-                    else:
-                        direct_text_pairs.append((anchor, positive))
-
-    template_query_examples = 0
-    if feature_flags.get("template_queries") and TRAIN_AUGMENTATION_TEMPLATE_QUERIES in selected_augmentations:
-        for face_key, oracle_text in face_texts.items():
-            for query in generate_template_queries(oracle_text):
-                direct_text_pairs.append((query, oracle_text))
-                template_query_examples += 1
+    raw_tag_to_face_ids = build_payload.get("tag_to_face_ids")
+    tag_to_face_ids = {
+        tag_name: _parse_face_key_rows(list(raw_faces))
+        for tag_name, raw_faces in (raw_tag_to_face_ids if isinstance(raw_tag_to_face_ids, dict) else {}).items()
+    }
+    raw_tag_to_desc_faces = build_payload.get("tag_to_desc_faces")
+    tag_to_desc_faces = {
+        tag_name: _parse_face_key_rows(list(raw_faces))
+        for tag_name, raw_faces in (raw_tag_to_desc_faces if isinstance(raw_tag_to_desc_faces, dict) else {}).items()
+    }
+    raw_tag_to_desc = build_payload.get("tag_to_desc")
+    # Payload v2 carries a list of anchors (bare name + name.description);
+    # v1 carried a single string. Accept both so a stale payload still builds.
+    tag_to_anchors: dict[str, list[str]] = {}
+    for tag_name, raw_anchors in (raw_tag_to_desc if isinstance(raw_tag_to_desc, dict) else {}).items():
+        candidates = [raw_anchors] if isinstance(raw_anchors, str) else list(raw_anchors or [])
+        tag_to_anchors[tag_name] = [a for a in (str(c).strip() for c in candidates) if a]
 
     llm_pairs: list[tuple[str, str]] = []
-    if feature_flags.get("llm_queries") and TRAIN_AUGMENTATION_LLM_QUERIES in selected_augmentations:
+    if TRAIN_AUGMENTATION_LLM_QUERIES in effective_augmentations:
         llm_pairs = _generate_llm_query_pairs(normalized_faces, llm_config=llm_config)
-        direct_text_pairs.extend(llm_pairs)
 
-    rng.shuffle(tag_pair_ids)
-    rng.shuffle(direct_text_pairs)
+    state = build_state_from_maps(
+        face_texts=face_texts,
+        face_names=face_names,
+        tag_to_face_ids=tag_to_face_ids,
+        tag_to_desc_faces=tag_to_desc_faces,
+        tag_to_anchors=tag_to_anchors,
+        selected_augmentations=effective_augmentations,
+        max_tag_pairs_per_tag=int(options.get("max_tag_pairs_per_tag", 50)),
+        max_tag_pair_group_size=int(options.get("max_tag_pair_group_size", 5)),
+        max_tag_desc_pairs_per_tag=int(options.get("max_tag_desc_pairs_per_tag", 600)),
+        rng=random.Random(0),
+        llm_pairs=llm_pairs,
+    )
+
     metadata = dict(build_payload.get("metadata") or {})
     metadata["augmentation"] = {
         "mode": augmentation_mode,
-        "template_query_examples": template_query_examples,
+        "template_query_examples": state.template_query_examples,
         "llm_query_examples": len(llm_pairs),
         **({"llm_model": str((llm_config or {}).get("model_name", semantic_llm_model_name()))} if llm_pairs else {}),
     }
-    return (
-        TrainingDatasetState(
-            face_texts=face_texts,
-            face_names=face_names,
-            pair_ids=self_pair_ids + tag_pair_ids,
-            direct_text_pairs=direct_text_pairs,
-            simcse_examples=len(self_pair_ids),
-            tag_pair_examples=len(tag_pair_ids),
-            tag_desc_pair_examples=max(len(direct_text_pairs) - template_query_examples - len(llm_pairs), 0),
-            template_query_examples=template_query_examples,
-            llm_query_examples=len(llm_pairs),
-        ),
-        metadata,
-    )
+    return state, metadata
 
 
 @app.function(
