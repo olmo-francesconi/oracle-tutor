@@ -9,6 +9,14 @@ from typing import Callable, Literal
 CheckStatus = Literal["ok", "warn", "fail", "skipped", "pending"]
 
 
+# Waking a scale-from-zero deploy takes tens of seconds; the frontend waits 30s
+# before declaring the API down for the same reason. Overridable for operators
+# on a warm deploy who want the boot screen to fail fast.
+_API_WAKE_BUDGET_S = float(os.getenv("OT_TUI_API_WAKE_BUDGET", "90"))
+_API_POLL_INTERVAL_S = float(os.getenv("OT_TUI_API_POLL_INTERVAL", "2"))
+_API_REQUEST_TIMEOUT_S = 10.0
+
+
 @dataclass
 class CheckResult:
     name: str
@@ -90,36 +98,75 @@ async def check_storage() -> CheckResult:
 
 
 async def check_api() -> CheckResult:
+    """Probe the API, waiting out a scale-from-zero cold start.
+
+    The public deploy sleeps when idle. Waking it takes tens of seconds, during
+    which the edge answers 502/503 or the connection times out — none of which
+    mean the service is broken. So the public probe polls until the API answers
+    or the budget runs out, rather than reporting a sleeping service as down.
+    A 4xx is not a cold start (bad URL, bad route), so it fails fast.
+    """
     name = "API"
     start = time.perf_counter()
-    # (base, health_path) candidates in order of preference. Public deploys put
-    # the api behind nginx under /api/*, so we hit /api/health there. Local dev
-    # runs hypercorn directly at localhost:8000 where /health is at the root.
-    candidates: list[tuple[str, str]] = []
     public = os.getenv("OT_PUBLIC_URL", "").strip().rstrip("/")
-    if public:
-        candidates.append((public, "/api/health"))
-    candidates.append(("http://localhost:8000", "/health"))
     try:
         import httpx
 
-        last_error: str = ""
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            for base, path in candidates:
-                url = f"{base}{path}"
-                try:
-                    response = await client.get(url)
-                    if response.status_code == 200:
-                        return CheckResult(
-                            name=name,
-                            status="ok",
-                            detail=f"{url}  (200)",
-                            latency_ms=int((time.perf_counter() - start) * 1000),
-                        )
-                    last_error = f"{url}  ({response.status_code})"
-                except Exception as exc:  # noqa: BLE001
-                    last_error = f"{url}  —  {type(exc).__name__}"
-        return CheckResult(name=name, status="skipped", detail=last_error or "no API reachable", latency_ms=int((time.perf_counter() - start) * 1000))
+        # Every failure is reported, not just the last one. Reporting only the
+        # final candidate made a failing remote invisible behind the localhost
+        # fallback, which reads as "it never checked the remote at all".
+        errors: list[str] = []
+        async with httpx.AsyncClient() as client:
+            if public:
+                url = f"{public}/api/health"
+                deadline = time.monotonic() + _API_WAKE_BUDGET_S
+                attempts = 0
+                pending = ""
+                while True:
+                    attempts += 1
+                    try:
+                        response = await client.get(url, timeout=_API_REQUEST_TIMEOUT_S)
+                        if response.status_code == 200:
+                            waited = int(time.perf_counter() - start)
+                            detail = f"{url}  (200)"
+                            if attempts > 1:
+                                detail = f"{url}  (200, awake after {waited}s / {attempts} tries)"
+                            return CheckResult(
+                                name=name,
+                                status="ok",
+                                detail=detail,
+                                latency_ms=int((time.perf_counter() - start) * 1000),
+                            )
+                        if response.status_code < 500:
+                            errors.append(f"{url}  ({response.status_code})")
+                            break
+                        pending = f"{url}  ({response.status_code}, waking)"
+                    except Exception as exc:  # noqa: BLE001
+                        pending = f"{url}  —  {type(exc).__name__} (waking)"
+                    if time.monotonic() >= deadline:
+                        errors.append(f"{pending}; gave up after {_API_WAKE_BUDGET_S:.0f}s")
+                        break
+                    await asyncio.sleep(_API_POLL_INTERVAL_S)
+
+            url = "http://localhost:8000/health"
+            try:
+                response = await client.get(url, timeout=_API_REQUEST_TIMEOUT_S)
+                if response.status_code == 200:
+                    return CheckResult(
+                        name=name,
+                        status="ok",
+                        detail=f"{url}  (200)",
+                        latency_ms=int((time.perf_counter() - start) * 1000),
+                    )
+                errors.append(f"{url}  ({response.status_code})")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{url}  —  {type(exc).__name__}")
+        return CheckResult(
+            name=name,
+            status="skipped",
+            detail="   |   ".join(errors) or "no API reachable",
+            latency_ms=int((time.perf_counter() - start) * 1000),
+        )
     except Exception as exc:  # noqa: BLE001
         return CheckResult(name=name, status="fail", detail=f"{type(exc).__name__}: {exc}", latency_ms=int((time.perf_counter() - start) * 1000))
 
