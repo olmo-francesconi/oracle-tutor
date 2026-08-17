@@ -124,14 +124,18 @@ def _replace_card_name_standalone(text: str, name: str, replacement: str) -> str
     return re.sub(pattern, r"\1" + replacement + r"\2", text)
 
 
-def _parse_symbol(inner: str) -> tuple[str, str, bool, int] | None:
+def _parse_symbol(inner: str, self_reference: str = _DEFAULT_SELF_REFERENCE) -> tuple[str, str, bool, int] | None:
     s = inner.strip().upper()
     if not s:
         return None
     if s == "T":
-        return ("tap", "tap this card", True, 1)
+        # Type-aware, like every other self-reference in this module. Rendering
+        # {T} as the generic "tap this card" made a Forest and Llanowar Elves
+        # normalise to byte-identical text, so they shared one embedding and no
+        # amount of training could tell a mana creature from a mana land.
+        return ("tap", f"tap {self_reference}", True, 1)
     if s == "Q":
-        return ("untap", "untap", True, 1)
+        return ("untap", f"untap {self_reference}", True, 1)
     color_map = {"W": "white", "U": "blue", "B": "black", "R": "red", "G": "green"}
     if s in color_map:
         return ("mana_" + s, color_map[s] + " mana", True, 1)
@@ -165,7 +169,7 @@ def _parse_symbol(inner: str) -> tuple[str, str, bool, int] | None:
     return None
 
 
-def _expand_symbol_run(symbols: list[str]) -> str:
+def _expand_symbol_run(symbols: list[str], self_reference: str = _DEFAULT_SELF_REFERENCE) -> str:
     if not symbols:
         return ""
     parsed: list[tuple[str, str, bool, int]] = []
@@ -173,7 +177,7 @@ def _expand_symbol_run(symbols: list[str]) -> str:
         inner = sym.strip().upper()
         if inner.startswith("{") and inner.endswith("}"):
             inner = inner[1:-1]
-        p = _parse_symbol(inner)
+        p = _parse_symbol(inner, self_reference)
         if p is None:
             continue
         parsed.append(p)
@@ -213,12 +217,12 @@ def _expand_symbol_run(symbols: list[str]) -> str:
     return " and ".join(parts)
 
 
-def _replace_symbol_runs(text: str) -> str:
+def _replace_symbol_runs(text: str, self_reference: str = _DEFAULT_SELF_REFERENCE) -> str:
     pattern = re.compile(r"(\{[a-zA-Z0-9/]+\})+")
 
     def replace_run(m: re.Match[str]) -> str:
         symbols = re.findall(r"\{([^}]+)\}", m.group(0))
-        expanded = _expand_symbol_run(symbols)
+        expanded = _expand_symbol_run(symbols, self_reference)
         return " " + expanded + " " if expanded else " "
 
     return pattern.sub(replace_run, text)
@@ -325,8 +329,8 @@ def normalize_oracle_text(
     else:
         text = _strip_reminder_text_fully(text)
 
+    self_reference = self_reference_phrase(type_line)
     if card_name:
-        self_reference = self_reference_phrase(type_line)
         text = _replace_card_name_standalone(text, card_name, self_reference)
         if "," in card_name:
             short_name = card_name.split(",")[0].strip()
@@ -341,7 +345,7 @@ def normalize_oracle_text(
         joined += line + " "
     text = joined
 
-    text = _replace_symbol_runs(text)
+    text = _replace_symbol_runs(text, self_reference)
     text = re.sub(r"\s+", " ", text).strip()
     text = _normalize_power_toughness(text)
     text = _normalize_planeswalker_loyalty(text)

@@ -15,7 +15,8 @@ All patterns are matched against the already-normalized oracle text produced by
 ``text_prep.normalize_oracle_text``.  Key normalization facts that affect
 pattern design:
 
-- Mana symbols are expanded:  ``{T}: Add {G}`` → ``"tap this card: Add one green mana."``
+- Mana symbols are expanded:  ``{T}: Add {G}`` → ``"tap this creature: Add one green mana."``
+  (the self-reference is type-aware, so a land renders "tap this land")
 - Card names are replaced:    ``Lightning Bolt deals...`` → ``"this card deals..."``
 - Numbers are word-ified:     ``3`` → ``"three"``
 - Reminder text is stripped:  ``Flying (...)`` → ``"flying."``
@@ -149,27 +150,27 @@ _RULES: tuple[_Rule, ...] = (
     # Mana production
     # ------------------------------------------------------------------
     _Rule(
-        re.compile(r"\btap this card: Add one green mana\b", _I),
+        re.compile(r"\btap this creature: Add one green mana\b", _I),
         ("tap for green mana", "mana dork", "mana elf", "green mana producer"),
     ),
     _Rule(
-        re.compile(r"\btap this card: Add one (?:white|blue|black|red) mana\b", _I),
+        re.compile(r"\btap this (?:card|creature|land|artifact|enchantment): Add one (?:white|blue|black|red) mana\b", _I),
         ("tap for colored mana", "mana creature"),
     ),
     _Rule(
-        re.compile(r"\btap this card: Add (?:two|three|four) colorless mana\b", _I),
+        re.compile(r"\btap this (?:card|creature|land|artifact|enchantment): Add (?:two|three|four) colorless mana\b", _I),
         ("colorless mana rock", "tap for colorless mana", "mana rock"),
     ),
     _Rule(
-        re.compile(r"\btap this card: Add one colorless mana\b", _I),
+        re.compile(r"\btap this (?:card|creature|land|artifact|enchantment): Add one colorless mana\b", _I),
         ("colorless mana rock", "tap for mana"),
     ),
     _Rule(
-        re.compile(r"\btap this card: Add (?:two|three|four)\b", _I),
+        re.compile(r"\btap this (?:card|creature|land|artifact|enchantment): Add (?:two|three|four)\b", _I),
         ("produce multiple mana", "mana acceleration"),
     ),
     _Rule(
-        re.compile(r"\btap this card: Add.*mana of any color\b", _I),
+        re.compile(r"\btap this (?:card|creature|land|artifact|enchantment): Add.*mana of any color\b", _I),
         ("any color mana", "color fixing", "rainbow mana"),
     ),
     _Rule(
