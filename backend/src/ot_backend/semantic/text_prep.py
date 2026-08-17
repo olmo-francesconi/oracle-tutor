@@ -3,16 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from ..core.models import CardFace
-else:
-    try:
-        from ..core.models import CardFace
-    except Exception:  # pragma: no cover - import safety for partial branch states
-        CardFace = Any  # type: ignore[assignment]
-
 
 EMPTY_ORACLE_TOKEN = "emptyoracle"
 
@@ -355,11 +345,4 @@ def normalize_oracle_text(
     text = _normalize_punctuation_spacing(text)
     return text or EMPTY_ORACLE_TOKEN
 
-
-def face_to_text(face: CardFace) -> str:
-    return normalize_oracle_text(
-        text=getattr(face, "oracle_text", "") or "",
-        card_name=getattr(face, "name", "") or "",
-        type_line=getattr(face, "type_line", "") or "",
-    )
 
