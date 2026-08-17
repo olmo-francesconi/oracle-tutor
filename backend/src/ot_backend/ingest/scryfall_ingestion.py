@@ -88,14 +88,24 @@ def _log_batch_progress(*, stage: str, current: int, total: int, items_in_batch:
     logger.info("%s %s batch_items=%d", stage, _format_stage_progress(current=current, total=total), items_in_batch)
 
 
-def _delete_card_related_rows(session: Session, oracle_ids: list[str]) -> None:
+def _delete_card_related_rows(
+    session: Session, oracle_ids: list[str], *, preserve_taggings: bool = False
+) -> None:
+    """Clear a card's dependent rows before re-inserting them.
+
+    `preserve_taggings` keeps `card_taggings`. Those rows are keyed by
+    oracle_id, not by face, so a card being *refreshed* has no need to lose
+    them — and when the Tagger phase is skipped nothing puts them back, which
+    silently destroys the tag corpus. Cards being *deleted* still drop theirs.
+    """
     if not oracle_ids:
         return
 
     for i in range(0, len(oracle_ids), CHUNK_SIZE):
         chunk = oracle_ids[i : i + CHUNK_SIZE]
         session.execute(delete(CardRelationship).where(CardRelationship.card_id.in_(chunk)))
-        session.execute(delete(CardTagging).where(CardTagging.card_id.in_(chunk)))
+        if not preserve_taggings:
+            session.execute(delete(CardTagging).where(CardTagging.card_id.in_(chunk)))
         session.execute(delete(CardFace).where(CardFace.oracle_id.in_(chunk)))
 
 
@@ -447,7 +457,9 @@ def prepare_face_abilities(oracle_id: str, face_ix: int, face_data: dict[str, An
     ]
 
 
-def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
+def ingest_batch(
+    session: Session, batch_cards: list[dict[str, Any]], *, preserve_taggings: bool = False
+) -> None:
     if not batch_cards:
         return
 
@@ -501,7 +513,7 @@ def ingest_batch(session: Session, batch_cards: list[dict[str, Any]]) -> None:
         session.execute(parent_stmt)
 
     parent_oracle_ids = list(face_oracle_ids)
-    _delete_card_related_rows(session, parent_oracle_ids)
+    _delete_card_related_rows(session, parent_oracle_ids, preserve_taggings=preserve_taggings)
 
     if faces_to_insert:
         session.execute(insert(CardFace).values(faces_to_insert))
@@ -569,6 +581,7 @@ def ingest_data_diff(
     scryfall_metadata: dict[str, Any],
     *,
     trigger_type: str = "scheduled",
+    preserve_taggings: bool = False,
 ) -> None:
     logger.info("Stage: start database ingestion")
     session = SessionLocal()
@@ -650,7 +663,7 @@ def ingest_data_diff(
             batch.append(card)
             if len(batch) >= BATCH_SIZE:
                 batch_size = len(batch)
-                ingest_batch(session, batch)
+                ingest_batch(session, batch, preserve_taggings=preserve_taggings)
                 session.commit()
                 processed_cards += batch_size
                 completed_upsert_batches += 1
@@ -664,7 +677,7 @@ def ingest_data_diff(
 
         if batch:
             batch_size = len(batch)
-            ingest_batch(session, batch)
+            ingest_batch(session, batch, preserve_taggings=preserve_taggings)
             session.commit()
             processed_cards += batch_size
             completed_upsert_batches += 1
@@ -903,6 +916,9 @@ def update_scryfall_data(
                 new_path=ingestion_source,
                 scryfall_metadata=remote_meta if remote_meta else (local_meta or {}),
                 trigger_type=effective_trigger,
+                # Nothing refetches tags when the Tagger phase is skipped, so
+                # dropping them here would destroy the corpus outright.
+                preserve_taggings=skip_tags,
             )
 
             if ingestion_source == TEMP_CARDS_FILE:
