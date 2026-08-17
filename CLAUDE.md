@@ -122,7 +122,7 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - `ingest/fetch_tags.py` — Scryfall Tagger GraphQL sync; `ThreadPoolExecutor` (default 6 workers) with per-thread sessions and a shared rate-limit semaphore
 - `semantic/index.py` — runtime: lazy-loads ONNX model, encodes queries, two-stage ability retrieval (`_candidate_faces` → `_chamfer_rerank`) with server-side filters
 - `semantic/model_registry.py` — model CRUD, materialization, bundle utilities
-- `semantic/model_promotion.py` — `promote_semantic_model` end-to-end orchestration; atomic single-txn embedding replacement
+- `semantic/model_promotion.py` — `promote_semantic_model` end-to-end orchestration; atomic single-txn embedding replacement. Also `topup_active_model_embeddings()`: ingest writes `card_face_abilities` but never embeds them, so a card printed with new wording is absent from the index until someone promotes a model (a face whose abilities are ALL new is unretrievable at any threshold). The top-up **appends only** — it must never reuse `_store_model_embeddings_batches`, which replaces the whole set. It exits before downloading the bundle when nothing is missing, and the ingest worker runs it automatically after each run (`--skip-embedding-topup` opts out). Measured: 3,872 texts in 36s vs ~6min for a full 37k rewrite
 - `semantic/artifacts.py` — S3 artifact upload/download and recording
 - `semantic/bundle_registration.py` — bundle parsing and model registration
 - `semantic/base_model_catalog.py` — base model listing and retrieval

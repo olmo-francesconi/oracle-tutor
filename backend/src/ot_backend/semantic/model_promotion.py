@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from .model_registry import (
     SEMANTIC_MODEL_STATUS_EMBEDDING,
     SEMANTIC_MODEL_STATUS_FAILED,
     SEMANTIC_MODEL_STATUS_READY,
+    get_active_semantic_model_id,
     materialize_semantic_model,
 )
 from .semantic_state import get_semantic_data_version, record_active_model_data_version
@@ -132,6 +133,116 @@ def promote_semantic_model(model_id: str, *, embed_batch_size: int = _DEFAULT_RE
             _release_promotion_lock(lock_db)
 
 
+
+def count_missing_ability_embeddings(db: Session, model_id: str) -> int:
+    """Distinct ability texts with no vector for `model_id`.
+
+    Cheap enough to call on every ingest: one indexed anti-join.
+    """
+    missing = (
+        select(CardFaceAbility.text_hash)
+        .outerjoin(
+            SemanticAbilityEmbedding,
+            and_(
+                SemanticAbilityEmbedding.text_hash == CardFaceAbility.text_hash,
+                SemanticAbilityEmbedding.model_id == model_id,
+            ),
+        )
+        .where(SemanticAbilityEmbedding.text_hash.is_(None))
+        .group_by(CardFaceAbility.text_hash)
+        .subquery()
+    )
+    return int(db.scalar(select(func.count()).select_from(missing)) or 0)
+
+
+def _iter_missing_ability_rows(model_id: str, batch_size: int) -> Iterator[list[tuple[str, str]]]:
+    effective = max(1, batch_size)
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(CardFaceAbility.text_hash, func.min(CardFaceAbility.normalized_text))
+            .outerjoin(
+                SemanticAbilityEmbedding,
+                and_(
+                    SemanticAbilityEmbedding.text_hash == CardFaceAbility.text_hash,
+                    SemanticAbilityEmbedding.model_id == model_id,
+                ),
+            )
+            .where(SemanticAbilityEmbedding.text_hash.is_(None))
+            .group_by(CardFaceAbility.text_hash)
+            .order_by(CardFaceAbility.text_hash)
+        )
+        while True:
+            chunk = rows.fetchmany(effective)
+            if not chunk:
+                return
+            yield [(text_hash, normalized_text) for text_hash, normalized_text in chunk]
+
+
+def topup_active_model_embeddings(*, batch_size: int = _DEFAULT_REEMBED_BATCH_SIZE) -> int:
+    """Embed ability texts the active model has no vector for.
+
+    Ingest creates `card_face_abilities` rows but never embeds them — only
+    promotion does, and it rewrites all ~37k. So a card printed with genuinely
+    new wording is absent from the index until the next promotion, and a face
+    whose abilities are ALL new cannot be retrieved at any threshold.
+
+    This adds only what is missing, leaving existing vectors untouched. It is a
+    no-op — and importantly, does not download the model bundle — when nothing
+    is missing, which is the usual case.
+    """
+    with SessionLocal() as db:
+        model_id = get_active_semantic_model_id(db)
+        if model_id is None:
+            logger.info("No active semantic model; skipping embedding top-up.")
+            return 0
+        missing = count_missing_ability_embeddings(db, model_id)
+
+    if missing == 0:
+        logger.info("Embedding top-up not needed; every ability text is covered.")
+        return 0
+
+    logger.info("Embedding top-up starting. model_id=%s missing_texts=%d", model_id, missing)
+    lock_session = SessionLocal()
+    try:
+        if not _acquire_promotion_lock(lock_session):
+            # A promotion is running and is about to rewrite everything anyway.
+            logger.warning("Promotion in progress; skipping embedding top-up.")
+            return 0
+        try:
+            model = None
+            with SessionLocal() as db:
+                model = db.get(SemanticModel, model_id)
+            if model is None:
+                return 0
+            model_root, _bundle_root = materialize_semantic_model(model)
+
+            from .index import OnnxTextEncoder
+
+            encoder = OnnxTextEncoder(model_root=model_root)
+
+            def iter_batches() -> Iterator[list[tuple[str, list[float]]]]:
+                for ability_rows in _iter_missing_ability_rows(model_id, batch_size):
+                    texts = [text for _hash, text in ability_rows]
+                    vectors = encoder.encode_many(
+                        texts, batch_size=max(1, batch_size), normalize_inputs=False
+                    )
+                    yield [(h, vectors[i]) for i, (h, _t) in enumerate(ability_rows)]
+
+            stored = _append_model_embeddings_batches(model_id, iter_batches())
+            logger.info("Embedding top-up complete. model_id=%s added=%d", model_id, stored)
+            try:
+                from .index import mark_semantic_index_stale
+
+                mark_semantic_index_stale()
+            except Exception:  # noqa: BLE001 — cache hint only
+                logger.debug("Could not mark the semantic index stale after top-up.")
+            return stored
+        finally:
+            _release_promotion_lock(lock_session)
+    finally:
+        lock_session.close()
+
+
 def _iter_ability_rows(batch_size: int) -> Iterator[list[tuple[str, str]]]:
     """Yield batches of (text_hash, normalized_text) for every DISTINCT ability.
 
@@ -170,6 +281,37 @@ def _resolve_pytorch_model_path(bundle_root: Path) -> Path | None:
 
 class _MissingTorchError(RuntimeError):
     """The PyTorch embedding backend isn't installed in this environment."""
+
+
+def _append_model_embeddings_batches(
+    model_id: str,
+    row_batches: Iterable[list[tuple[str, list[float]]]],
+) -> int:
+    """Add ability embeddings for `model_id` WITHOUT touching existing rows.
+
+    Distinct from `_store_model_embeddings_batches`, which replaces the whole
+    set for a promotion. The top-up must never delete: reusing the replacing
+    variant wiped every vector and rewrote only the delta, so coverage went
+    *down* on each run.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    total = 0
+    with SessionLocal() as db:
+        for rows in row_batches:
+            if not rows:
+                continue
+            stmt = pg_insert(SemanticAbilityEmbedding).values(
+                [
+                    {"model_id": model_id, "text_hash": text_hash, "embedding": embedding}
+                    for text_hash, embedding in rows
+                ]
+            )
+            # A concurrent promotion may have inserted the same text already.
+            db.execute(stmt.on_conflict_do_nothing(index_elements=["model_id", "text_hash"]))
+            total += len(rows)
+        db.commit()
+    return total
 
 
 def _store_model_embeddings_batches(

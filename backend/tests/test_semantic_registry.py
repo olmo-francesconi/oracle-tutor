@@ -854,3 +854,46 @@ def test_bundle_rescue_copy_overwrites_a_previous_attempt(tmp_path, monkeypatch)
     path = _write_rescue_copy(b"second", "slug", kind="trained-bundles", suffix=".zip")
 
     assert path.read_bytes() == b"second"
+
+
+def test_the_topup_appends_and_never_replaces() -> None:
+    """The top-up must not reuse the promotion writer.
+
+    `_store_model_embeddings_batches` deletes every vector for the model before
+    inserting — correct for a promotion, catastrophic for a top-up: it wiped
+    all 37k and rewrote only the delta, so coverage fell with each run.
+    """
+    import inspect
+
+    from ot_backend.semantic import model_promotion
+
+    topup = inspect.getsource(model_promotion.topup_active_model_embeddings)
+    assert "_append_model_embeddings_batches" in topup
+    assert "_store_model_embeddings_batches" not in topup
+
+    appender = inspect.getsource(model_promotion._append_model_embeddings_batches)
+    assert ".delete()" not in appender, "an appender must never delete"
+    assert "on_conflict_do_nothing" in appender, "a concurrent promotion may race it"
+
+
+def test_missing_embedding_count_is_zero_when_covered(client) -> None:
+    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.models import CardFaceAbility, SemanticAbilityEmbedding, SemanticModel
+    from ot_backend.semantic.model_promotion import count_missing_ability_embeddings
+
+    with SessionLocal() as db:
+        db.add(SemanticModel(id="m-cov", slug="cov", base_model="b", status="ready", embedding_dim=384))
+        db.add(
+            CardFaceAbility(
+                oracle_id="o1", face_ix=0, ability_ix=0, text="Flying",
+                normalized_text="flying", text_hash="h-cov",
+            )
+        )
+        db.commit()
+
+        assert count_missing_ability_embeddings(db, "m-cov") == 1
+
+        db.add(SemanticAbilityEmbedding(model_id="m-cov", text_hash="h-cov", embedding=[0.0] * 384))
+        db.commit()
+
+        assert count_missing_ability_embeddings(db, "m-cov") == 0

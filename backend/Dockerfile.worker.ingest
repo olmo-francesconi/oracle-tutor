@@ -13,9 +13,9 @@ ENV PATH="/opt/venv/bin:${PATH}"
 ENV UV_CACHE_DIR=/root/.cache/uv
 
 RUN if [ -f uv.lock ]; then \
-      uv sync --active --frozen --no-install-project --extra scryfall-sync; \
+      uv sync --active --frozen --no-install-project --extra scryfall-sync --extra api; \
     else \
-      uv sync --active --no-install-project --extra scryfall-sync; \
+      uv sync --active --no-install-project --extra scryfall-sync --extra api; \
     fi
 
 COPY src/ot_backend/__init__.py ./src/ot_backend/

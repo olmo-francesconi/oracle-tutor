@@ -916,9 +916,12 @@ def update_scryfall_data(
                 new_path=ingestion_source,
                 scryfall_metadata=remote_meta if remote_meta else (local_meta or {}),
                 trigger_type=effective_trigger,
-                # Nothing refetches tags when the Tagger phase is skipped, so
-                # dropping them here would destroy the corpus outright.
-                preserve_taggings=skip_tags,
+                # Refetching every card's tags is opt-in (`--refresh-tags`), not
+                # a side effect of ingesting cards. Preserved, the incremental
+                # query in fetch_tags only visits cards that have no taggings —
+                # i.e. genuinely new ones — instead of all ~33.6k every run, and
+                # the fetch phase clears a card's own rows before rewriting them.
+                preserve_taggings=skip_tags or not refresh_tags,
             )
 
             if ingestion_source == TEMP_CARDS_FILE:

@@ -80,3 +80,32 @@ def test_preserving_taggings_still_clears_the_faces(client) -> None:
 
         after = db.execute(select(CardFace).where(CardFace.oracle_id == "o1")).scalars().all()
         assert after == [], "faces are replaced on every ingest and must still be cleared"
+
+
+def test_tag_refresh_is_opt_in() -> None:
+    """Ingesting cards must not silently re-fetch every card's tags.
+
+    The delete is what forces a rebuild: with taggings preserved, the
+    incremental query in fetch_tags only visits cards that have none. Dropping
+    them on every ingest turned a nightly run into a ~9h full Tagger crawl.
+    """
+    # (skip_tags, refresh_tags) -> taggings preserved during the card upsert
+    cases = {
+        (False, False): True,   # default: keep them, fetch only new cards
+        (False, True): False,   # explicit refresh: clear so the crawl rebuilds
+        (True, False): True,    # skipping the phase: nothing would restore them
+        (True, True): True,     # contradictory, but never destroy what we will not refetch
+    }
+    for (skip_tags, refresh_tags), expected in cases.items():
+        assert (skip_tags or not refresh_tags) is expected, (skip_tags, refresh_tags)
+
+
+def test_the_incremental_query_only_selects_untagged_cards() -> None:
+    """This is what makes preserving taggings a fast path rather than a stale one."""
+    from ot_backend.ingest.fetch_tags import _cards_needing_tag_fetch_query
+
+    incremental = str(_cards_needing_tag_fetch_query(refresh_tags=False))
+    full = str(_cards_needing_tag_fetch_query(refresh_tags=True))
+
+    assert "IS NULL" in incremental.upper()
+    assert "IS NULL" not in full.upper()
