@@ -94,6 +94,11 @@ image: Any = (
 )
 
 hf_cache: Any = modal.Volume.from_name("oracle-tutor-hf-cache", create_if_missing=True)
+# Finished bundles are written here before `train` returns. The return value
+# travels in memory, so a client that dies mid-call — or right after, on its
+# own DB write — would otherwise throw away the whole GPU run.
+bundle_store: Any = modal.Volume.from_name("oracle-tutor-bundles", create_if_missing=True)
+_BUNDLE_STORE_PATH = "/bundles"
 app: Any = modal.App("oracle-tutor-train")
 
 _LLM_SYSTEM_PROMPT_TEMPLATE = """\
@@ -362,11 +367,46 @@ def build_dataset(
     return dataset_json
 
 
+def _persist_bundle(bundle_bytes: bytes, *, base_model: str, augmentation_mode: str) -> str:
+    """Write a finished bundle to the bundles volume and return its path.
+
+    Best-effort: a failure here must not lose a training run that otherwise
+    succeeded, so it is logged and swallowed rather than raised.
+    """
+    import time as _time
+
+    try:
+        store = Path(_BUNDLE_STORE_PATH)
+        store.mkdir(parents=True, exist_ok=True)
+        stamp = _time.strftime("%Y%m%dT%H%M%SZ", _time.gmtime())
+        safe_base = base_model.replace("/", "_")
+        path = store / f"{stamp}-{safe_base}.zip"
+        path.write_bytes(bundle_bytes)
+        (store / f"{stamp}-{safe_base}.json").write_text(
+            json.dumps(
+                {
+                    "base_model": base_model,
+                    "augmentation_mode": augmentation_mode,
+                    "size_bytes": len(bundle_bytes),
+                    "written_at": stamp,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        bundle_store.commit()
+        print(f"Bundle persisted to volume: {path} ({len(bundle_bytes):,} bytes)")
+        return str(path)
+    except Exception as exc:  # noqa: BLE001 — never fail a good run over the backup
+        print(f"WARNING: could not persist bundle to volume: {exc}")
+        return ""
+
+
 @app.function(
     gpu="L4",
     timeout=28800,
     image=image,
-    volumes={"/root/.cache/huggingface": hf_cache},
+    volumes={"/root/.cache/huggingface": hf_cache, _BUNDLE_STORE_PATH: bundle_store},
 )
 def train(
     dataset_json: bytes,
@@ -656,4 +696,6 @@ def train(
 
         zip_base = Path(tmp) / "onnx-model"
         shutil.make_archive(str(zip_base), "zip", str(artifact_root))
-        return zip_base.with_suffix(".zip").read_bytes()
+        bundle_bytes = zip_base.with_suffix(".zip").read_bytes()
+        _persist_bundle(bundle_bytes, base_model=base_model, augmentation_mode=augmentation_mode)
+        return bundle_bytes

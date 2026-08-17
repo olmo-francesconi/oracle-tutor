@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from ot_backend.semantic import modal_train
@@ -158,3 +161,32 @@ def test_v1_payload_with_a_single_string_anchor_still_builds() -> None:
 def test_an_unknown_payload_version_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unsupported training build payload version"):
         modal_train._build_dataset_state(_tag_payload(99, ["x"]), augmentation_mode="tag_descriptions")
+
+
+def test_persist_bundle_writes_the_zip_and_a_sidecar(tmp_path, monkeypatch) -> None:
+    """The volume copy is what survives a client that dies during .remote()."""
+    committed: list[bool] = []
+    monkeypatch.setattr(modal_train, "_BUNDLE_STORE_PATH", str(tmp_path / "bundles"))
+    monkeypatch.setattr(
+        modal_train, "bundle_store", type("V", (), {"commit": lambda self: committed.append(True)})()
+    )
+
+    written = modal_train._persist_bundle(
+        b"PK\x03\x04 bundle", base_model="Qwen/Qwen2.5-14B-Instruct-AWQ", augmentation_mode="tag_pairs"
+    )
+
+    path = Path(written)
+    assert path.read_bytes() == b"PK\x03\x04 bundle"
+    # "/" in the model id must not create nested directories.
+    assert "Qwen_Qwen2.5-14B-Instruct-AWQ" in path.name
+    sidecar = json.loads(path.with_suffix(".json").read_text())
+    assert sidecar["base_model"] == "Qwen/Qwen2.5-14B-Instruct-AWQ"
+    assert sidecar["size_bytes"] == len(b"PK\x03\x04 bundle")
+    assert committed == [True]
+
+
+def test_persist_bundle_failure_does_not_sink_a_good_run(monkeypatch) -> None:
+    """A backup that raises would throw away the training it was protecting."""
+    monkeypatch.setattr(modal_train, "_BUNDLE_STORE_PATH", "/proc/nonexistent/bundles")
+
+    assert modal_train._persist_bundle(b"x", base_model="m", augmentation_mode="a") == ""
