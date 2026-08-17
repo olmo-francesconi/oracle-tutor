@@ -798,6 +798,11 @@ def _do_build_dataset(
             metadata = build_training_dataset_metadata(db)
         dataset_bytes = serialize_training_dataset(state, metadata=metadata)
 
+    # An LLM dataset build is hours of GPU time and comes back in memory only,
+    # so land it before the registry write (see _write_rescue_copy).
+    rescue_path = _write_rescue_copy(dataset_bytes, slug, kind="built-datasets", suffix=".json")
+    lg.info("Wrote dataset rescue copy. path=%s bytes=%d", rescue_path, len(dataset_bytes))
+
     with SessionLocal() as db:
         dataset = create_semantic_dataset(
             db,
@@ -1139,7 +1144,7 @@ def _do_train_model(
     # Land the bundle on disk before any DB work. Training is hours of GPU time
     # and `train.remote()` hands the bundle back in memory only, so a failure in
     # registration below would otherwise throw the whole run away.
-    rescue_path = _write_bundle_rescue_copy(bundle_bytes, slug)
+    rescue_path = _write_rescue_copy(bundle_bytes, slug, kind="trained-bundles", suffix=".zip")
     lg.info("Wrote bundle rescue copy. path=%s bytes=%d", rescue_path, len(bundle_bytes))
     reset_connection_pool()
 
@@ -1322,15 +1327,17 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
         return buf.getvalue()
 
 
-def _write_bundle_rescue_copy(bundle_bytes: bytes, slug: str) -> Path:
-    """Persist a freshly trained bundle so registration can be retried.
+def _write_rescue_copy(data: bytes, slug: str, *, kind: str, suffix: str) -> Path:
+    """Persist a freshly produced artifact so the DB write can be retried.
 
-    Recover with `register_model_bundle_bytes(db, ..., artifact_bundle_bytes=path.read_bytes())`.
+    Modal hands datasets and bundles back in memory only, so without this a
+    failure in registration throws away the whole run. Recover by reading the
+    file and passing its bytes to the same registry call that failed.
     """
-    target_dir = (Path("data") / "trained-bundles").resolve()
+    target_dir = (Path("data") / kind).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / f"{slug}.zip"
-    path.write_bytes(bundle_bytes)
+    path = target_dir / f"{slug}{suffix}"
+    path.write_bytes(data)
     # Absolute: this path is logged for a human to recover the bundle from, and
     # a relative one means nothing once they are in a different directory.
     return path

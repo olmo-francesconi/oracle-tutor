@@ -166,13 +166,16 @@ def test_an_unknown_payload_version_is_rejected() -> None:
 def test_persist_bundle_writes_the_zip_and_a_sidecar(tmp_path, monkeypatch) -> None:
     """The volume copy is what survives a client that dies during .remote()."""
     committed: list[bool] = []
-    monkeypatch.setattr(modal_train, "_BUNDLE_STORE_PATH", str(tmp_path / "bundles"))
+    monkeypatch.setattr(modal_train, "_ARTIFACT_STORE_PATH", str(tmp_path / "artifacts"))
     monkeypatch.setattr(
-        modal_train, "bundle_store", type("V", (), {"commit": lambda self: committed.append(True)})()
+        modal_train, "artifact_store", type("V", (), {"commit": lambda self: committed.append(True)})()
     )
 
-    written = modal_train._persist_bundle(
-        b"PK\x03\x04 bundle", base_model="Qwen/Qwen2.5-14B-Instruct-AWQ", augmentation_mode="tag_pairs"
+    written = modal_train._persist_artifact(
+        b"PK\x03\x04 bundle",
+        kind="bundles",
+        suffix=".zip",
+        meta={"base_model": "Qwen/Qwen2.5-14B-Instruct-AWQ", "augmentation_mode": "tag_pairs"},
     )
 
     path = Path(written)
@@ -187,6 +190,6 @@ def test_persist_bundle_writes_the_zip_and_a_sidecar(tmp_path, monkeypatch) -> N
 
 def test_persist_bundle_failure_does_not_sink_a_good_run(monkeypatch) -> None:
     """A backup that raises would throw away the training it was protecting."""
-    monkeypatch.setattr(modal_train, "_BUNDLE_STORE_PATH", "/proc/nonexistent/bundles")
+    monkeypatch.setattr(modal_train, "_ARTIFACT_STORE_PATH", "/proc/nonexistent/artifacts")
 
-    assert modal_train._persist_bundle(b"x", base_model="m", augmentation_mode="a") == ""
+    assert modal_train._persist_artifact(b"x", kind="bundles", suffix=".zip", meta={"base_model": "m"}) == ""
