@@ -67,7 +67,12 @@ from ..core.config import (
     semantic_llm_model_name,
     semantic_llm_temperature,
 )
-from .dataset_service import TrainingDatasetState, load_training_dataset_bytes, serialize_training_dataset
+from .dataset_service import (
+    TrainingDatasetState,
+    build_hard_negative_pools,
+    load_training_dataset_bytes,
+    serialize_training_dataset,
+)
 from .query_gen import generate_template_queries
 from .text_prep import EMPTY_ORACLE_TOKEN
 from .train_options import (
@@ -282,8 +287,14 @@ def _build_dataset_state(
                 if left[0] != right[0] and face_texts.get(left) and face_texts.get(right):
                     tag_pair_ids.append((left, right))
 
-    direct_text_pairs: list[tuple[str, str]] = []
+    direct_text_pairs: list[tuple[str, ...]] = []
     if feature_flags.get("tag_descriptions") and TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
+        negative_pools = build_hard_negative_pools(
+            {
+                tag_name: _parse_face_key_rows(list(raw_faces))
+                for tag_name, raw_faces in (build_payload.get("tag_to_face_ids") or {}).items()
+            }
+        )
         max_desc_pairs_per_tag = int(options.get("max_tag_desc_pairs_per_tag", 600))
         raw_tag_to_desc = build_payload.get("tag_to_desc")
         tag_to_desc: dict[str, Any] = raw_tag_to_desc if isinstance(raw_tag_to_desc, dict) else {}
@@ -300,12 +311,18 @@ def _build_dataset_state(
             face_ids = _parse_face_key_rows(list(raw_face_ids))
             if not face_ids:
                 continue
+            pool = [f for f in (negative_pools.get(tag_name) or []) if f in face_texts]
             # Each anchor gets the full budget, not a share (see dataset_service).
             for anchor in anchors:
                 sampled = list(face_ids)
                 rng.shuffle(sampled)
                 for face_key in sampled[:max_desc_pairs_per_tag]:
-                    direct_text_pairs.append((anchor, face_texts[face_key]))
+                    positive = face_texts[face_key]
+                    negative = face_texts[rng.choice(pool)] if pool else None
+                    if negative and negative != positive:
+                        direct_text_pairs.append((anchor, positive, negative))
+                    else:
+                        direct_text_pairs.append((anchor, positive))
 
     template_query_examples = 0
     if feature_flags.get("template_queries") and TRAIN_AUGMENTATION_TEMPLATE_QUERIES in selected_augmentations:
@@ -456,8 +473,9 @@ def train(
             if i < self._n:
                 left_key, right_key = self._pairs[i]
                 return InputExample(texts=[face_texts[left_key], face_texts[right_key]])
-            a, b = self._direct[i - self._n]
-            return InputExample(texts=[a, b])
+            # 2 texts = (anchor, positive) with in-batch negatives only.
+            # 3 texts = MNRL also scores the explicit hard negative.
+            return InputExample(texts=list(self._direct[i - self._n]))
 
     print(f"Loading base model: {base_model}")
     model = SentenceTransformer(base_model)

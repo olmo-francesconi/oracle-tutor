@@ -4,7 +4,7 @@ import gc
 import json
 import logging
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,7 +27,7 @@ from .train_options import (
 logger = logging.getLogger("ot_backend.semantic.dataset_service")
 
 TRAINING_DATASET_FILE_NAME = "training-dataset.json"
-TRAINING_DATASET_VERSION = 6
+TRAINING_DATASET_VERSION = 7
 TRAINING_BUILD_PAYLOAD_VERSION = 2
 _DEFAULT_MAX_TAG_PAIRS_PER_TAG = 150
 _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 2
@@ -48,7 +48,7 @@ class FaceTextRecord:
 class TrainingDatasetState:
     face_texts: dict[FaceIdentity, str]
     pair_ids: list[tuple[FaceIdentity, FaceIdentity]]
-    direct_text_pairs: list[tuple[str, str]]
+    direct_text_pairs: list[tuple[str, ...]]
     simcse_examples: int
     tag_pair_examples: int
     tag_desc_pair_examples: int
@@ -64,6 +64,67 @@ def _lift_statement_timeout(db: Session) -> None:
     from sqlalchemy import text
 
     db.execute(text("SET LOCAL statement_timeout = 0"))
+
+
+# Hard-negative mining. MultipleNegativesRankingLoss otherwise sees only the
+# other examples in the batch as negatives — 31 random cards at batch size 32,
+# almost all trivially unrelated, so nothing ever teaches the model where a
+# concept STOPS. Cards drawn from tags that co-occur with T are the useful
+# contrast: an artifact that "adds multiple mana" but is not a "mana dork" sits
+# right on the boundary, which is exactly the distinction we want learned.
+_HARD_NEGATIVE_CO_TAGS = 12
+_HARD_NEGATIVE_POOL_CAP = 2000
+_HARD_NEGATIVE_MEMBER_SAMPLE = 200
+_HARD_NEGATIVE_MIN_OVERLAP = 3
+
+
+def build_hard_negative_pools(
+    tag_to_face_ids: dict[str, list[FaceIdentity]],
+) -> dict[str, list[FaceIdentity]]:
+    """Per tag, faces that are semantically adjacent but definitively NOT in it."""
+    face_to_tags: dict[FaceIdentity, set[str]] = defaultdict(set)
+    for tag_name, faces in tag_to_face_ids.items():
+        for face_key in faces:
+            face_to_tags[face_key].add(tag_name)
+
+    pools: dict[str, list[FaceIdentity]] = {}
+    for tag_name, faces in tag_to_face_ids.items():
+        members = set(faces)
+        co_occurring: Counter[str] = Counter()
+        sampled_members = list(members)[:_HARD_NEGATIVE_MEMBER_SAMPLE]
+        for face_key in sampled_members:
+            for other in face_to_tags[face_key]:
+                if other != tag_name:
+                    co_occurring[other] += 1
+
+        # Rank by *association*, not raw overlap. Generic tags like
+        # "activated ability" (8.8k cards) co-occur with everything, so counting
+        # raw overlap draws negatives from a huge unfocused pool. Dividing by the
+        # other tag's size prefers tags that are specifically related, which is
+        # what makes a negative hard.
+        ranked = sorted(
+            (
+                (count / len(tag_to_face_ids[other]), other)
+                for other, count in co_occurring.items()
+                if count >= _HARD_NEGATIVE_MIN_OVERLAP and tag_to_face_ids.get(other)
+            ),
+            reverse=True,
+        )
+
+        pool: list[FaceIdentity] = []
+        seen: set[FaceIdentity] = set()
+        for _score, other in ranked[:_HARD_NEGATIVE_CO_TAGS]:
+            for face_key in tag_to_face_ids.get(other, ()):
+                if face_key in members or face_key in seen:
+                    continue
+                seen.add(face_key)
+                pool.append(face_key)
+                if len(pool) >= _HARD_NEGATIVE_POOL_CAP:
+                    break
+            if len(pool) >= _HARD_NEGATIVE_POOL_CAP:
+                break
+        pools[tag_name] = pool
+    return pools
 
 
 def _tag_anchors(tag_name: str, tag_description: str | None) -> list[str]:
@@ -178,8 +239,15 @@ def build_training_dataset_state(
                 if a[0] != b[0] and face_texts.get(a) and face_texts.get(b):
                     tag_pair_ids.append((a, b))
 
+    negative_pools = build_hard_negative_pools(tag_to_face_ids)
+    logger.info(
+        "Built hard-negative pools. tags=%d median_pool=%d",
+        len(negative_pools),
+        sorted(len(v) for v in negative_pools.values())[len(negative_pools) // 2] if negative_pools else 0,
+    )
+
     logger.info("Building tag-description anchor pairs.")
-    direct_text_pairs: list[tuple[str, str]] = []
+    direct_text_pairs: list[tuple[str, ...]] = []
     if TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
         for tag_name, face_ids in tag_to_desc_faces.items():
             anchors = tag_to_anchors.get(tag_name) or []
@@ -190,10 +258,16 @@ def build_training_dataset_state(
             # it: "mana dork" fell to 0.085% of the dataset, below the 0.182%
             # the (since-removed) template rule used to give it, and the model
             # stopped ranking mana dorks for it at all.
+            pool = negative_pools.get(tag_name) or []
             for anchor in anchors:
                 sampled = random.sample(face_ids, min(len(face_ids), max_tag_desc_pairs_per_tag))
                 for face_key in sampled:
-                    direct_text_pairs.append((anchor, face_texts[face_key]))
+                    positive = face_texts[face_key]
+                    negative = face_texts.get(random.choice(pool)) if pool else None
+                    if negative and negative != positive:
+                        direct_text_pairs.append((anchor, positive, negative))
+                    else:
+                        direct_text_pairs.append((anchor, positive))
 
     logger.info("Building template query pairs.")
     template_query_examples = 0
@@ -372,7 +446,7 @@ def load_training_dataset_metadata(input_path: Path) -> dict[str, object]:
 
 def _training_dataset_state_from_payload(payload: dict[str, Any]) -> TrainingDatasetState:
     version = int(payload["version"])
-    if version not in (2, 3, 4, 5, 6):
+    if version not in (2, 3, 4, 5, 6, 7):
         raise ValueError(f"Unsupported training dataset format version: {version}.")
     face_texts = {
         (str(r["oracle_id"]), int(r["face_ix"])): str(r["text"])
@@ -387,7 +461,8 @@ def _training_dataset_state_from_payload(payload: dict[str, Any]) -> TrainingDat
         ((str(left_oracle_id), int(left_face_ix)), (str(right_oracle_id), int(right_face_ix)))
         for [left_oracle_id, left_face_ix], [right_oracle_id, right_face_ix] in payload["pair_ids"]
     ]
-    direct_text_pairs: list[tuple[str, str]] = [(str(a), str(b)) for a, b in payload.get("direct_text_pairs", [])]
+    # 2-tuples (anchor, positive) and 3-tuples (anchor, positive, hard negative).
+    direct_text_pairs: list[tuple[str, ...]] = [tuple(str(x) for x in row) for row in payload.get("direct_text_pairs", [])]
     return TrainingDatasetState(
         face_texts=face_texts,
         face_names=face_names,
