@@ -31,7 +31,7 @@ TRAINING_DATASET_VERSION = 6
 TRAINING_BUILD_PAYLOAD_VERSION = 2
 _DEFAULT_MAX_TAG_PAIRS_PER_TAG = 150
 _DEFAULT_MAX_TAG_PAIR_GROUP_SIZE = 2
-_DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG = 300
+_DEFAULT_MAX_TAG_DESC_PAIRS_PER_TAG = 600
 FaceIdentity = tuple[str, int]
 
 
@@ -185,11 +185,13 @@ def build_training_dataset_state(
             anchors = tag_to_anchors.get(tag_name) or []
             if not face_ids or not anchors:
                 continue
-            # The cap is a per-tag budget shared across anchors, so teaching the
-            # bare name too does not double this augmentation's share.
-            per_anchor = max(1, max_tag_desc_pairs_per_tag // len(anchors))
+            # Each anchor gets the full budget rather than a share of it. The
+            # bare name is the form users actually type, and splitting starved
+            # it: "mana dork" fell to 0.085% of the dataset, below the 0.182%
+            # the (since-removed) template rule used to give it, and the model
+            # stopped ranking mana dorks for it at all.
             for anchor in anchors:
-                sampled = random.sample(face_ids, min(len(face_ids), per_anchor))
+                sampled = random.sample(face_ids, min(len(face_ids), max_tag_desc_pairs_per_tag))
                 for face_key in sampled:
                     direct_text_pairs.append((anchor, face_texts[face_key]))
 

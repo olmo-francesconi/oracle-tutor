@@ -193,3 +193,44 @@ def test_persist_bundle_failure_does_not_sink_a_good_run(monkeypatch) -> None:
     monkeypatch.setattr(modal_train, "_ARTIFACT_STORE_PATH", "/proc/nonexistent/artifacts")
 
     assert modal_train._persist_artifact(b"x", kind="bundles", suffix=".zip", meta={"base_model": "m"}) == ""
+
+
+def test_degenerate_llm_output_is_rejected() -> None:
+    """A repetition loop has no spaces, so word count alone lets it through.
+
+    329 such pairs reached the shipped dataset, the worst 4,126 characters long.
+    """
+    degenerate = "search for lands battlefield" + "ation" * 800
+
+    assert modal_train._parse_llm_queries(degenerate, max_queries=5) == []
+
+
+def test_a_normal_query_survives_the_length_guard() -> None:
+    assert modal_train._parse_llm_queries(
+        "block with menace\ntap for green mana", max_queries=5
+    ) == ["block with menace", "tap for green mana"]
+
+
+def test_every_anchor_gets_the_full_budget(tmp_path) -> None:
+    """Splitting the cap starved the bare name, which is the form users type."""
+    faces = [["o%d" % i, 0] for i in range(10)]
+    payload = {
+        "version": 2,
+        "features": {"tag_pairs": False, "tag_descriptions": True, "template_queries": False, "llm_queries": False},
+        "options": {"max_tag_desc_pairs_per_tag": 10},
+        "faces": [
+            {"oracle_id": "o%d" % i, "face_ix": 0, "name": "n", "type_line": "t",
+             "oracle_text": "x", "text": "text %d" % i}
+            for i in range(10)
+        ],
+        "tag_to_desc": {"mana dork": ["mana dork", "mana dork. Creatures that tap for mana"]},
+        "tag_to_desc_faces": {"mana dork": faces},
+        "metadata": {"semantic_data_version": 7},
+    }
+
+    state, _ = modal_train._build_dataset_state(payload, augmentation_mode="tag_descriptions")
+
+    bare = [p for p in state.direct_text_pairs if p[0] == "mana dork"]
+    described = [p for p in state.direct_text_pairs if p[0].startswith("mana dork. ")]
+    assert len(bare) == 10, "the bare name must get the whole budget, not half"
+    assert len(described) == 10

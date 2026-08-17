@@ -607,8 +607,8 @@ def build_screen(ctx: AppContext) -> str | None:
         ctx,
         title="Build dataset — max_tag_desc_pairs_per_tag",
         label="max_tag_desc_pairs_per_tag",
-        default=300,
-        hint="Cap on (tag-description anchor, face) pairs sampled per tag. Balances tags: ~97% are covered whole, only the generic mega-tags are truncated.  default 300",
+        default=600,
+        hint="Cap on (tag-description anchor, face) pairs sampled per tag, applied per anchor. Below ~600 a tag is too sparse to be learned as a query term.  default 600",
     )
     if max_tag_desc_pairs_per_tag is None:
         return "menu"

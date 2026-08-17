@@ -99,6 +99,8 @@ hf_cache: Any = modal.Volume.from_name("oracle-tutor-hf-cache", create_if_missin
 # after, on its own DB write — would otherwise throw away the whole GPU run.
 artifact_store: Any = modal.Volume.from_name("oracle-tutor-artifacts", create_if_missing=True)
 _ARTIFACT_STORE_PATH = "/artifacts"
+# 8 words of ordinary English; anything longer is a generation artifact.
+_MAX_LLM_QUERY_CHARS = 80
 app: Any = modal.App("oracle-tutor-train")
 
 _LLM_SYSTEM_PROMPT_TEMPLATE = """\
@@ -128,8 +130,12 @@ def _parse_llm_queries(raw_text: str, *, max_queries: int) -> list[str]:
         compact = _LIST_PREFIX.sub("", line).strip().rstrip(".,;:").lower()
         if not compact:
             continue
+        # Word count alone does not bound length: a degenerate repetition loop
+        # ("...ationationation...") has no spaces, so 4,000 characters can count
+        # as a single word and slip through. 329 such pairs reached the shipped
+        # dataset, one of them 4,126 characters long.
         word_count = len(compact.split())
-        if word_count < 2 or word_count > 8 or compact in seen:
+        if word_count < 2 or word_count > 8 or len(compact) > _MAX_LLM_QUERY_CHARS or compact in seen:
             continue
         seen.add(compact)
         deduped.append(compact)
@@ -278,7 +284,7 @@ def _build_dataset_state(
 
     direct_text_pairs: list[tuple[str, str]] = []
     if feature_flags.get("tag_descriptions") and TRAIN_AUGMENTATION_TAG_DESCRIPTIONS in selected_augmentations:
-        max_desc_pairs_per_tag = int(options.get("max_tag_desc_pairs_per_tag", 300))
+        max_desc_pairs_per_tag = int(options.get("max_tag_desc_pairs_per_tag", 600))
         raw_tag_to_desc = build_payload.get("tag_to_desc")
         tag_to_desc: dict[str, Any] = raw_tag_to_desc if isinstance(raw_tag_to_desc, dict) else {}
         raw_tag_to_desc_faces = build_payload.get("tag_to_desc_faces")
@@ -294,12 +300,11 @@ def _build_dataset_state(
             face_ids = _parse_face_key_rows(list(raw_face_ids))
             if not face_ids:
                 continue
-            # Cap is a per-tag budget shared across anchors (see _tag_anchors).
-            per_anchor = max(1, max_desc_pairs_per_tag // len(anchors))
+            # Each anchor gets the full budget, not a share (see dataset_service).
             for anchor in anchors:
                 sampled = list(face_ids)
                 rng.shuffle(sampled)
-                for face_key in sampled[:per_anchor]:
+                for face_key in sampled[:max_desc_pairs_per_tag]:
                     direct_text_pairs.append((anchor, face_texts[face_key]))
 
     template_query_examples = 0
