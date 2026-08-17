@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .query_gen import generate_template_queries
+from .tag_eval import is_held_out_tag
 from .text_prep import normalize_oracle_text
 
 if TYPE_CHECKING:
@@ -222,6 +223,10 @@ def build_training_dataset_state(
         .filter(Tag.tag_namespace == "card")
     )
     for card_id, tag_name, tag_description in direct_oracle_taggings:
+        # Held-out tags are the evaluation set. Training on them would turn the
+        # eval into a memorisation test — see semantic/tag_eval.py.
+        if is_held_out_tag(tag_name):
+            continue
         face_keys = [fk for fk in card_face_map.get(card_id, []) if fk in face_texts]
         for face_key in face_keys:
             tag_to_face_ids[tag_name].append(face_key)
@@ -346,6 +351,8 @@ def build_training_dataset_build_payload(
         .filter(Tag.tag_namespace == "card")
     )
     for card_id, tag_name, tag_description in direct_oracle_taggings:
+        if is_held_out_tag(tag_name):  # see build_training_dataset_state
+            continue
         face_keys = card_face_map.get(card_id, [])
         for face_key in face_keys:
             tag_to_face_ids[tag_name].append(face_key)

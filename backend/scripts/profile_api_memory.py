@@ -12,10 +12,10 @@ PostgreSQL or the full dataset.
 from __future__ import annotations
 
 import gc
-from importlib import import_module
 import os
 import resource
 import sys
+from importlib import import_module
 from typing import Protocol, cast
 
 # Use sqlite for profiling (no external DB needed)
@@ -75,10 +75,11 @@ def _rss_mb() -> float:
 
 
 def main() -> None:
+    from ot_backend.api.tfidf_index import build_tfidf_index
+
     from ot_backend.core.database import SessionLocal
     from ot_backend.core.db_init import init_db
     from ot_backend.core.models import Card, CardFace
-    from ot_backend.api.tfidf_index import build_tfidf_index
 
     print("Memory profiling: oracle-tutor-api")
     print("-" * 50)

@@ -34,6 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run_modal_dataset_build(*, training_payload_bytes: bytes, augmentation_mode: str) -> bytes:
     from importlib import import_module
+
     from ot_backend.core.config import modal_client_configured, modal_environment_name
 
     if not modal_client_configured():
@@ -78,11 +79,6 @@ def main(argv: list[str] | None = None) -> int:
     load_env(prod=args.prod)
     setup_logging()
 
-    from ot_backend.semantic.train_options import (
-        TRAIN_AUGMENTATION_LLM_QUERIES,
-        DEFAULT_TRAIN_AUGMENTATION_MODE,
-        parse_train_augmentation_mode,
-    )
     from ot_backend.semantic.dataset_registry import (
         create_semantic_dataset,
         semantic_dataset_artifact_keys,
@@ -91,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
     from ot_backend.semantic.dataset_service import (
         export_training_build_payload_bytes,
         export_training_dataset_bytes,
+    )
+    from ot_backend.semantic.train_options import (
+        DEFAULT_TRAIN_AUGMENTATION_MODE,
+        TRAIN_AUGMENTATION_LLM_QUERIES,
+        parse_train_augmentation_mode,
     )
 
     augmentation_mode = args.augmentation if args.augmentation is not None else DEFAULT_TRAIN_AUGMENTATION_MODE

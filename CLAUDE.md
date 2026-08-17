@@ -132,6 +132,8 @@ Filters on `/similar-cards`: `card_type`, `colors`, `cmc_min`, `cmc_max`, `forma
 - `scripts/build_dataset.py` — CLI to build training datasets from Scryfall cards
 - `scripts/train_model.py` — CLI to train a fine-tuned embedding model
 - `scripts/promote_model.py` — CLI to materialize embeddings and activate a model
+- `scripts/eval_tags.py` — score the active model against held-out Scryfall tags (`--prod`, `--store`)
+- `semantic/tag_eval.py` — the benchmark that replaces `eval_queries.json` for model comparison. A tag name is a query, its cards are the gold set, giving ~1.1k usable queries for free and running them through `SemanticIndex.search_oracle` so candidate generation and IDF are inside the measurement. **Tags are held out, not cards** (`is_held_out_tag`, a hash of the name so the split needs no stored state and `dataset_service` can apply the same predicate) — otherwise the score measures memorisation. Paraphrases are scored as their own kind, because tag names are Tagger slugs and optimising for slugs teaches slugs. Recall@100's denominator is capped at 100 so a 400-card tag is not punished for its size
 - `frontend/src/lib/api.ts` — fetch client with `searchCards`, `getCard`, `getSimilarCards`, `searchOracleText`; every response parsed through a zod schema
 - `frontend/src/lib/queryClient.ts` — shared `QueryClient` with a retry predicate that skips 4xx
 - `frontend/src/types/schemas.ts` — zod schemas for every API response shape

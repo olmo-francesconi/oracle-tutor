@@ -1,0 +1,54 @@
+{
+  "description": "Natural-language phrasings mapped onto Scryfall Tagger tags, for the held-out tag evaluation. Tag names are Tagger slugs ('gains pp counters', 'curiosity-like'), which is not what a player types; scoring only on slugs would optimise the model for slugs. Each phrase is written from the tag's own description so it states the concept without reusing the slug's wording. Only phrases whose tag lands in the held-out split are scored — the rest are skipped, so this file may safely contain more than are used.",
+  "paraphrases": {
+    "creature that taps for mana": "mana dork",
+    "cheap creature that produces mana": "mana dork",
+    "elf that makes mana": "mana dork",
+
+    "my own card damages me": "burn-you",
+    "hurts its controller": "burn-you",
+
+    "cares about a creature dying this turn": "morbid",
+    "triggers if something died": "morbid",
+
+    "gives a creature lifelink": "gains lifelink",
+    "grant lifelink to a creature": "gains lifelink",
+
+    "search my library for a creature": "tutor-creature",
+    "fetch a creature card from my deck": "tutor-creature",
+
+    "exile cards from the top of a library": "mill-exile",
+    "put cards from a library into exile": "mill-exile",
+
+    "stops an entire combat phase": "pseudo-fog",
+    "prevent all combat damage this turn": "pseudo-fog",
+
+    "untap a permanent": "untapper-permanent",
+    "lets me untap something": "untapper-permanent",
+
+    "regenerate another creature": "regenerates other",
+    "protects other creatures from dying": "regenerates other",
+
+    "creature that stops being a creature": "deanimate self",
+    "turns itself into a noncreature": "deanimate self",
+
+    "draw a card when this deals damage": "curiosity-like",
+    "card advantage from dealing combat damage": "curiosity-like",
+
+    "my opponent picks": "opponent chooses",
+    "let the opponent decide": "opponent chooses",
+
+    "search for a basic land type": "fetchable",
+
+    "creature that shuts something down": "lockdown-creature",
+
+    "increases a creature's power": "power boost",
+    "makes a creature stronger": "power boost",
+
+    "works well with equipment": "synergy-equipment",
+    "cares about equipped creatures": "synergy-equipment",
+
+    "milling my own library helps": "synergy-mill",
+    "benefits from cards in the graveyard": "synergy-mill"
+  }
+}

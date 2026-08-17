@@ -114,13 +114,13 @@ def main() -> None:
                 try:
                     get(f"/similar-cards/{cid}", {"limit": "20", **combo})
                     total += 1
-                except Exception as e:
+                except Exception:
                     errors += 1
             # Also no filters
             try:
                 get(f"/similar-cards/{cid}", {"limit": "20"})
                 total += 1
-            except Exception as e:
+            except Exception:
                 errors += 1
 
         # Search-oracle (query text + filters = cache key)
@@ -129,12 +129,12 @@ def main() -> None:
                 try:
                     get("/search-oracle", {"q": q, "limit": "20", **combo})
                     total += 1
-                except Exception as e:
+                except Exception:
                     errors += 1
             try:
                 get("/search-oracle", {"q": q, "limit": "20"})
                 total += 1
-            except Exception as e:
+            except Exception:
                 errors += 1
 
         print(f"  total requests so far: {total} (errors: {errors})")
