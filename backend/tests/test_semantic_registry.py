@@ -827,3 +827,30 @@ def test_get_semantic_index_prefers_active_db_model(monkeypatch, tmp_path):
     assert import_calls == ["onnxruntime", "tokenizers"]
     index._index = None
     index._last_refresh_check = 0.0
+
+
+def test_bundle_rescue_copy_round_trips(tmp_path, monkeypatch) -> None:
+    """A trained bundle must survive a failed registration.
+
+    `train.remote()` returns the bundle in memory only, so without this the
+    process dying between training and the DB write costs the whole GPU run.
+    """
+    from ot_backend.tui.app import _write_bundle_rescue_copy
+
+    monkeypatch.chdir(tmp_path)
+    payload = b"PK\x03\x04 pretend bundle"
+
+    path = _write_bundle_rescue_copy(payload, "post-hob-aug")
+
+    assert path == tmp_path / "data" / "trained-bundles" / "post-hob-aug.zip"
+    assert path.read_bytes() == payload
+
+
+def test_bundle_rescue_copy_overwrites_a_previous_attempt(tmp_path, monkeypatch) -> None:
+    from ot_backend.tui.app import _write_bundle_rescue_copy
+
+    monkeypatch.chdir(tmp_path)
+    _write_bundle_rescue_copy(b"first", "slug")
+    path = _write_bundle_rescue_copy(b"second", "slug")
+
+    assert path.read_bytes() == b"second"

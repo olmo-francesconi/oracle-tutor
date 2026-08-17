@@ -16,6 +16,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import keys as K
@@ -758,7 +759,7 @@ def _do_build_dataset(
     tag_pair_tunables: dict[str, int],
     llm_config: dict[str, object] | None,
 ) -> str:
-    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.database import SessionLocal, reset_connection_pool
     from ot_backend.semantic.dataset_registry import (
         create_semantic_dataset,
         semantic_dataset_artifact_keys,
@@ -786,6 +787,7 @@ def _do_build_dataset(
             )
         payload_bytes = json.dumps(payload_dict).encode("utf-8")
         dataset_bytes = _run_modal_dataset_build(payload_bytes, augmentation_mode, llm_config=llm_config)
+        reset_connection_pool()
     else:
         with SessionLocal() as db:
             state = build_training_dataset_state(
@@ -1079,7 +1081,7 @@ def _do_train_model(
     skip_fine_tune: bool,
     quantization: str,
 ) -> str:
-    from ot_backend.core.database import SessionLocal
+    from ot_backend.core.database import SessionLocal, reset_connection_pool
     from ot_backend.semantic.base_model_catalog import get_semantic_base_model
     from ot_backend.semantic.bundle_registration import (
         register_model_bundle_bytes,
@@ -1133,6 +1135,13 @@ def _do_train_model(
             augmentation_mode,
             quantization,
         )
+
+    # Land the bundle on disk before any DB work. Training is hours of GPU time
+    # and `train.remote()` hands the bundle back in memory only, so a failure in
+    # registration below would otherwise throw the whole run away.
+    rescue_path = _write_bundle_rescue_copy(bundle_bytes, slug)
+    lg.info("Wrote bundle rescue copy. path=%s bytes=%d", rescue_path, len(bundle_bytes))
+    reset_connection_pool()
 
     config_json: dict[str, object] = {"base_model_key": base_model_key, "skip_fine_tune": skip_fine_tune}
     if dataset_slug is not None:
@@ -1311,6 +1320,20 @@ def _skip_fine_tune_export_bundle(*, base_model: str, quantization: str) -> byte
                 archive.write(path, arcname=path.relative_to(root).as_posix())
         lg.info("Bundle assembled. faces=%d embedding_dim=%d", n_faces, embedding_dim)
         return buf.getvalue()
+
+
+def _write_bundle_rescue_copy(bundle_bytes: bytes, slug: str) -> Path:
+    """Persist a freshly trained bundle so registration can be retried.
+
+    Recover with `register_model_bundle_bytes(db, ..., artifact_bundle_bytes=path.read_bytes())`.
+    """
+    target_dir = (Path("data") / "trained-bundles").resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / f"{slug}.zip"
+    path.write_bytes(bundle_bytes)
+    # Absolute: this path is logged for a human to recover the bundle from, and
+    # a relative one means nothing once they are in a different directory.
+    return path
 
 
 def _run_modal_training(

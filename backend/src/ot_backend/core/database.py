@@ -100,6 +100,19 @@ class Base(DeclarativeBase):
     pass
 
 
+def reset_connection_pool() -> None:
+    """Discard every pooled connection.
+
+    Call before touching the DB again after a long external job (a Modal build
+    or training run can idle the pool for hours). `pool_pre_ping` is not enough
+    on its own: the ping toggles autocommit, and psycopg refuses that on a
+    connection it still believes is mid-transaction, so the checkout raises
+    "can't change 'autocommit' now: connection in transaction status ACTIVE"
+    instead of transparently reconnecting.
+    """
+    engine.dispose()
+
+
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
