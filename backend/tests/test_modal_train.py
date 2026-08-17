@@ -234,3 +234,42 @@ def test_every_anchor_gets_the_full_budget(tmp_path) -> None:
     described = [p for p in state.direct_text_pairs if p[0].startswith("mana dork. ")]
     assert len(bare) == 10, "the bare name must get the whole budget, not half"
     assert len(described) == 10
+
+
+def test_warmup_is_a_fraction_of_optimizer_steps_not_examples() -> None:
+    """The old formula divided an EXAMPLE count by 20 and passed it as steps,
+    so 53% of every run was learning-rate warmup."""
+    from ot_backend.semantic.modal_train import _WARMUP_FRACTION
+
+    total, batch, epochs = 455_496, 32, 3
+    total_steps = -(-total // batch) * epochs
+    warmup = max(100, int(total_steps * _WARMUP_FRACTION))
+
+    assert warmup / total_steps == pytest.approx(0.1, abs=0.01)
+    assert warmup < total // 20, "must be far below the old example-derived value"
+
+
+def test_the_chat_template_is_used_when_the_tokenizer_has_one() -> None:
+    """An instruct model given a bare string does raw completion instead."""
+
+    class _Tok:
+        chat_template = "present"
+
+        def apply_chat_template(self, messages, tokenize, add_generation_prompt):  # noqa: ANN001
+            assert tokenize is False and add_generation_prompt is True
+            assert [m["role"] for m in messages] == ["system", "user"]
+            return "TEMPLATED"
+
+    face = {"oracle_text": "{T}: Add {G}.", "text": "tap this creature: Add one green mana."}
+
+    assert modal_train._build_llm_prompt(face, max_queries=5, tokenizer=_Tok()) == "TEMPLATED"
+
+
+def test_a_tokenizer_without_a_template_falls_back_to_plain_text() -> None:
+    face = {"oracle_text": "{T}: Add {G}.", "text": "x"}
+
+    prompt = modal_train._build_llm_prompt(face, max_queries=5, tokenizer=None)
+
+    assert "search query generator" in prompt
+    assert "{T}: Add {G}." in prompt
+    assert "/no_think" not in prompt, "a Qwen3 token is noise in a Qwen2.5 prompt"

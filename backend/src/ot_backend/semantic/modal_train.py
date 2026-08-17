@@ -106,6 +106,8 @@ artifact_store: Any = modal.Volume.from_name("oracle-tutor-artifacts", create_if
 _ARTIFACT_STORE_PATH = "/artifacts"
 # 8 words of ordinary English; anything longer is a generation artifact.
 _MAX_LLM_QUERY_CHARS = 80
+# Share of total optimizer steps spent warming up the learning rate.
+_WARMUP_FRACTION = 0.1
 app: Any = modal.App("oracle-tutor-train")
 
 _LLM_SYSTEM_PROMPT_TEMPLATE = """\
@@ -149,12 +151,29 @@ def _parse_llm_queries(raw_text: str, *, max_queries: int) -> list[str]:
     return deduped
 
 
-def _build_llm_prompt(face: dict[str, str], *, max_queries: int) -> str:
+def _build_llm_messages(face: dict[str, str], *, max_queries: int) -> list[dict[str, str]]:
     oracle_text = face.get("oracle_text", "").strip() or face.get("text", "").strip()
-    return (
-        f"{_LLM_SYSTEM_PROMPT_TEMPLATE.format(max_queries=max_queries)}"
-        f"\n\nOracle text:\n{oracle_text}{_NO_THINK_SUFFIX}"
-    )
+    return [
+        {"role": "system", "content": _LLM_SYSTEM_PROMPT_TEMPLATE.format(max_queries=max_queries)},
+        {"role": "user", "content": f"Oracle text:\n{oracle_text}"},
+    ]
+
+
+def _build_llm_prompt(face: dict[str, str], *, max_queries: int, tokenizer: Any = None) -> str:
+    """Render one instruction prompt.
+
+    An instruct model must be given its own chat template. Handing vLLM a bare
+    string makes it do raw *completion* instead of instruction-following, which
+    is what produced 4,000-character repetition loops in the shipped dataset.
+    The plain-string form is kept only as a fallback for a tokenizer that
+    exposes no template.
+    """
+    messages = _build_llm_messages(face, max_queries=max_queries)
+    if tokenizer is not None and getattr(tokenizer, "chat_template", None):
+        return str(
+            tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        )
+    return f"{messages[0]['content']}\n\n{messages[1]['content']}"
 
 
 def _select_llm_gap_faces(
@@ -202,13 +221,22 @@ def _generate_llm_query_pairs(face_rows: list[dict[str, str]], *, llm_config: di
     if not selected_rows:
         return []
 
-    prompts = [_build_llm_prompt(row, max_queries=queries_per_face) for row in selected_rows]
     llm = LLM(
         model=str(llm_config.get("model_name", semantic_llm_model_name())),
         trust_remote_code=True,
         gpu_memory_utilization=float(os.getenv("SEMANTIC_LLM_GPU_MEMORY_UTILIZATION", "0.9")),
         max_model_len=int(os.getenv("SEMANTIC_LLM_MAX_MODEL_LEN", "4096")),
     )
+    try:
+        tokenizer = llm.get_tokenizer()
+    except Exception as exc:  # noqa: BLE001 — fall back to the plain prompt
+        print(f"WARNING: no tokenizer for chat templating ({exc}); using raw prompts.")
+        tokenizer = None
+    print(f"Chat template applied: {bool(tokenizer is not None and getattr(tokenizer, 'chat_template', None))}")
+    prompts = [
+        _build_llm_prompt(row, max_queries=queries_per_face, tokenizer=tokenizer)
+        for row in selected_rows
+    ]
     sampling_params = SamplingParams(
         temperature=float(llm_config.get("temperature", semantic_llm_temperature())),
         max_tokens=int(llm_config.get("max_tokens", semantic_llm_max_tokens())),
@@ -485,8 +513,16 @@ def train(
     loss_fn = losses.MultipleNegativesRankingLoss(model)
 
     total = len(dataset)
-    warmup_steps = max(100, total // 20)
-    print(f"Training. examples={total:,} epochs={epochs} batch={batch_size} warmup={warmup_steps}")
+    # warmup is counted in OPTIMIZER STEPS, not examples. Dividing the example
+    # count by 20 gave 22,774 warmup steps against 42,702 total — 53% of every
+    # run was spent ramping the learning rate.
+    steps_per_epoch = -(-total // max(1, batch_size))
+    total_steps = steps_per_epoch * max(1, epochs)
+    warmup_steps = max(100, int(total_steps * _WARMUP_FRACTION))
+    print(
+        f"Training. examples={total:,} epochs={epochs} batch={batch_size} "
+        f"steps={total_steps:,} warmup={warmup_steps:,} ({100 * warmup_steps / max(1, total_steps):.0f}%)"
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         run_dir = Path(tmp) / "run"
