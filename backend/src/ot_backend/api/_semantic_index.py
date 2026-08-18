@@ -20,6 +20,8 @@ except ImportError:
 class SemanticIndexProtocol(Protocol):
     model_id: str | None
 
+    def warm(self, db: Session) -> None: ...
+
     def similar_to_face(
         self,
         face_key: tuple[str, int],

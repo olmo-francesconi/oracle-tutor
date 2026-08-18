@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Final, override
@@ -124,6 +125,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             logger.warning("Semantic model unavailable — semantic endpoints will return 503")
         else:
             logger.info("Semantic model ready. model_id=%s", index.model_id)
+            started = time.perf_counter()
+            from ..core.database import SessionLocal
+
+            with SessionLocal() as db:
+                index.warm(db)
+            logger.info("Ability store warmed in %.1fs", time.perf_counter() - started)
     except Exception as exc:
         logger.error("Semantic model failed to load: %s", exc, exc_info=True)
 
