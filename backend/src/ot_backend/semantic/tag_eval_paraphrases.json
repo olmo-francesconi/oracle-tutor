@@ -1,5 +1,5 @@
 {
-  "description": "Natural-language phrasings mapped onto Scryfall Tagger tags, for the held-out tag evaluation. Tag names are Tagger slugs ('gains pp counters', 'curiosity-like'), which is not what a player types; scoring only on slugs would optimise the model for slugs. Each phrase is written from the tag's own description so it states the concept without reusing the slug's wording. Only phrases whose tag lands in the held-out split are scored — the rest are skipped, so this file may safely contain more than are used.",
+  "description": "Natural-language phrasings mapped onto Scryfall Tagger tags, for the held-out tag evaluation. Tag names are Tagger slugs ('gains pp counters', 'curiosity-like'), which is not what a player types; scoring only on slugs would optimise the model for slugs. Each phrase is written from the tag's own description so it states the concept without reusing the slug's distinctive wording. Only phrases whose tag lands in the held-out split are scored — the rest are skipped, so this file may safely contain more than are used. Tags that describe a card's NAME, type line, or set of origin (alliteration, real life animal name, commander set booster cards) are deliberately absent: nothing in the oracle text can answer them, so they would measure noise rather than retrieval.",
   "paraphrases": {
     "creature that taps for mana": "mana dork",
     "cheap creature that produces mana": "mana dork",
@@ -49,6 +49,236 @@
     "cares about equipped creatures": "synergy-equipment",
 
     "milling my own library helps": "synergy-mill",
-    "benefits from cards in the graveyard": "synergy-mill"
+    "benefits from cards in the graveyard": "synergy-mill",
+
+    "land that does more than make mana": "utility land",
+    "nonbasic land with an activated ability": "utility land",
+
+    "a way to throw away cards from my hand": "discard outlet",
+    "repeatedly put my own cards into the graveyard": "discard outlet",
+
+    "cast a spell without paying its mana cost": "free-cast-another",
+    "play something from my hand for free": "free-cast-another",
+
+    "permanent that sacrifices itself": "sacrifice self",
+    "it destroys itself as part of the cost": "sacrifice self",
+
+    "pay life to use an ability": "life payment",
+    "costs life instead of mana": "life payment",
+
+    "search my library for a basic land": "tutor-land-basic",
+    "fetch a mountain out of my deck": "tutor-land-basic",
+
+    "ability costs mana outside the card's colors": "offcolor ability",
+
+    "when you do, something else happens": "reflexive trigger",
+
+    "lets a creature attack without tapping": "gives vigilance",
+    "attacks and stays untapped": "gives vigilance",
+
+    "lets a creature attack the turn it arrives": "gains haste",
+    "can attack immediately after entering": "gains haste",
+
+    "returns itself from the graveyard to the battlefield": "reanimate-self",
+    "brings itself back after it dies": "reanimate-self",
+
+    "this spell costs less to cast": "discount-self",
+    "reduces its own mana cost": "discount-self",
+
+    "put cards from an opponent's library into their graveyard": "mill-opponent",
+    "make my opponent lose cards off the top of their deck": "mill-opponent",
+
+    "creates a token an opponent controls": "donate token",
+    "gives my opponent a creature": "donate token",
+
+    "its toughness is equal to something else": "cda-toughness",
+
+    "gives plus one strength and minus one toughness": "flowstone",
+
+    "power and toughness equal to the number of lands i control": "maro-sorcerer",
+
+    "turns an artifact into a creature": "animate artifact",
+
+    "return an instant from my graveyard to my hand": "regrowth-instant",
+
+    "return an artifact from my graveyard to my hand": "regrowth-artifact",
+
+    "equipment that attaches itself when it enters": "auto equip",
+
+    "taps for mana and does something extra": "mana ability with extra effect",
+
+    "put a plus one counter on several creatures": "support",
+
+    "triggers when a permanent leaves the battlefield": "leaves battlefield trigger",
+
+    "take another turn after this one": "extra turn",
+
+    "noncreature permanent that has flying or a keyword": "creature-ability-noncreature",
+
+    "prevent combat damage from only some creatures": "fog-selective",
+
+    "stop all damage from an attack": "fog",
+
+    "return a permanent from a graveyard to the battlefield": "reanimate-permanent",
+
+    "land that taps down a creature": "tapper-land",
+
+    "return every creature from all graveyards to play": "mass reanimation",
+
+    "punish opponents for targeting my permanents": "hate-target",
+    "makes my things harder to target": "hate-target",
+
+    "everyone sacrifices a creature": "mutual sacrifice",
+
+    "make a copy of a creature in a graveyard": "reanimate copy",
+
+    "equipment that only gives stats and a keyword": "french vanilla equipment",
+
+    "return a creature from an opponent's graveyard": "reanimate-from-opponent",
+
+    "creature spells cost me less": "cost-reducer-creature",
+
+    "triggers when it isn't blocked": "unblocked trigger",
+
+    "can only be cast during combat": "combat timing restriction",
+
+    "costs less for each artifact i control": "affinity for artifacts",
+
+    "pay two life instead of a colored mana": "phyrexian mana cost",
+
+    "put a minus one counter on my own creature as a cost": "mm counter cost",
+
+    "everyone discards their hand and draws new cards": "wheel-symmetrical",
+
+    "if you gained life this turn": "infusion",
+
+    "make a token whenever i cast an instant or sorcery": "young pyromancer ability",
+
+    "shuffle hands into the library": "whirlpool",
+
+    "players vote on the outcome": "voting",
+
+    "sacrifice a creature to deal damage equal to its power": "fling",
+
+    "take control of a permanent": "theft-permanent",
+
+    "cares about creatures that were already dealt damage": "hate-damaged",
+
+    "can block more than one creature": "block additional",
+
+    "vehicle that comes with its own pilot": "bring your own crew",
+
+    "cares how many spells were cast this turn": "storm count matters",
+
+    "can't be blocked by more than one creature": "stalking",
+
+    "one creature gets bigger and another gets smaller": "drain strength",
+
+    "put cards from my graveyard back into my library": "restock-any",
+
+    "attacking with two other creatures matters": "battalion",
+
+    "land that produces the color i chose": "color-choose-land",
+
+    "cares about attacking an opponent": "attacking opponents matters",
+
+    "cares about whether it is tapped": "tapped matters-self",
+
+    "tap my lands to pay a cost other than mana": "tap fuel-land",
+
+    "returns to my hand after i cast it": "auto buyback",
+
+    "tap artifacts to help pay for this": "improvise",
+
+    "name a card and shut it off": "hate-named",
+
+    "cares about the cards i have in exile": "cards in exile matter",
+
+    "exile the top card and play it this turn": "impulse-instant",
+
+    "make an opponent discard at instant speed": "instant speed discard",
+
+    "an opponent splits cards into two piles": "fact or fiction",
+
+    "search my library for an equipment": "tutor-artifact-equipment",
+
+    "my life total becomes half of what it was": "life divider-you",
+
+    "exile an instant from my graveyard as a cost": "graveyard fuel-instant",
+
+    "cares about casting spells on other players' turns": "off-turn casting matters",
+
+    "prevent damage that would be dealt to me": "damage prevention-player",
+
+    "prevent damage to my planeswalker": "damage prevention-planeswalker",
+
+    "cares how many swamps i control": "land count swamp",
+
+    "discard this card to search for a land type": "type-cycling",
+
+    "attach it for a different cost": "alternate-equip-cost",
+
+    "activated abilities cost less to use": "cost-reducer-activated-ability",
+
+    "exiles itself and returns transformed": "exile-self-dfc-transform",
+
+    "choose a creature type to care about": "typal-choose",
+
+    "cares about elves i control": "typal-elf",
+    "elves get bigger": "typal-elf",
+
+    "cares about slivers": "typal-sliver",
+    "all my slivers gain an ability": "typal-sliver",
+
+    "cares about humans i control": "typal-human",
+
+    "cares about vampires": "typal-vampire",
+
+    "cares about dinosaurs": "typal-dinosaur",
+
+    "cares about spiders": "typal-spider",
+
+    "cares about cats i control": "typal-cat",
+
+    "cares about saprolings": "typal-saproling",
+
+    "cares about treefolk": "typal-treefolk",
+
+    "cares about wolves and werewolves": "typal-lupine",
+
+    "rewards me for casting green spells": "synergy-green",
+
+    "rewards me for casting red spells": "synergy-red",
+
+    "cares about enchantments i control": "synergy-enchantment",
+
+    "cares about islands": "synergy-island",
+
+    "cares about my commander": "synergy-commander",
+
+    "cares about creature tokens i control": "synergy-token-creature",
+
+    "cares about shrines": "synergy-shrine",
+
+    "cares about deserts": "synergy-desert",
+
+    "rewards me for rolling dice": "synergy-dice",
+
+    "cares about suspended cards": "synergy-suspend",
+
+    "cares about counters on permanents": "counters matter",
+
+    "cares about its own power": "power matters-self",
+
+    "cares about the mana value of a spell": "mana value matters",
+
+    "destroy an artifact": "removal-artifact",
+
+    "sacrifice an artifact whenever i want": "sacrifice outlet-artifact",
+
+    "its color is determined by something else": "cda-color",
+
+    "protection from white": "hate-white",
+    "punishes white decks": "hate-white"
   }
 }
