@@ -182,3 +182,58 @@ def test_two_targeted_abilities_are_left_alone() -> None:
 
     assert len(abilities) == 3
     assert not any(a.text.startswith("Overloaded") for a in abilities)
+
+
+# ---------------------------------------------------------------------------
+# Keyword expansion — meaning that only exists in stripped reminder text
+# ---------------------------------------------------------------------------
+
+
+def _norm(oracle_text: str, name: str = "Card", type_line: str = "Creature — Cat") -> list[str]:
+    return [a.normalized_text for a in build_face_abilities(
+        oracle_text=oracle_text, card_name=name, type_line=type_line)]
+
+
+def test_expansion_does_not_depend_on_whether_the_printing_shows_the_reminder() -> None:
+    """The whole design rests on this. Reminder text is a printing decision —
+    907 of 1,228 Equip printings omit it — so expanding only where it appears
+    would split one concept into two vectors."""
+    printed = _norm("Ward {2} (Whenever this creature becomes the target of a spell or "
+                    "ability an opponent controls, counter it unless that player pays {2}.)")
+    omitted = _norm("Ward {2}")
+
+    assert printed == omitted
+
+
+def test_the_effect_becomes_searchable() -> None:
+    text = _norm("Cycling {2} ({2}, Discard this card: Draw a card.)", type_line="Land")[0]
+
+    assert "Discard this card" in text
+    assert "Draw a card" in text
+
+
+def test_the_keyword_name_survives_the_expansion() -> None:
+    """Someone typing "cycling" must still find cyclers."""
+    assert _norm("Cycling {2}", type_line="Land")[0].lower().startswith("cycling")
+
+
+def test_evergreen_keywords_are_left_bare() -> None:
+    """Expanding "Flying" drops its self-match from 1.000 to 0.479, below the
+    floor short ability text already sits above."""
+    assert _norm("Flying") == ["Flying."]
+    assert _norm("Trample") == ["Trample."]
+    assert _norm("Menace") == ["Menace."]
+
+
+def test_an_uncatalogued_ability_is_untouched() -> None:
+    assert _norm("Whenever this creature attacks, draw a card.") == [
+        "Whenever this creature attacks, draw a card."
+    ]
+
+
+def test_the_cost_is_substituted_into_the_template() -> None:
+    cheap = _norm("Cycling {1}", type_line="Land")[0]
+    dear = _norm("Cycling {5}", type_line="Land")[0]
+
+    assert cheap != dear, "different costs must stay different abilities"
+    assert "one generic mana" in cheap and "five generic mana" in dear

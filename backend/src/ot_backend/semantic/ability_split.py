@@ -20,8 +20,11 @@ a stale entry only means a keyword line stays merged, which is harmless.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
+from functools import lru_cache
+from importlib.resources import files
 
 from .text_prep import EMPTY_ORACLE_TOKEN, normalize_oracle_text
 
@@ -154,6 +157,39 @@ def split_query_abilities(query: str | None) -> list[str]:
     return split_ability_lines(_QUERY_SEPARATOR.sub("\n", query))
 
 
+# Keywords whose entire effect lives in reminder text we strip: "Cycling {2}"
+# normalizes to "Cycling two generic mana", so nobody searching "discard this
+# card to draw a card" can find a cycler. The expansion is applied to EVERY
+# printing of a head shape, not only the ones that print the reminder — 907 of
+# 1,228 Equip printings omit it, so a printing-dependent rule would split one
+# concept into two vectors.
+#
+# Evergreen bare keywords are deliberately absent from the catalog: expanding
+# "Flying" drops its self-match against the query "flying" from 1.000 to 0.479,
+# below the ~0.70 floor that short ability text already sits above.
+_COST_RUN = re.compile(r"(?:\{[^}]*\})+")
+
+
+@lru_cache(maxsize=1)
+def _keyword_expansions() -> dict[str, str]:
+    raw = files("ot_backend.semantic").joinpath("keyword_expansions.json").read_bytes()
+    return {str(k): str(v) for k, v in json.loads(raw)["expansions"].items()}
+
+
+def _expanded_source(line: str) -> str | None:
+    """The text to embed for a catalogued keyword, or None to leave it alone."""
+    head = _REMINDER.sub("", line).strip().rstrip(".").strip()
+    if not head:
+        return None
+    template = _keyword_expansions().get(_COST_RUN.sub("{cost}", head))
+    if template is None:
+        return None
+    costs = _COST_RUN.findall(head)
+    expansion = template.replace("{cost}", costs[0]) if costs else template
+    # The keyword itself is kept so "cycling" stays searchable by name.
+    return f"{head}. {expansion}"
+
+
 # Overload changes the printed text rather than adding to it: "change 'target'
 # in its text to 'each'". The overloaded mode is the reason these cards see play
 # — Cyclonic Rift is a staple as a one-sided board wipe, not as a 7-mana
@@ -179,7 +215,7 @@ def _ability_sources(oracle_text: str | None) -> list[tuple[str, str]]:
     vector.
     """
     lines = split_ability_lines(oracle_text)
-    sources = [(line, line) for line in lines]
+    sources = [(line, _expanded_source(line) or line) for line in lines]
 
     overload_at = next(
         (i for i, line in enumerate(lines) if _REMINDER.sub("", line).strip().lower().startswith("overload")),
