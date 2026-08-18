@@ -154,6 +154,51 @@ def split_query_abilities(query: str | None) -> list[str]:
     return split_ability_lines(_QUERY_SEPARATOR.sub("\n", query))
 
 
+# Overload changes the printed text rather than adding to it: "change 'target'
+# in its text to 'each'". The overloaded mode is the reason these cards see play
+# — Cyclonic Rift is a staple as a one-sided board wipe, not as a 7-mana
+# Disperse — and it appears nowhere in the corpus, because reminder text is
+# stripped. So the mode is emitted as its own ability.
+_OVERLOAD_PREFIX = "Overloaded"
+_TARGET_WORD = re.compile(r"\btarget\b", re.IGNORECASE)
+_SENTENCE_START = re.compile(r"(^|[.!?]\s+|\n)(target)\b", re.IGNORECASE)
+
+
+def _overloaded_text(text: str) -> str:
+    """Apply overload's substitution, keeping sentence capitalisation."""
+    rewritten = _SENTENCE_START.sub(lambda m: f"{m.group(1)}Each", text)
+    return _TARGET_WORD.sub("each", rewritten)
+
+
+def _ability_sources(oracle_text: str | None) -> list[tuple[str, str]]:
+    """(display text, text to embed) per ability.
+
+    The two differ only where we synthesise an ability the card does not print:
+    the display carries a marker so the tuner does not appear to invent card
+    text, while the embedded side stays clean so the marker never reaches a
+    vector.
+    """
+    lines = split_ability_lines(oracle_text)
+    sources = [(line, line) for line in lines]
+
+    overload_at = next(
+        (i for i, line in enumerate(lines) if _REMINDER.sub("", line).strip().lower().startswith("overload")),
+        None,
+    )
+    if overload_at is None:
+        return sources
+    targeted = [i for i, line in enumerate(lines) if i != overload_at and _TARGET_WORD.search(line)]
+    # Every overload card in the corpus has exactly one targeted ability. More
+    # than one and the substitution is ambiguous, so leave the card alone rather
+    # than guess which mode the overload cost applies to.
+    if len(targeted) != 1:
+        return sources
+    base = lines[targeted[0]]
+    rewritten = _overloaded_text(_REMINDER.sub("", base).strip())
+    sources.insert(targeted[0] + 1, (f"{_OVERLOAD_PREFIX} \u2014 {rewritten}", rewritten))
+    return sources
+
+
 def build_face_abilities(
     *,
     oracle_text: str | None,
@@ -167,8 +212,8 @@ def build_face_abilities(
     """
     abilities: list[Ability] = []
     seen_hashes: set[str] = set()
-    for text in split_ability_lines(oracle_text):
-        normalized = normalize_oracle_text(text=text, card_name=card_name, type_line=type_line)
+    for text, source in _ability_sources(oracle_text):
+        normalized = normalize_oracle_text(text=source, card_name=card_name, type_line=type_line)
         # A line that was pure reminder text normalizes away to nothing.
         if normalized == EMPTY_ORACLE_TOKEN:
             continue

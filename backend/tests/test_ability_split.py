@@ -11,6 +11,7 @@ import pytest
 
 from ot_backend.semantic.ability_split import (
     MAX_QUERY_ABILITIES,
+    build_face_abilities,
     split_ability_lines,
     split_query_abilities,
 )
@@ -115,3 +116,69 @@ def test_splitter_does_not_truncate_at_the_cap() -> None:
     query = " // ".join(f"ability {i}" for i in range(MAX_QUERY_ABILITIES + 3))
 
     assert len(split_query_abilities(query)) == MAX_QUERY_ABILITIES + 3
+
+
+# ---------------------------------------------------------------------------
+# Overload — the printed text is not what the card does
+# ---------------------------------------------------------------------------
+
+_RIFT = (
+    "Return target nonland permanent you don't control to its owner's hand.\n"
+    'Overload {6}{U} (You may cast this spell for its overload cost. '
+    'If you do, change "target" in its text to "each.")'
+)
+
+
+def test_overload_emits_the_mode_the_card_is_actually_played_for() -> None:
+    """Cyclonic Rift is a staple as a one-sided board wipe, not as a 7-mana
+    Disperse, and that mode exists only in reminder text we strip."""
+    abilities = build_face_abilities(oracle_text=_RIFT, card_name="Cyclonic Rift", type_line="Instant")
+
+    assert [a.ability_ix for a in abilities] == [0, 1, 2]
+    assert abilities[1].normalized_text == "Return each nonland permanent you dont control to its owners hand."
+
+
+def test_the_marker_is_shown_but_never_embedded() -> None:
+    """The tuner must not look like it is inventing card text, and the marker
+    must not reach the vector."""
+    synthetic = build_face_abilities(oracle_text=_RIFT, card_name="Cyclonic Rift", type_line="Instant")[1]
+
+    assert synthetic.text.startswith("Overloaded")
+    assert "Overloaded" not in synthetic.normalized_text
+    assert not synthetic.is_keyword
+
+
+def test_a_sentence_initial_target_is_capitalised() -> None:
+    abilities = build_face_abilities(
+        oracle_text='Target player discards two cards.\nOverload {3}{B} (Change "target" to "each.")',
+        card_name="Mind Rake",
+        type_line="Sorcery",
+    )
+
+    assert abilities[1].text == "Overloaded — Each player discards two cards."
+
+
+def test_a_card_without_overload_is_untouched() -> None:
+    abilities = build_face_abilities(
+        oracle_text="Return target nonland permanent to its owner's hand.",
+        card_name="Disperse",
+        type_line="Instant",
+    )
+
+    assert len(abilities) == 1
+
+
+def test_two_targeted_abilities_are_left_alone() -> None:
+    """Which mode does the overload cost apply to? Unanswerable, so don't guess.
+    No card in the corpus does this today; the guard is for the one that will."""
+    abilities = build_face_abilities(
+        oracle_text=(
+            "Destroy target creature.\nDraw a card, then discard target card at random.\n"
+            'Overload {4}{R} (Change "target" to "each.")'
+        ),
+        card_name="Hypothetical",
+        type_line="Sorcery",
+    )
+
+    assert len(abilities) == 3
+    assert not any(a.text.startswith("Overloaded") for a in abilities)
