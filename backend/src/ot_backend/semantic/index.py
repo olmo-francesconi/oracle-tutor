@@ -5,6 +5,7 @@ import logging
 import threading
 import time
 import warnings
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
@@ -14,7 +15,7 @@ from typing import cast as type_cast
 
 import numpy as np
 import numpy.typing as npt
-from sqlalchemy import and_, cast, func, or_, select, tuple_
+from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
@@ -29,6 +30,7 @@ from ..core.database import SessionLocal
 from ..core.models import Card, CardFace, CardFaceAbility, SemanticAbilityEmbedding, SemanticModel
 from .ability_split import split_query_abilities
 from .model_registry import get_active_semantic_model_id, materialize_semantic_model
+from .semantic_state import get_semantic_data_version
 from .text_prep import normalize_oracle_text
 
 logger = logging.getLogger("ot_backend.semantic.index")
@@ -36,23 +38,34 @@ logger = logging.getLogger("ot_backend.semantic.index")
 _index: SemanticIndex | None = None
 _UNSET = object()  # Sentinel: index has never been loaded (distinct from None = no active model)
 _loaded_model_id: str | None | object = _UNSET
+# The ability store caches the whole corpus in this process, so a re-ingest
+# that adds cards must invalidate it. Ingest bumps semantic_data_version, and
+# it is the only signal that crosses process boundaries — the worker's own
+# call to mark_semantic_index_stale() cannot reach the API's memory.
+_loaded_data_version: int | None = None
 _last_refresh_check: float = 0.0
 _index_lock = threading.Lock()
 _ORT_LOG_SEVERITY_ERRORS_ONLY = 3
+IntArray = np.ndarray[Any, np.dtype[np.int64]]
 FloatArray = npt.NDArray[np.float32]
 
 _VALID_COLORS = frozenset({"W", "U", "B", "R", "G"})
 
-# Two-stage retrieval knobs. Stage 1 scans distinct ability vectors exactly
-# (~37k rows, no HNSW — see migration 0006) and keeps the closest `_ABILITY_PROBE`
-# of them; those expand to at most `_CANDIDATE_FACES_PER_ABILITY` faces, which
-# stage 2 rescores. Generous enough that the candidate set is not the binding
-# constraint on result quality for realistic `limit` values.
-_ABILITY_PROBE = 256
-_CANDIDATE_FACES_PER_ABILITY = 400
+# Retrieval is exact and complete: every face that passes the filter is scored,
+# however low its similarity. There is no candidate cut, because there is no
+# approximate index to justify one — the whole ability matrix is 37k x 384
+# floats (57 MB) and a query is one matmul against it.
+#
+# The previous two-stage design took the 256 nearest ability texts BEFORE
+# applying filters, so a filter anticorrelated with the query threw away almost
+# everything: "counter target spell" restricted to mono-green reached the
+# scorer with 55 of 4,952 eligible faces. It also capped any single-ability
+# query at 400 results no matter the requested limit.
 # How far below the best-matching ability another ability may sit and still be
 # considered "matched just as well" when picking which one to show the user.
 _DISPLAY_SIMILARITY_MARGIN = 0.05
+# Distinct filter combinations whose face masks are kept.
+_MASK_CACHE_ENTRIES = 64
 # Rejected-ability band. Cosine similarity between short ability texts has a
 # high floor — "Flying" scores ~0.67 against "Vigilance" and ~0.74 against
 # "Shadow" — so a raw `1 - sim` penalty would shave every card by two thirds and
@@ -157,60 +170,9 @@ def _normalize_embeddings(embeddings: FloatArray) -> FloatArray:
     return np.asarray(embeddings / np.clip(norms, a_min=1e-12, a_max=None), dtype=np.float32)
 
 
-def _weighted_mean(values: FloatArray, weights: FloatArray | None) -> float:
-    if weights is None or float(weights.sum()) <= 0.0:
-        return float(values.mean())
-    return float((values * weights).sum() / weights.sum())
-
-
-def _chamfer_rerank(
-    seed_vectors: FloatArray,
-    candidate_vectors: FloatArray,
-    *,
-    bidirectional: bool,
-    seed_weights: FloatArray | None = None,
-    candidate_weights: FloatArray | None = None,
-) -> tuple[float, int]:
-    """Score two ability sets and report which candidate ability matched best.
-
-    Stored vectors are already L2-normalized, so the dot product is cosine
-    similarity and `sims[i, j]` is seed ability i against candidate ability j.
-
-    * forward  = mean over seed abilities of their best candidate match
-                 — "how much of the seed does this card cover?"
-    * backward = mean over candidate abilities of their best seed match
-                 — "how much of this card is explained by the seed?"
-
-    Card-to-card similarity averages both, so a card that matches one ability
-    and does five unrelated things scores below one that matches throughout.
-    Text search uses forward only (see `search_oracle`).
-
-    Both means are IDF-weighted: "Flying" sits on ~3.2k faces and matches itself
-    at 1.0, so unweighted it drowns out the abilities that actually distinguish
-    cards. Weighting is by frequency rather than by keyword-ness because common
-    non-keyword abilities ("Enchant creature", "{T}: Add {C}.") swamp results
-    just as badly.
-    """
-    sims = seed_vectors @ candidate_vectors.T
-    forward = _weighted_mean(sims.max(axis=1), seed_weights)
-    if bidirectional:
-        backward = _weighted_mean(sims.max(axis=0), candidate_weights)
-        score = (forward + backward) / 2.0
-    else:
-        score = forward
-
-    # Choosing the ability to SHOW the user: relevance gates, distinctiveness
-    # only breaks ties. Raw argmax always reports "Flying" for fliers (a keyword
-    # self-match is ~1.0); pure IDF-weighted argmax overcorrects and reports the
-    # most obscure ability instead, even when it barely matched. So: keep the
-    # abilities that matched about as well as the best one, then among those
-    # prefer the most distinctive.
-    per_candidate_best = sims.max(axis=0)
-    if candidate_weights is None:
-        return score, int(np.argmax(per_candidate_best))
-    eligible = per_candidate_best >= (float(per_candidate_best.max()) - _DISPLAY_SIMILARITY_MARGIN)
-    tiebreak = np.where(eligible, candidate_weights, -np.inf)
-    return score, int(np.argmax(tiebreak))
+def _segment_max(values: FloatArray, starts: IntArray) -> FloatArray:
+    """Max within each face's slice of the flat ability array."""
+    return np.maximum.reduceat(values, starts, axis=0)
 
 
 # ---------------------------------------------------------------------------
@@ -376,12 +338,150 @@ def _apply_filters(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _AbilityStore:
+    """The whole ability corpus, laid out for one matmul per query.
+
+    Vectors are keyed by DISTINCT ability text (~37k), not by instance (~63k),
+    because that is how they are stored and embedded — "Flying" is one row, not
+    3,235. Instances are held in a flat CSR-style layout ordered by face, so a
+    per-face aggregate is a single `reduceat` rather than a Python loop.
+    """
+
+    vectors: FloatArray            # (n_texts, dim) unit-normalized
+    inst_row: IntArray             # (n_inst,) -> row in `vectors`
+    inst_text: list[str]           # (n_inst,) printed text, for `matched_ability`
+    inst_idf: FloatArray           # (n_inst,) document-frequency weight
+    starts: IntArray               # (n_faces,) segment start per face
+    ends: IntArray                 # (n_faces,) segment end per face
+    face_keys: list[tuple[str, int]]
+    face_pos: dict[tuple[str, int], int]
+    idf_of_hash: dict[str, float]
+
+    @property
+    def n_faces(self) -> int:
+        return len(self.face_keys)
+
+
+def _build_ability_store(db: Session, model_id: str) -> _AbilityStore:
+    """Load every embedded ability once, at index construction."""
+    total_texts = int(
+        db.execute(
+            select(func.count())
+            .select_from(SemanticAbilityEmbedding)
+            .where(SemanticAbilityEmbedding.model_id == model_id)
+        ).scalar()
+        or 0
+    )
+    if total_texts == 0:
+        return _AbilityStore(
+            np.zeros((0, 0), dtype=np.float32), np.zeros(0, dtype=np.int64), [],
+            np.zeros(0, dtype=np.float32), np.zeros(0, dtype=np.int64),
+            np.zeros(0, dtype=np.int64), [], {}, {},
+        )
+
+    # Streamed into a preallocated array rather than materialised as a list of
+    # rows: each vector arrives as 384 Python floats, so holding all 37k at once
+    # costs ~400 MB of transient objects for a 57 MB result.
+    vectors: FloatArray = np.zeros((0, 0), dtype=np.float32)
+    row_of_hash: dict[str, int] = {}
+    cursor = db.execute(
+        select(SemanticAbilityEmbedding.text_hash, SemanticAbilityEmbedding.embedding)
+        .where(SemanticAbilityEmbedding.model_id == model_id)
+        .execution_options(stream_results=True, yield_per=2048)
+    )
+    filled = 0
+    for chunk in cursor.partitions():
+        block = np.asarray([vec for _hash, vec in chunk], dtype=np.float32)
+        if vectors.size == 0:
+            vectors = np.empty((total_texts, block.shape[1]), dtype=np.float32)
+        vectors[filled : filled + len(block)] = block
+        for offset, (text_hash, _vec) in enumerate(chunk):
+            row_of_hash[str(text_hash)] = filled + offset
+        filled += len(block)
+        del block, chunk
+    vectors = vectors[:filled]
+    # Defensive: promotion normalizes, but a dot product is only cosine if they are.
+    vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12)
+
+    abilities = db.execute(
+        select(
+            CardFaceAbility.oracle_id,
+            CardFaceAbility.face_ix,
+            CardFaceAbility.text,
+            CardFaceAbility.text_hash,
+        ).order_by(
+            CardFaceAbility.oracle_id, CardFaceAbility.face_ix, CardFaceAbility.ability_ix
+        )
+    ).all()
+
+    counts: Counter[str] = Counter(str(r.text_hash) for r in abilities)
+    total = float(sum(counts.values())) or 1.0
+    # log1p(N/df): "Flying" (df~3235) lands near 2.5 while a one-off ability lands
+    # near 11, so distinctive text dominates without common text being zeroed out.
+    idf_of_hash = {h: float(np.log1p(total / max(1, c))) for h, c in counts.items()}
+    default_idf = float(np.log1p(1.0))
+
+    inst_row: list[int] = []
+    inst_text: list[str] = []
+    inst_idf: list[float] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    face_keys: list[tuple[str, int]] = []
+    current: tuple[str, int] | None = None
+    for record in abilities:
+        # An ability whose text was never embedded cannot be scored. Skipping it
+        # here (rather than scoring it as zero) keeps a partially embedded corpus
+        # honest; a face left with nothing is dropped below.
+        row = row_of_hash.get(str(record.text_hash))
+        if row is None:
+            continue
+        key = (record.oracle_id, record.face_ix)
+        if key != current:
+            if current is not None:
+                ends.append(len(inst_row))
+            current = key
+            face_keys.append(key)
+            starts.append(len(inst_row))
+        inst_row.append(row)
+        inst_text.append(record.text or "")
+        inst_idf.append(idf_of_hash.get(str(record.text_hash), default_idf))
+    if current is not None:
+        ends.append(len(inst_row))
+
+    logger.info(
+        "Ability store ready. texts=%d instances=%d faces=%d matrix=%.0f MB",
+        filled, len(inst_row), len(face_keys), vectors.nbytes / 1e6,
+    )
+    return _AbilityStore(
+        vectors=vectors,
+        inst_row=np.asarray(inst_row, dtype=np.int64),
+        inst_text=inst_text,
+        inst_idf=np.asarray(inst_idf, dtype=np.float32),
+        starts=np.asarray(starts, dtype=np.int64),
+        ends=np.asarray(ends, dtype=np.int64),
+        face_keys=face_keys,
+        face_pos={key: i for i, key in enumerate(face_keys)},
+        idf_of_hash=idf_of_hash,
+    )
+
+
 class SemanticIndex:
     model: OnnxTextEncoder
     model_id: str | None
     # Class-level default, not just an __init__ assignment: callers construct
     # this via object.__new__ to get a DB-only index without loading ONNX.
     _idf: dict[str, float] | None = None
+    _store: "_AbilityStore | None" = None
+    _mask_cache_store: "dict[tuple[Any, ...], FloatArray] | None" = None
+
+    @property
+    def _mask_cache(self) -> dict[tuple[Any, ...], FloatArray]:
+        cache = self._mask_cache_store
+        if cache is None:
+            cache = {}
+            self._mask_cache_store = cache
+        return cache
 
     def __init__(self, model_root: Path, *, model_id: str | None = None):
         self.model = OnnxTextEncoder(model_root=model_root)
@@ -585,111 +685,59 @@ class SemanticIndex:
         vectors = np.asarray([row.embedding for row in rows], dtype=np.float32)
         return vectors, [row.text_hash for row in rows], [row.ability_ix for row in rows]
 
-    def _candidate_faces(
-        self,
-        db: Session,
-        seed_vectors: FloatArray,
-        *,
-        exclude: tuple[str, int] | None,
-        filters: dict[str, Any],
-    ) -> list[tuple[tuple[str, int], float]]:
-        """Stage 1: cheap per-ability kNN, unioned across the seed's abilities.
+    def warm(self, db: Session) -> None:
+        """Build the ability store now rather than on the first search.
 
-        Ranking each ability's neighbours by DISTINCT ability text (rather than
-        by face) is what makes this useful: one probe returns 256 different
-        abilities instead of 256 copies of "flying" from 256 different cards.
+        The store is ~3.7s to assemble, and building it lazily puts that whole
+        cost on whichever visitor searches first after a boot — which on a
+        scale-from-zero deployment is a real person waiting.
         """
-        best: dict[tuple[str, int], float] = {}
-        for seed_vector in seed_vectors:
-            distance = SemanticAbilityEmbedding.embedding.cosine_distance(list(seed_vector))
-            nearest = (
-                select(
-                    SemanticAbilityEmbedding.text_hash.label("text_hash"),
-                    (1.0 - distance).label("sim"),
-                )
-                .where(SemanticAbilityEmbedding.model_id == self.model_id)
-                .order_by(distance)
-                .limit(_ABILITY_PROBE)
-                .cte("nearest_abilities")
-            )
+        self._get_store(db)
 
-            stmt = (
-                select(
-                    CardFaceAbility.oracle_id,
-                    CardFaceAbility.face_ix,
-                    func.max(nearest.c.sim).label("sim"),
-                )
-                .select_from(nearest)
-                .join(CardFaceAbility, CardFaceAbility.text_hash == nearest.c.text_hash)
-                .join(
-                    CardFace,
-                    and_(
-                        CardFace.oracle_id == CardFaceAbility.oracle_id,
-                        CardFace.face_ix == CardFaceAbility.face_ix,
-                    ),
-                )
-                .join(Card, Card.oracle_id == CardFaceAbility.oracle_id)
-            )
-            if exclude is not None:
-                stmt = stmt.where(
-                    or_(
-                        CardFaceAbility.oracle_id != exclude[0],
-                        CardFaceAbility.face_ix != exclude[1],
-                    )
-                )
-            stmt = _apply_filters(stmt, **filters)
-            stmt = (
-                stmt.group_by(CardFaceAbility.oracle_id, CardFaceAbility.face_ix)
-                .order_by(func.max(nearest.c.sim).desc())
-                .limit(_CANDIDATE_FACES_PER_ABILITY)
-            )
+    def _get_store(self, db: Session) -> _AbilityStore:
+        if self._store is None:
+            assert self.model_id is not None
+            self._store = _build_ability_store(db, self.model_id)
+        return self._store
 
-            for row in db.execute(stmt).all():
-                key = (row.oracle_id, row.face_ix)
-                sim = float(row.sim)
-                if sim > best.get(key, -1.0):
-                    best[key] = sim
-        return sorted(best.items(), key=lambda item: item[1], reverse=True)
+    def _eligible_mask(
+        self, db: Session, store: _AbilityStore, filters: dict[str, Any]
+    ) -> FloatArray | None:
+        """Which faces survive the SQL filters, as a boolean mask.
 
-    def _load_candidate_abilities(
-        self, db: Session, face_keys: list[tuple[str, int]]
-    ) -> dict[tuple[str, int], tuple[FloatArray, list[str], list[str]]]:
-        """Return (vectors, display texts, text hashes) per candidate face."""
-        if not face_keys:
-            return {}
-        stmt = (
-            select(
-                CardFaceAbility.oracle_id,
-                CardFaceAbility.face_ix,
-                CardFaceAbility.text,
-                CardFaceAbility.text_hash,
-                SemanticAbilityEmbedding.embedding,
-            )
-            .join(
-                SemanticAbilityEmbedding,
-                and_(
-                    SemanticAbilityEmbedding.text_hash == CardFaceAbility.text_hash,
-                    SemanticAbilityEmbedding.model_id == self.model_id,
-                ),
-            )
-            .where(tuple_(CardFaceAbility.oracle_id, CardFaceAbility.face_ix).in_(face_keys))
+        Returns None when nothing is filtered, so the common case costs no query
+        at all. The filter predicates themselves are reused from `_apply_filters`
+        rather than reimplemented here, so there is one definition of what a
+        colour or format filter means.
+        """
+        key = tuple(
+            tuple(value) if isinstance(value, list) else value
+            for _name, value in sorted(filters.items())
         )
-        rows = db.execute(
-            stmt.order_by(
-                CardFaceAbility.oracle_id, CardFaceAbility.face_ix, CardFaceAbility.ability_ix
-            )
-        ).all()
-
-        grouped: dict[tuple[str, int], tuple[list[list[float]], list[str], list[str]]] = {}
-        for row in rows:
-            vectors, texts, hashes = grouped.setdefault((row.oracle_id, row.face_ix), ([], [], []))
-            vectors.append(row.embedding)
-            texts.append(row.text)
-            hashes.append(row.text_hash)
-        return {
-            key: (np.asarray(vectors, dtype=np.float32), texts, hashes)
-            for key, (vectors, texts, hashes) in grouped.items()
-        }
+        cached = self._mask_cache.get(key)
+        if cached is not None:
+            return cached
+        if not any(
+            filters.get(name) not in (None, [], "")
+            for name in ("card_type", "colors", "cmc_min", "cmc_max", "format", "rarity")
+        ):
+            return None
+        stmt = select(CardFace.oracle_id, CardFace.face_ix).join(
+            Card, Card.oracle_id == CardFace.oracle_id
+        )
+        stmt = _apply_filters(stmt, **filters)
+        mask = np.zeros(store.n_faces, dtype=bool)
+        positions = store.face_pos
+        for oracle_id, face_ix in db.execute(stmt):
+            position = positions.get((oracle_id, face_ix))
+            if position is not None:
+                mask[position] = True
+        # Users toggle a handful of filter combinations repeatedly, and the mask
+        # only changes when the corpus does — which rebuilds this index anyway.
+        if len(self._mask_cache) >= _MASK_CACHE_ENTRIES:
+            self._mask_cache.clear()
+        self._mask_cache[key] = mask
+        return mask
 
     def _score(
         self,
@@ -710,72 +758,130 @@ class SemanticIndex:
         color_feature: str = "identity",
         match_mode: str = "at_least",
     ) -> list[SimilarityHit]:
+        """Score every eligible face against the seed. Nothing is truncated.
+
+        The scoring is a Chamfer mean over ability sets:
+
+        * forward  = mean over SEED abilities of their best match on this face
+                     — "how much of the seed does this card cover?"
+        * backward = mean over this face's abilities of their best seed match
+                     — "how much of this card is explained by the seed?"
+
+        Card-to-card similarity averages both, so a card that matches one ability
+        and does five unrelated things scores below one that matches throughout.
+        Text search uses forward only: someone searching "draw a card when a
+        creature dies" wants cards with that ability and should not see them
+        demoted for also having flying.
+
+        Both means are IDF-weighted. "Flying" sits on ~3.2k faces and matches
+        itself at 1.0, so unweighted it drowns out the abilities that actually
+        distinguish cards. Weighting is by frequency rather than keyword-ness,
+        because common non-keyword abilities ("Enchant creature", "{T}: Add {C}.")
+        swamp results just as badly.
+        """
         if self.model_id is None or limit <= 0 or len(seed_vectors) == 0:
             return []
-
-        filters: dict[str, Any] = {
-            "card_type": card_type,
-            "colors": colors,
-            "cmc_min": cmc_min,
-            "cmc_max": cmc_max,
-            "format": format,
-            "rarity": rarity,
-            "color_feature": color_feature,
-            "match_mode": match_mode,
-        }
-        candidates = self._candidate_faces(
-            db, seed_vectors, exclude=exclude, filters=filters
-        )
-        if not candidates:
+        store = self._get_store(db)
+        if store.n_faces == 0:
             return []
 
-        candidate_keys = [key for key, _ in candidates]
-        ability_map = self._load_candidate_abilities(db, candidate_keys)
+        seed = np.ascontiguousarray(seed_vectors, dtype=np.float32)
+        starts = store.starts
 
-        # A free-text query is one vector with no corpus frequency of its own,
-        # so only the candidate side is IDF-weighted there.
+        # One matmul over distinct texts, then gathered onto instances. Doing it
+        # in this order is the whole optimisation: 37k rows scored, not 63k.
+        sims_by_instance = (store.vectors @ seed.T)[store.inst_row]
+
+        per_seed_best = _segment_max(sims_by_instance, starts)      # (n_faces, k)
         seed_weights = self._idf_weights(db, seed_hashes) if seed_hashes is not None else None
+        if seed_weights is not None and float(seed_weights.sum()) > 0.0:
+            forward = (per_seed_best * seed_weights).sum(axis=1) / float(seed_weights.sum())
+        else:
+            forward = per_seed_best.mean(axis=1)
 
-        hits: list[SimilarityHit] = []
-        for key in candidate_keys:
-            entry = ability_map.get(key)
-            if entry is None:
-                continue
-            candidate_vectors, candidate_texts, candidate_hashes = entry
+        instance_best = sims_by_instance.max(axis=1)                # (n_inst,)
+        if bidirectional:
+            weighted = np.add.reduceat(instance_best * store.inst_idf, starts)
+            weights = np.add.reduceat(store.inst_idf, starts)
+            scores = (forward + weighted / np.maximum(weights, 1e-9)) / 2.0
+        else:
+            scores = forward
 
-            reject_scale = 1.0
-            if reject_vectors is not None and len(reject_vectors):
-                reject_sim = float((reject_vectors @ candidate_vectors.T).max())
-                if reject_sim >= _REJECT_EXCLUDE_SIMILARITY:
-                    continue
-                reject_scale = 1.0 - max(
-                    0.0,
-                    (reject_sim - _REJECT_IGNORE_SIMILARITY)
-                    / (_REJECT_EXCLUDE_SIMILARITY - _REJECT_IGNORE_SIMILARITY),
-                )
+        alive = np.ones(store.n_faces, dtype=bool)
+        if exclude is not None:
+            position = store.face_pos.get(exclude)
+            if position is not None:
+                alive[position] = False
+        mask = self._eligible_mask(
+            db,
+            store,
+            {
+                "card_type": card_type, "colors": colors, "cmc_min": cmc_min,
+                "cmc_max": cmc_max, "format": format, "rarity": rarity,
+                "color_feature": color_feature, "match_mode": match_mode,
+            },
+        )
+        if mask is not None:
+            alive &= mask
 
-            score, matched_ix = _chamfer_rerank(
-                seed_vectors,
-                candidate_vectors,
-                bidirectional=bidirectional,
-                seed_weights=seed_weights,
-                candidate_weights=self._idf_weights(db, candidate_hashes),
+        if reject_vectors is not None and len(reject_vectors):
+            rejected = np.ascontiguousarray(reject_vectors, dtype=np.float32)
+            rejection = _segment_max(
+                (store.vectors @ rejected.T)[store.inst_row].max(axis=1), starts
             )
             # Scale rather than subtract, so the score stays in [0, 1] and still
-            # reads as a percentage in the UI. Cards clear of the rejected
-            # ability keep their score untouched; the scale reaches zero exactly
-            # where the hard drop begins, so the two are continuous.
-            score *= reject_scale
-            hits.append(
-                SimilarityHit(
-                    face_key=key,
-                    score=round(score, 6),
-                    matched_ability=candidate_texts[matched_ix] or None,
+            # reads as a percentage. The scale reaches zero exactly where the hard
+            # drop begins, so the two are continuous.
+            scores = scores * (
+                1.0
+                - np.clip(
+                    (rejection - _REJECT_IGNORE_SIMILARITY)
+                    / (_REJECT_EXCLUDE_SIMILARITY - _REJECT_IGNORE_SIMILARITY),
+                    0.0,
+                    1.0,
                 )
             )
+            alive &= rejection < _REJECT_EXCLUDE_SIMILARITY
 
-        hits.sort(key=lambda hit: hit.score, reverse=True)
-        return hits[:limit]
+        candidates = np.flatnonzero(alive)
+        if candidates.size == 0:
+            return []
+        candidate_scores = scores[candidates]
+        wanted = min(limit, candidates.size)
+        # argpartition then sort only the winners: O(n) instead of sorting 34k.
+        top = np.argpartition(-candidate_scores, wanted - 1)[:wanted]
+        top = top[np.argsort(-candidate_scores[top], kind="stable")]
+
+        hits: list[SimilarityHit] = []
+        for position in candidates[top]:
+            hits.append(
+                SimilarityHit(
+                    face_key=store.face_keys[position],
+                    score=round(float(scores[position]), 6),
+                    matched_ability=self._display_ability(store, instance_best, int(position)),
+                )
+            )
+        return hits
+
+    @staticmethod
+    def _display_ability(
+        store: _AbilityStore, instance_best: FloatArray, position: int
+    ) -> str | None:
+        """Which ability to SHOW: relevance gates, distinctiveness breaks ties.
+
+        Raw argmax always reports "Flying" for fliers, since a keyword self-match
+        is ~1.0; a pure IDF argmax overcorrects and reports the most obscure
+        ability even when it barely matched. So keep the abilities that matched
+        about as well as the best one, then among those prefer the most
+        distinctive. Computed only for the faces actually returned.
+        """
+        start, end = int(store.starts[position]), int(store.ends[position])
+        if end <= start:
+            return None
+        segment = instance_best[start:end]
+        eligible = segment >= (float(segment.max()) - _DISPLAY_SIMILARITY_MARGIN)
+        ranked = np.where(eligible, store.inst_idf[start:end], -np.inf)
+        return store.inst_text[start + int(np.argmax(ranked))] or None
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +890,7 @@ class SemanticIndex:
 
 
 def get_semantic_index() -> SemanticIndex | None:
-    global _index, _last_refresh_check, _loaded_model_id
+    global _index, _last_refresh_check, _loaded_model_id, _loaded_data_version
 
     # Fast path: if index is loaded and poll interval hasn't elapsed, skip refresh check
     now = time.monotonic()
@@ -796,6 +902,7 @@ def get_semantic_index() -> SemanticIndex | None:
     try:
         with SessionLocal() as db:
             active_model_id = get_active_semantic_model_id(db)
+            data_version = get_semantic_data_version(db)
     except Exception as exc:
         logger.warning("Semantic index DB check failed: %s", exc)
         return _index
@@ -809,8 +916,18 @@ def get_semantic_index() -> SemanticIndex | None:
             _index = None
             _loaded_model_id = None
             return None
-        if _index is not None and _loaded_model_id is not _UNSET and _loaded_model_id == active_model_id:
+        if (
+            _index is not None
+            and _loaded_model_id is not _UNSET
+            and _loaded_model_id == active_model_id
+            and _loaded_data_version == data_version
+        ):
             return _index
+        if _index is not None and _loaded_data_version != data_version:
+            logger.info(
+                "Rebuilding semantic index: corpus changed (data version %s -> %s).",
+                _loaded_data_version, data_version,
+            )
 
     # S3 download + ONNX load happen OUTSIDE the lock
     try:
@@ -831,9 +948,18 @@ def get_semantic_index() -> SemanticIndex | None:
     with _index_lock:
         _index = new_index
         _loaded_model_id = active_model_id
+        _loaded_data_version = data_version
     return _index
 
 
 def mark_semantic_index_stale() -> None:
-    global _last_refresh_check
+    """Force the next lookup to rebuild the index and its ability store.
+
+    Clearing `_loaded_model_id` as well as the poll timer matters: the embedding
+    top-up appends rows for the model that is ALREADY active, so the id compare
+    would otherwise hand back an index whose in-memory store predates the new
+    abilities and cannot retrieve them.
+    """
+    global _last_refresh_check, _loaded_model_id
     _last_refresh_check = 0.0
+    _loaded_model_id = _UNSET

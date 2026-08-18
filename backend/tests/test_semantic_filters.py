@@ -426,3 +426,52 @@ def test_zero_limit_returns_empty(seeded_filter_db) -> None:
     with SessionLocal() as db:
         results = _make_index()._score(db, _seed(), limit=0, bidirectional=False)
     assert results == []
+
+
+# ---------------------------------------------------------------------------
+# Completeness: retrieval must not drop anything eligible
+# ---------------------------------------------------------------------------
+
+
+def test_a_barely_similar_face_is_still_returned(seeded_filter_db) -> None:
+    """The guarantee is completeness, not a similarity threshold.
+
+    Seeds are random unit vectors, so most faces sit near zero similarity to the
+    query. Every one of them must still come back — the old two-stage path cut
+    to the 256 nearest ability texts first, and anything past that was not
+    ranked low, it was never considered.
+    """
+    with SessionLocal() as db:
+        results = _score(db)
+
+    assert len(results) == 7
+    assert min(hit.score for hit in results) < 0.2, "expected genuinely weak matches in the set"
+
+
+def test_a_filter_is_applied_before_any_truncation(seeded_filter_db) -> None:
+    """A filter must never be able to empty the result set on its own.
+
+    This is the shape of the shipped bug: filters ran after the kNN cut, so a
+    filter anticorrelated with the query returned almost nothing even when
+    thousands of cards qualified.
+    """
+    with SessionLocal() as db:
+        every = _score(db)
+        creatures = _score(db, card_type=["creature"])
+
+    assert _ids(creatures) == {("f4", 0), ("f5", 0)}
+    assert _ids(creatures) <= _ids(every)
+    assert all(hit.score == pytest.approx(dict((h.face_key, h.score) for h in every)[hit.face_key])
+               for hit in creatures), "filtering must not change a face's score"
+
+
+def test_the_mask_cache_does_not_leak_between_filters(seeded_filter_db) -> None:
+    """Masks are memoized per filter combination; the key must separate them."""
+    index = _make_index()
+    with SessionLocal() as db:
+        creatures = index._score(db, _seed(), limit=100, bidirectional=False, card_type=["creature"])
+        instants = index._score(db, _seed(), limit=100, bidirectional=False, card_type=["instant"])
+        again = index._score(db, _seed(), limit=100, bidirectional=False, card_type=["creature"])
+
+    assert _ids(creatures) != _ids(instants)
+    assert _ids(creatures) == _ids(again)
