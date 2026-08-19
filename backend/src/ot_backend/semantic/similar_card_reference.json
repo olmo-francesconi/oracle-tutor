@@ -1,0 +1,164 @@
+{
+  "description": "Card-to-card similarity benchmark built from EXTERNAL ground truth: functional reprints, printed cycles, and community budget-swap lists. Unlike the tag benchmark it does not depend on Scryfall Tagger's coverage or on phrasings we invented \u2014 the relationships are decided by Wizards' own templating or by published community consensus, and the task ('show me cards like this one') is what the product actually does. Each entry names a seed card and the cards that must rank near it. Categories carry different expectations: a functional reprint is near-identical text and should rank in the top few; a budget swap is a judgement call and only needs to place well. Scoring is tie-aware: hundreds of cards share identical normalized text (366 vanilla faces normalize to the same placeholder, 37 share 'tap this creature: Add one green mana'), so a card tied at the top score passes regardless of its ordinal position, which is arbitrary within a tied group.",
+  "categories": {
+    "functional_reprint": "Identical or near-identical rules text under a different name. Should rank very high.",
+    "cycle": "Same printed template AND shared rules text across colours. Excludes flavour cycles like the Titans, whose members share a trigger clause but have entirely different payloads \u2014 they are a cycle by rarity and size, not by text, and expecting them to match would encode a wrong expectation.",
+    "near_equivalent": "Rules text differs in detail but the effect is the same shape. NOT for cards players merely treat as interchangeable: Swords to Plowshares and Path to Exile share one sentence and then diverge completely, and ranking them apart is correct \u2014 this set measures text similarity, not deckbuilding equivalence.",
+    "budget_swap": "Community-recommended cheaper substitute. Judgement call, should still place well."
+  },
+  "entries": [
+    {
+      "seed": "Wrath of God",
+      "expect": [
+        "Damnation"
+      ],
+      "category": "functional_reprint"
+    },
+    {
+      "seed": "Cultivate",
+      "expect": [
+        "Kodama's Reach"
+      ],
+      "category": "functional_reprint"
+    },
+    {
+      "seed": "Llanowar Elves",
+      "expect": [
+        "Fyndhorn Elves",
+        "Elvish Mystic"
+      ],
+      "category": "functional_reprint"
+    },
+    {
+      "seed": "Grizzly Bears",
+      "expect": [
+        "Runeclaw Bear"
+      ],
+      "category": "functional_reprint"
+    },
+    {
+      "seed": "Sign in Blood",
+      "expect": [
+        "Night's Whisper"
+      ],
+      "category": "near_equivalent"
+    },
+    {
+      "seed": "Doom Blade",
+      "expect": [
+        "Go for the Throat"
+      ],
+      "category": "near_equivalent"
+    },
+    {
+      "seed": "Naturalize",
+      "expect": [
+        "Disenchant"
+      ],
+      "category": "functional_reprint"
+    },
+    {
+      "seed": "Rampant Growth",
+      "expect": [
+        "Farseek"
+      ],
+      "category": "near_equivalent"
+    },
+    {
+      "seed": "Beast Within",
+      "expect": [
+        "Generous Gift"
+      ],
+      "category": "near_equivalent"
+    },
+    {
+      "seed": "Azorius Signet",
+      "expect": [
+        "Dimir Signet",
+        "Rakdos Signet",
+        "Golgari Signet",
+        "Selesnya Signet"
+      ],
+      "category": "cycle"
+    },
+    {
+      "seed": "Talisman of Progress",
+      "expect": [
+        "Talisman of Dominance",
+        "Talisman of Indulgence",
+        "Talisman of Impulse"
+      ],
+      "category": "cycle"
+    },
+    {
+      "seed": "Steam Vents",
+      "expect": [
+        "Hallowed Fountain",
+        "Watery Grave",
+        "Blood Crypt",
+        "Overgrown Tomb"
+      ],
+      "category": "cycle"
+    },
+    {
+      "seed": "Scalding Tarn",
+      "expect": [
+        "Polluted Delta",
+        "Flooded Strand",
+        "Bloodstained Mire",
+        "Wooded Foothills"
+      ],
+      "category": "cycle"
+    },
+    {
+      "seed": "Terror of the Peaks",
+      "expect": [
+        "Warstorm Surge"
+      ],
+      "category": "budget_swap"
+    },
+    {
+      "seed": "Mystical Tutor",
+      "expect": [
+        "Solve the Equation"
+      ],
+      "category": "budget_swap"
+    },
+    {
+      "seed": "Wheel of Fortune",
+      "expect": [
+        "Magus of the Wheel"
+      ],
+      "category": "budget_swap"
+    },
+    {
+      "seed": "Land Tax",
+      "expect": [
+        "Gift of Estates",
+        "Oreskos Explorer"
+      ],
+      "category": "budget_swap"
+    },
+    {
+      "seed": "Rhystic Study",
+      "expect": [
+        "Mystic Remora"
+      ],
+      "category": "budget_swap"
+    },
+    {
+      "seed": "Smothering Tithe",
+      "expect": [
+        "Monologue Tax"
+      ],
+      "category": "budget_swap"
+    },
+    {
+      "seed": "Assassin's Trophy",
+      "expect": [
+        "Beast Within"
+      ],
+      "category": "budget_swap"
+    }
+  ]
+}
