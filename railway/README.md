@@ -6,7 +6,7 @@ Per-service templates for `railway variables --set`. Fill in the un-suffixed fil
 | Template | Service | Notes |
 |---|---|---|
 | `api.env.example` | `api` | FastAPI backend; needs DB ref, admin auth, CF Access, R2 creds |
-| `ingest-worker.env.example` | `ingest-worker` | Scryfall sync cron; only needs DB + role |
+| `ingest-worker.env.example` | `ingest-worker` | Scryfall sync, run manually; only needs DB + role |
 | `frontend.env.example` | `frontend` | Vite build + nginx runtime; no secrets |
 | `db.env.example` | `db` | Postgres — Railway auto-generates everything |
 

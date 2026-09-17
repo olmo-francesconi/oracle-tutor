@@ -52,4 +52,4 @@ COPY --from=builder --chown=app:app /app/alembic ./alembic
 
 USER app
 
-CMD ["python", "-m", "ot_backend.ingest.main", "--strict", "--trigger-type", "cron"]
+CMD ["python", "-m", "ot_backend.ingest.main", "--strict", "--trigger-type", "manual"]

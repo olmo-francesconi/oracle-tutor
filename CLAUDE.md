@@ -31,7 +31,7 @@ backend/                FastAPI service + Pytest suite
   tests/                Pytest suite (real Postgres via testcontainers + pgvector)
   alembic/              Incremental migrations (0001_initial_schema.py .. 0007_ability_keyword_flag.py)
   Dockerfile            API image
-  Dockerfile.worker.ingest     Ingest worker image (CMD baked: scryfall-sync cron)
+  Dockerfile.worker.ingest     Ingest worker image (CMD baked: one-shot scryfall-sync, run manually)
 frontend/               React + Vite SPA
   src/
     public/             SearchShell, HomeView, ResultsView, useUrlSync
@@ -325,7 +325,7 @@ Secrets that must never appear in code or committed files: `ADMIN_PASSWORD`, `AD
 ## Rules
 
 - Backend versioned independently from frontend: `backend/src/ot_backend/__init__.py` (`__version__`, the single source of truth `pyproject.toml` derives from) and `frontend/package.json`
-- Worker is a one-shot container; runs daily via Railway Cron and exits
+- Worker is a one-shot container, run manually on Railway (no cron: Railway kept each finished run's container alive until the next tick, ~6.5 days/week). Trigger a run by redeploying `ingest-worker`
 - Never run destructive Alembic migrations in production without reviewing the migration file first
 - Tests run against a real Postgres (via testcontainers + `pgvector/pgvector:pg17`). Docker must be running locally and in CI.
 - `DATABASE_URL` is always required (production, local, and Alembic CLI). No sqlite fallback anywhere.

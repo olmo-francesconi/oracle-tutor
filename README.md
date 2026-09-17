@@ -11,7 +11,7 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 - **Name autocomplete** — fast card-name suggestions via TanStack Query debounced lookups
 - **Full card data** — 3-layer schema: raw Scryfall printings, oracle-deduplicated canonical cards, and per-face data with image URIs
 - **Community tags** — parallel Scryfall Tagger GraphQL integration for semantic categories (shocklands, cantrips, etc.)
-- **Daily sync** — Railway Cron `ingest-worker` pulls Scryfall bulk data and re-ingests changes automatically
+- **Manual sync** — the one-shot `ingest-worker` pulls Scryfall bulk data and re-ingests changes when run
 - **Model registry** — read-only admin explorer for semantic models and datasets
 
 ## Tech stack
@@ -39,7 +39,7 @@ Built on pgvector embeddings with ONNX Runtime inference over Scryfall bulk data
 docker compose up --build
 ```
 
-This starts PostgreSQL (pgvector/pgvector:pg17), MinIO, the API (`:8000`), and the React frontend (`:5173`). The `ingest-worker` container is defined as a separate service and runs on a cron schedule.
+This starts PostgreSQL (pgvector/pgvector:pg17), MinIO, the API (`:8000`), and the React frontend (`:5173`). The `ingest-worker` container is defined as a separate service and runs manually.
 
 If you want the app stack without kicking off ingestion, start only the long-running services:
 
@@ -198,7 +198,7 @@ The repo is designed to deploy as **four Railway services** plus Railway Postgre
 | Service | Dockerfile | Purpose |
 |---|---|---|
 | API | `backend/Dockerfile` | Web process |
-| ingest-worker | `backend/Dockerfile.worker.ingest` | Daily scryfall-sync cron |
+| ingest-worker | `backend/Dockerfile.worker.ingest` | One-shot scryfall-sync, run manually |
 | Frontend | `frontend/Dockerfile` | nginx SPA + `/api` proxy |
 | Database | Railway Postgres | pgvector-enabled database |
 
@@ -238,9 +238,9 @@ Setup outline:
 3. Copy the team domain (Settings → Custom Pages) and the application AUD tag (app → Overview) into the Railway API service env as `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`.
 4. Set `ADMIN_HOST=admin.oracletutor.org` on the Railway frontend service.
 
-### ingest-worker cron schedule
+### Running ingest-worker
 
-Set a **Railway Cron** on the `ingest-worker` service, e.g. `0 2 * * *` (daily at 02:00 UTC). The container runs the one-shot stale-aware worker once and exits.
+`ingest-worker` has no cron schedule: Railway kept each finished cron run's container alive until the next tick. Trigger a run manually by redeploying the service. The container runs the one-shot stale-aware worker once and exits.
 
 ## Attribution
 

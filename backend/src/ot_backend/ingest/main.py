@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import logging
 import os
 import sys
+import threading
 from typing import cast
 
 from ..core.logging_config import setup_loggers
@@ -14,7 +16,7 @@ logger = logging.getLogger("ot_backend.ingest")
 
 class WorkerArgs(argparse.Namespace):
     force: bool = False
-    trigger_type: str = "cron"
+    trigger_type: str = "manual"
     strict: bool = False
     refresh_tags: bool = False
     skip_tags: bool = False
@@ -30,8 +32,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _ = parser.add_argument(
         "--trigger-type",
-        default=os.getenv("OT_TRIGGER_TYPE", "cron"),
-        help="Ingestion trigger type stored in ingestion logs (default: cron).",
+        default=os.getenv("OT_TRIGGER_TYPE", "manual"),
+        help="Ingestion trigger type stored in ingestion logs (default: manual).",
     )
     _ = parser.add_argument(
         "--strict",
@@ -62,7 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """
-    One-shot ingestion job intended for Railway Cron (or manual invocation).
+    One-shot ingestion job, run manually on Railway or locally.
 
     This command runs the stale-aware Scryfall update exactly once and then exits.
     """
@@ -115,4 +117,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    # Diagnostic: the container has stayed alive for days after "Worker finished".
+    # List what is still running, and if the process is still here a minute later,
+    # dump every thread's stack to stderr to show what shutdown is blocked on.
+    logger.info(
+        "Threads alive at exit: %s",
+        [(t.name, "daemon" if t.daemon else "non-daemon") for t in threading.enumerate()],
+    )
+    faulthandler.dump_traceback_later(60)
+    sys.exit(code)

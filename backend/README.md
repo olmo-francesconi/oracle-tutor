@@ -1,6 +1,6 @@
 # Backend (`/backend`)
 
-FastAPI service for Oracle Tutor, plus an ingest-worker cron service. Dataset generation, training, and promotion are now operator-run local scripts under `backend/scripts/`.
+FastAPI service for Oracle Tutor, plus a one-shot ingest-worker service run manually. Dataset generation, training, and promotion are now operator-run local scripts under `backend/scripts/`.
 
 ## Local setup
 
@@ -80,7 +80,7 @@ Admin routes:
 
 ## `ingest-worker`
 
-`ingest-worker` is a one-shot worker intended for local manual runs and Railway Cron.
+`ingest-worker` is a one-shot worker run manually, locally or on Railway.
 
 Base command:
 
@@ -119,12 +119,12 @@ uv run python -m ot_backend.ingest.main --refresh-tags --strict --trigger-type m
 uv run python -m ot_backend.ingest.main --skip-tags --strict --trigger-type manual
 ```
 
-### Railway Cron
+### Railway
 
-The worker is designed to run once and exit:
+The worker runs once and exits. It has no cron schedule; trigger it manually by redeploying the service:
 
 ```bash
-python -m ot_backend.ingest.main --strict --trigger-type cron
+python -m ot_backend.ingest.main --strict --trigger-type manual
 ```
 
 `backend/Dockerfile.worker.ingest` already uses that command as its container `CMD`.

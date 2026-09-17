@@ -14,7 +14,7 @@ Five things run on Railway. Everything else runs from your laptop.
 │                         db (pgvector)            │
 │                              ▲                   │
 │                              │                   │
-│  ingest-worker (cron, one-shot)                  │
+│  ingest-worker (manual, one-shot)                │
 └──────────────────────────────────────────────────┘
                                ▲
                                │  TLS + password
@@ -44,7 +44,7 @@ Five things run on Railway. Everything else runs from your laptop.
 | `frontend` | Railway | nginx serving SPA + proxying `/api` | always on |
 | `api` | Railway | FastAPI: search, similar-cards, admin read endpoints | always on |
 | `db` | Railway | Postgres 17 + pgvector | always on |
-| `ingest-worker` | Railway Cron | Daily Scryfall sync | `0 2 * * *` |
+| `ingest-worker` | Railway | Scryfall sync (one-shot) | manual |
 | `backend/scripts/build_dataset.py` | Laptop | Read card_faces, build pairs, upload to R2 | as needed |
 | `backend/scripts/train_model.py` | Laptop → Modal | Fine-tune base model, upload bundle to R2, register in DB | as needed |
 | `backend/scripts/promote_model.py` | Laptop | Pull bundle from R2, embed all faces, flip `is_active` | as needed |
@@ -111,7 +111,7 @@ The `semantic/model_promotion.py`, `semantic/bundle_registration.py`, and `seman
    VITE_API_URL=/api
    VITE_APP_URL=https://oracletutor.org
    ```
-7. **Deploy `ingest-worker`** — `backend/Dockerfile.worker.ingest`, restart policy "Never", cron `0 2 * * *`. Env: `DATABASE_URL`, `OT_ENV=production`, `OT_SERVICE_ROLE=worker`.
+7. **Deploy `ingest-worker`** — `backend/Dockerfile.worker.ingest`, restart policy "Never", no cron schedule. Env: `DATABASE_URL`, `OT_ENV=production`, `OT_SERVICE_ROLE=worker`.
 8. **Trigger first ingest** manually from Railway → DB fills with ~30k cards.
 9. **Expose DB publicly** — Railway → Postgres → Settings → enable public TCP proxy. Copy the public connection string. Rotate the password to something long.
 10. **Local: run scripts** (see below) → first model lands in the DB, embeddings written, `/similar-cards` starts returning 200.
