@@ -1,14 +1,14 @@
-import type { ZodType } from 'zod'
+import type { z, ZodType } from 'zod'
 import type {
   Card,
   CardMatch,
   FilterState,
   OracleSamples,
-  SimilarCard,
   SimilarCardsPage,
 } from '../types/api'
 import {
   CardMatchListSchema,
+  type CardMatchSchema,
   CardSchema,
   OracleSamplesSchema,
   SimilarCardsPageSchema,
@@ -43,10 +43,6 @@ type SimilarCardsParams = {
 type OracleSearchParams = SimilarCardsParams & {
   q: string
 }
-
-type ApiCardMatch = Omit<CardMatch, 'id'>
-type ApiCard = Omit<Card, 'id'>
-type ApiSimilarCard = Omit<SimilarCard, 'id'>
 
 export function buildUrl(path: string, params?: Record<string, string | number | undefined>) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
@@ -110,29 +106,14 @@ async function getJson<T>(
   return assertOk<T>(response, schema)
 }
 
-export function normalizeCardMatch(card: ApiCardMatch): CardMatch {
+export function normalizeCardMatch(card: z.infer<typeof CardMatchSchema>): CardMatch {
   return {
     ...card,
     id: card.scryfall_id ?? '',
   }
 }
 
-export function normalizeCard(card: ApiCard): Card {
-  const primaryFace = card.faces?.[0]
-
-  return {
-    ...card,
-    id: card.scryfall_id,
-    mana_cost: card.mana_cost ?? primaryFace?.mana_cost,
-    type_line: card.type_line ?? primaryFace?.type_line,
-    oracle_text: card.oracle_text ?? primaryFace?.oracle_text,
-    power: card.power ?? primaryFace?.power,
-    toughness: card.toughness ?? primaryFace?.toughness,
-    colors: card.colors ?? primaryFace?.colors,
-  }
-}
-
-export function normalizeSimilarCard(card: ApiSimilarCard): SimilarCard {
+export function normalizeCard<T extends z.infer<typeof CardSchema>>(card: T): T & { id: string } {
   const primaryFace = card.faces?.[0]
 
   return {
@@ -178,12 +159,12 @@ export async function searchCards(
 ): Promise<CardMatch[]> {
   if (!query || query.length < 2) return []
   const data = await getJson('/search', CardMatchListSchema, { q: query, limit, offset }, signal)
-  return data.map((card) => normalizeCardMatch(card as ApiCardMatch))
+  return data.map((card) => normalizeCardMatch(card))
 }
 
 export async function getCard(id: string, signal?: AbortSignal): Promise<Card> {
   const data = await getJson(`/card/${id}`, CardSchema, undefined, signal)
-  return normalizeCard(data as ApiCard)
+  return normalizeCard(data)
 }
 
 export async function getSimilarCards(
@@ -209,7 +190,7 @@ export async function getSimilarCards(
   )
 
   return {
-    items: data.items.map((card) => normalizeSimilarCard(card as ApiSimilarCard)),
+    items: data.items.map((card) => normalizeCard(card)),
     has_more: data.has_more,
     query_abilities: data.query_abilities,
   }
@@ -230,7 +211,7 @@ export async function searchOracleText(
   const data = await getJson('/similar-cards', SimilarCardsPageSchema, params, signal)
 
   return {
-    items: data.items.map((card) => normalizeSimilarCard(card as ApiSimilarCard)),
+    items: data.items.map((card) => normalizeCard(card)),
     has_more: data.has_more,
     query_abilities: data.query_abilities,
   }
@@ -238,4 +219,10 @@ export async function searchOracleText(
 
 export async function getOracleSamples(signal?: AbortSignal): Promise<OracleSamples> {
   return getJson('/oracle-samples', OracleSamplesSchema, { n: 60 }, signal)
+}
+
+export async function getApiReady(signal?: AbortSignal): Promise<boolean> {
+  const res = await fetch(buildUrl('/ready'), { signal, cache: 'no-store' })
+  const body = (await res.json().catch(() => ({}))) as { ready?: boolean }
+  return res.ok && body.ready === true
 }

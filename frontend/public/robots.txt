@@ -1,6 +1,5 @@
 User-agent: *
 Allow: /
-Disallow: /admin/
 Disallow: /api/
 
 # Filtered result pages explode duplicate content; canonical points at the

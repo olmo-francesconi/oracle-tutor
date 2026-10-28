@@ -8,7 +8,6 @@ import {
   searchOracleText,
   normalizeCard,
   normalizeCardMatch,
-  normalizeSimilarCard,
 } from './api'
 
 const anySchema = z.unknown()
@@ -147,31 +146,6 @@ describe('normalizers', () => {
       type_line: 'Instant',
       oracle_text: 'Fire text',
       colors: ['R'],
-    })
-  })
-
-  it('normalizes similar cards the same way', () => {
-    expect(
-      normalizeSimilarCard({
-        oracle_id: 'oracle-4',
-        scryfall_id: 'card-4',
-        name: 'Mystery Card',
-        face_ix: 0,
-        image_side: 'front',
-        similarity: 0.92,
-        faces: [
-          {
-            oracle_id: 'oracle-4',
-            face_ix: 0,
-            name: 'Mystery Card',
-            oracle_text: 'Mystery text',
-          },
-        ],
-      })
-    ).toMatchObject({
-      id: 'card-4',
-      oracle_text: 'Mystery text',
-      similarity: 0.92,
     })
   })
 })

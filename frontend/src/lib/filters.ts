@@ -121,15 +121,6 @@ export function getActiveFilterCount(filters: FilterState): number {
   return count
 }
 
-export function toggleFilterValue(values: string[] | undefined, nextValue: string): string[] | undefined {
-  const currentValues = values ?? []
-  const nextValues = currentValues.includes(nextValue)
-    ? currentValues.filter((value) => value !== nextValue)
-    : [...currentValues, nextValue]
-
-  return normalizeStringArray(nextValues)
-}
-
 function encodeFilterCodes(
   values: string[] | undefined,
   options: readonly string[],
