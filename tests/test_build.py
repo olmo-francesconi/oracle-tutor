@@ -121,3 +121,40 @@ def test_embed_reuses_known_vectors_and_encodes_only_new_text(monkeypatch):
     assert encoded == ["new text"]
     assert hashes.tolist() == ["a", "b"]
     assert vectors.tolist() == [[1, 0], [0.5, 0.5]]
+
+
+def test_promote_refuses_a_model_missing_from_the_bucket(monkeypatch):
+    import pytest
+
+    from app import build, snapshot
+
+    written = []
+    monkeypatch.setattr(snapshot, "has_model", lambda model_id: model_id == "m1")
+    monkeypatch.setattr(snapshot, "write_promoted", written.append)
+    with pytest.raises(SystemExit):
+        build.promote("nope")
+    build.promote("m1")
+    assert [w["model"] for w in written] == ["m1"]
+
+
+def test_publish_embeds_with_the_promoted_model(monkeypatch):
+    import pytest
+
+    from app import build, snapshot
+
+    monkeypatch.setattr(build, "latest_bulk", lambda: ("bulk", "t1"))
+    monkeypatch.setattr(snapshot, "read_pointer", lambda: {"snapshot": "s", "model": "old", "scryfall": "t1"})
+    monkeypatch.setattr(snapshot, "read_promoted", lambda: None)
+    with pytest.raises(SystemExit, match="--promote"):
+        build.publish(None, Path("unused"))
+
+    monkeypatch.setattr(snapshot, "read_promoted", lambda: {"model": "old"})
+    build.publish(None, Path("unused"))  # same model, same Scryfall: nothing to do, nothing downloaded
+
+    def download_model(model_id, cache):
+        raise RuntimeError(f"rebuild with {model_id}")
+
+    monkeypatch.setattr(snapshot, "download_model", download_model)
+    monkeypatch.setattr(snapshot, "read_promoted", lambda: {"model": "new"})
+    with pytest.raises(RuntimeError, match="rebuild with new"):
+        build.publish(None, Path("unused"))

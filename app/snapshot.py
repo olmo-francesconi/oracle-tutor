@@ -1,11 +1,14 @@
 """Bucket layout shared by the refresh worker (writes) and the web service (reads).
 
-    models/<model_id>/{onnx/model.onnx, tokenizer.json, sentence_bert_config.json}
+    models/<model_id>/{onnx/model.onnx, tokenizer.json, sentence_bert_config.json, meta.json}
     snapshots/<snapshot_id>/{cards.json.gz, vectors.npz}
-    current.json  {"snapshot", "model", "scryfall"}
+    current.json  {"snapshot", "model", "scryfall"}   what web serves
+    model.json    {"model", "promoted_at"}            what the refresh worker should embed with next
+    training/llm_queries.jsonl.gz                     LLM query cache (train/llm.py)
 
 `current.json` names the model and the data together, so a swap can never pair vectors with the wrong encoder.
-It is written last: a failed refresh leaves the live pointer untouched.
+It is written last: a failed refresh leaves the live pointer untouched. `model.json` is written only by a promote;
+the worker re-embeds everything when it differs from `current.json`'s model.
 Credentials use Railway's bucket variable names: BUCKET, ENDPOINT, ACCESS_KEY_ID, SECRET_ACCESS_KEY, REGION.
 """
 
@@ -19,6 +22,7 @@ from botocore.config import Config
 MODEL_FILES = ("onnx/model.onnx", "tokenizer.json", "sentence_bert_config.json")
 DATA_FILES = ("cards.json.gz", "vectors.npz")
 POINTER = "current.json"
+PROMOTED = "model.json"
 
 
 def enabled() -> bool:
@@ -38,18 +42,41 @@ def _client():
     )
 
 
-def read_pointer() -> dict | None:
+def get(key: str) -> bytes | None:
     client = _client()
     try:
-        body = client.get_object(Bucket=os.environ["BUCKET"], Key=POINTER)["Body"].read()
+        return client.get_object(Bucket=os.environ["BUCKET"], Key=key)["Body"].read()
     except client.exceptions.NoSuchKey:
         return None
-    return json.loads(body)
+
+
+def put(key: str, body: bytes, content_type: str = "application/octet-stream") -> None:
+    _client().put_object(Bucket=os.environ["BUCKET"], Key=key, Body=body, ContentType=content_type)
+
+
+def read_json(key: str) -> dict | None:
+    body = get(key)
+    return None if body is None else json.loads(body)
+
+
+def write_json(key: str, value: dict) -> None:
+    put(key, json.dumps(value, indent=1).encode(), "application/json")
+
+
+def read_pointer() -> dict | None:
+    return read_json(POINTER)
 
 
 def write_pointer(pointer: dict) -> None:
-    _client().put_object(Bucket=os.environ["BUCKET"], Key=POINTER, Body=json.dumps(pointer).encode(),
-                         ContentType="application/json")
+    write_json(POINTER, pointer)
+
+
+def read_promoted() -> dict | None:
+    return read_json(PROMOTED)
+
+
+def write_promoted(promoted: dict) -> None:
+    write_json(PROMOTED, promoted)
 
 
 def _download(prefix: str, names: tuple[str, ...], dest: Path) -> Path:

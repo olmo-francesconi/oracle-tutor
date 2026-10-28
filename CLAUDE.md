@@ -6,7 +6,7 @@ card abilities embedded with a fine-tuned MiniLM (ONNX Runtime). No database, no
 ## Tech stack
 
 - **Serve:** Python 3.12, FastAPI, uvicorn, numpy, onnxruntime, tokenizers, uv
-- **Train (offline, `train/`, own pyproject):** sentence-transformers, datasets, huggingface_hub
+- **Train (offline, `train/`, own pyproject):** sentence-transformers, datasets, Modal (L4 GPU; vLLM for LLM queries)
 - **Frontend:** React 19, TypeScript, Vite 7, TailwindCSS 4, TanStack Query v5, zod
 - **Infra:** one Docker image (code only), Railway (`web` + `refresh` cron + Bucket), Cloudflare in front, GitHub Actions CI
 
@@ -20,7 +20,8 @@ app/
   encoder.py       ONNX sentence encoder (mean pool + L2 norm); used by build AND serve
   build.py         Scryfall bulk → cards + vectors; local (→ data/) or `--publish` (refresh worker → bucket)
   snapshot.py      Bucket layout + I/O: models/, snapshots/, current.json
-train/             tags.py (oracle-tags bulk), dataset.py (attribution + hard negatives), train.py, eval.py
+train/             tags.py (oracle-tags bulk), dataset.py (attribution, hard negatives, augmentations), llm.py (cached
+                   LLM queries), remote.py (the Modal GPU jobs), train.py (→ bucket models/), eval.py
 tests/             Pure pytest: fake encoder + tiny dataset (conftest.py), Scryfall fixture for the build
 frontend/          React SPA (unchanged API contract; `npm run build` → static/ in the image)
 Dockerfile         node build → python runtime; code only, same image for web and refresh
@@ -41,10 +42,12 @@ normalized ability text with `app.encoder.Encoder`. Output:
 - `vectors.npz`: sorted `hashes`, float16 `vectors`, `model`.
 
 Code, model and data change independently. The image is code only. The bucket holds `models/<model_id>/`,
-`snapshots/<id>/` and `current.json` (`{snapshot, model, scryfall}`). The refresh worker (`python -m app.build
---publish`, daily cron) skips when Scryfall and `MODEL_ID` are unchanged; otherwise it reuses the live snapshot's
-vectors for known hashes (same model only), embeds new text, uploads the snapshot, and writes `current.json` LAST,
-so a failed run never changes what is live. The web service boots from `current.json` and polls it every
+`snapshots/<id>/`, `current.json` (`{snapshot, model, scryfall}`, what web serves) and `model.json` (`{model,
+promoted_at}`, written only by `python -m app.build --promote <id>`). The refresh worker (`python -m app.build
+--publish`, daily cron) embeds with `model.json`'s model: it skips when Scryfall and that model are unchanged;
+otherwise it reuses the live snapshot's vectors for known hashes (same model only, so a promotion re-embeds
+everything), embeds new text, uploads the snapshot, and writes `current.json` LAST, so a failed run never changes
+what is live. The web service boots from `current.json` and polls it every
 `POLL_SECONDS`; a new snapshot is loaded in a thread and swapped with one reference assignment. The pointer names
 data and model together, so corpus and query vectors always come from the same model. Without `BUCKET` set, the app
 reads `DATA_DIR`/`MODEL_DIR` (local dev, tests).
@@ -83,15 +86,29 @@ Similarity is over **abilities**, not whole cards: `[card] → [face] → [oracl
 - `offset` ≤ 500, `limit` ≤ 100.
 
 ### Training (`train/`)
+- Models live only in the bucket: `train.train` uploads `models/<model_id>/` (MODEL_FILES + `meta.json`: base model,
+  options, dataset stats, eval scores). `model_id` = `<name>-<YYYYMMDD-HHMM>` UTC. No Hugging Face publishing.
+- Training data is the bucket's live snapshot (`cards.json.gz` of `current.json`); `--cards` for a local file.
 - Tags come from Scryfall's `oracle_tags` bulk file (one ~6 MB download; v2 scraped Tagger per card for ~9h).
 - Tags live on cards, abilities two layers below, so `dataset.py` attributes each tag to the ability that justifies
   it by **within-tag token lift**, kept only if it beats the runner-up by the margin (0.5; ~86% precision vs ~64% at
   0.3), and drops tags that resolve under half their multi-ability members (name/type-line tags). Deliberately
   model-free: asking the model which ability matches is how `mana dork` broke.
-- Each pair carries a mined **hard negative** from a co-occurring tag ranked by association (`overlap / other tag
-  size`), checked against all of the tag's texts. MNRL with `BatchSamplers.NO_DUPLICATES`.
+- Augmentations (`--augment`, v2 names, all on by default): `tag_pairs`, `tag_descriptions` (name and
+  "name. description" anchors, each with a mined **hard negative** from a co-occurring tag ranked by association
+  (`overlap / other tag size`), checked against all of the tag's texts), `llm_queries`. Self-pairs always.
+  v2's `template_queries` is gone: type-blind regexes that taught "mana dork" for lands.
+- `llm_queries`: Qwen2.5-14B-Instruct-AWQ via vLLM on Modal, v2's prompt and limits (5 queries of 2-8 words per
+  ability, printed text in, normalized text as the positive). Cached by `text_hash` in the bucket
+  (`training/llm_queries.jsonl.gz`); a run generates only uncached texts, so every distinct ability text is a
+  candidate (v2's "gap faces" filter depended on the template rules and only existed to bound per-run GPU spend).
+  The cache was seeded from the v2 model's bundle (`--llm-seed`).
+- `train.train`: MNRL with `BatchSamplers.NO_DUPLICATES` on Modal L4 (`--local` for CUDA/MPS/CPU), `--quantize`
+  int8 ONNX, `--skip-fine-tune` exports the base model. `remote.py` imports nothing from the repo: bucket
+  credentials never reach Modal (environment `oracle-tutor`, auth from `~/.modal.toml` or `MODAL_TOKEN_*`).
 - `eval.py`: held-out tags (hash of the tag name, same predicate as dataset) as queries scored through
-  `app.search.Index`, so IDF and query handling are inside the measurement. Paraphrases scored separately.
+  `app.search.Index`, so IDF and query handling are inside the measurement. Paraphrases scored separately. Scores the
+  served model and the candidate; writes the candidate's into its `meta.json`.
 
 ### API (all under `/api`, same origin as the SPA)
 | Route | Purpose |
@@ -134,7 +151,6 @@ docker build -t oracle-tutor .                           # ~20s, code only
 | `STATIC_DIR` | `static` | Built SPA; not mounted if missing (dev uses Vite) |
 | `PUBLIC_URL` | request origin | Canonical origin for sitemap and link previews |
 | `PORT` | `8000` | Set by Railway |
-| `MODEL_ID` | — | refresh: model to serve, `<hf-repo>@<revision>` or an id already in the bucket |
 | `BUCKET`, `ENDPOINT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION` | — | Railway Bucket credentials (web + refresh); unset = local mode |
 | `BUCKET_PATH_STYLE` | unset | `1` for path-style buckets (older Railway buckets, MinIO) |
 | `POLL_SECONDS` | `300` | web: how often to check `current.json` |
@@ -150,8 +166,8 @@ docker build -t oracle-tutor .                           # ~20s, code only
   merge back with `git checkout develop && git merge --no-ff production -m "Merge tag vX.Y.Z into develop"`, push
   production (with tags) then develop. Railway deploys on the production push; card data is the worker's job.
   `read-tree` instead of `merge --squash` avoids a conflict storm against an ancient common ancestor.
-- New model: `train.eval` against the served model, `train.train --push`, set `MODEL_ID=<repo>@<rev>` on `refresh`,
-  run it. No code release. Rollback: set `MODEL_ID` back (vectors for the old model are re-embedded) or point
+- New model: `train.dataset`, `train.train`, `train.eval --model <id>`, `python -m app.build --promote <id>`, then
+  run `refresh` (or wait for the cron). No code release. Rollback: promote the previous id (re-embeds) or point
   `current.json` at an older snapshot.
 
 ## Git commits
@@ -170,4 +186,4 @@ git diff --name-only origin/$(git rev-parse --abbrev-ref HEAD)...HEAD \
   | grep -iE '(^|/)(\.env($|\..+)|credentials|secrets|.*\.pem$|.*\.key$)' || echo "clean"
 ```
 
-Secrets that must never be committed: `HF_TOKEN`, bucket `ACCESS_KEY_ID` / `SECRET_ACCESS_KEY`. If one leaks, rotate it and rewrite history.
+Secrets that must never be committed: `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`, bucket `ACCESS_KEY_ID` / `SECRET_ACCESS_KEY`. If one leaks, rotate it and rewrite history.

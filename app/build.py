@@ -7,11 +7,14 @@ Each card is exactly v2's `/card/{oracle_id}` body plus internal `_` fields the 
   single `emptyoracle` placeholder, which keeps vanilla faces retrievable (v2 did the same).
 
 Local:   uv run python -m app.build [--bulk PATH.jsonl(.gz)] [--model model] [--out data]
-Worker:  python -m app.build --publish --model-id ID [--model DIR]
-         Builds a snapshot into the bucket (see app/snapshot.py) and flips current.json. Vectors of texts already in
-         the live snapshot are reused when the model is unchanged, so a weekly refresh embeds only new card text.
-         A model id missing from the bucket is uploaded from --model if that dir exists, else fetched from the
-         Hugging Face Hub as `repo@revision`.
+Worker:  python -m app.build --publish
+         Builds a snapshot into the bucket (see app/snapshot.py) with the model named by `model.json` and flips
+         current.json. When that model is the live one, vectors of texts already in the live snapshot are reused, so a
+         daily refresh embeds only new card text; a newly promoted model re-embeds everything.
+Promote: python -m app.build --promote MODEL_ID
+         Points model.json at a model already under models/ (train.train uploads there). Rollback = promote the old id.
+Bootstrap: python -m app.build --publish --model-id ID --model DIR
+         Uploads DIR as models/ID if the bucket lacks it, promotes it and publishes.
 """
 
 import argparse
@@ -195,27 +198,34 @@ def latest_bulk() -> tuple[str, str]:
     return meta["jsonl_download_uri"], meta["updated_at"]
 
 
-def _resolve_model(model_id: str, local: Path, cache: Path) -> Path:
+def promote(model_id: str) -> None:
     if not snapshot.has_model(model_id):
-        if not (local / snapshot.MODEL_FILES[0]).exists():
-            from huggingface_hub import snapshot_download
-
-            repo, _, rev = model_id.partition("@")
-            local = Path(snapshot_download(repo, revision=rev or None, allow_patterns=list(snapshot.MODEL_FILES),
-                                           local_dir=cache / "hub" / model_id))
-        print(f"uploading model {model_id}", flush=True)
-        snapshot.upload_model(local, model_id)
-    return snapshot.download_model(model_id, cache)
+        raise SystemExit(f"models/{model_id}/ is not in the bucket; train.train uploads models there")
+    snapshot.write_promoted({"model": model_id, "promoted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    print(f"promoted {model_id}; the next refresh run re-embeds with it")
 
 
-def publish(model_id: str, local_model: Path, keep: int = 5) -> None:
+def publish(override: str | None, local_model: Path, keep: int = 5) -> None:
     cache = Path(os.environ.get("CACHE_DIR") or Path(tempfile.gettempdir()) / "oracle-tutor")
+    if override:
+        model_id = override
+        if not snapshot.has_model(model_id):
+            if not (local_model / snapshot.MODEL_FILES[0]).exists():
+                raise SystemExit(f"models/{model_id}/ is not in the bucket and {local_model} holds no model")
+            print(f"uploading model {model_id}", flush=True)
+            snapshot.upload_model(local_model, model_id)
+        promote(model_id)
+    else:
+        promoted = snapshot.read_promoted()
+        if not promoted:
+            raise SystemExit(f"no {snapshot.PROMOTED} in the bucket; run --promote MODEL_ID first")
+        model_id: str = promoted["model"]
     live = snapshot.read_pointer()
     source, updated_at = latest_bulk()
     if live and live["model"] == model_id and live["scryfall"] == updated_at:
         print(f"snapshot {live['snapshot']} is current (model {model_id}, scryfall {updated_at}); nothing to do")
         return
-    model_dir = _resolve_model(model_id, local_model, cache)
+    model_dir = snapshot.download_model(model_id, cache)
 
     print(f"downloading {source}", flush=True)
     cards, texts = build_cards(iter_bulk(source))
@@ -238,14 +248,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bulk", help="local Scryfall default-cards .jsonl(.gz); downloads the latest when omitted")
     parser.add_argument("--model", default="model", help="local model dir")
-    parser.add_argument("--model-id", default=os.environ.get("MODEL_ID"), help="model label; bucket key with --publish")
+    parser.add_argument("--model-id", help="model label; with --publish, a bucket model id to promote and publish")
     parser.add_argument("--out", default="data")
     parser.add_argument("--publish", action="store_true", help="build a snapshot into the bucket and make it live")
+    parser.add_argument("--promote", metavar="MODEL_ID", help="point model.json at this bucket model and exit")
     args = parser.parse_args()
 
+    if args.promote:
+        promote(args.promote)
+        return
     if args.publish:
-        if not args.model_id:
-            parser.error("--publish needs --model-id (or MODEL_ID)")
         publish(args.model_id, Path(args.model))
         return
 
