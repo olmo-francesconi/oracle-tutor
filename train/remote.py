@@ -26,13 +26,16 @@ hf_cache = modal.Volume.from_name("oracle-tutor-hf-cache", create_if_missing=Tru
 _volumes = {"/root/.cache/huggingface": hf_cache}
 llm_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .uv_pip_install("vllm==0.30.0")
+    .uv_pip_install("vllm==0.32.0")
     # FlashInfer's sampler JIT-compiles with nvcc, which debian_slim lacks; the PyTorch sampler is fine for this load.
+    # Still required on vLLM 0.32 (checked 2026-10-28).
     .env({"VLLM_USE_FLASHINFER_SAMPLER": "0"})
 )
 train_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .uv_pip_install("sentence-transformers[onnx]==5.7.0", "accelerate==1.15.0", "datasets==5.0.1")
+    # Same versions as train/uv.lock, so a Modal run and a --local run train identically.
+    .uv_pip_install("sentence-transformers==6.2.0", "transformers==5.21.0", "torch==2.15.0", "accelerate==1.15.0",
+                    "datasets==5.1.0", "onnx==1.23.2", "onnxscript==0.7.2", "onnxruntime==1.31.1")
 )
 
 
@@ -46,6 +49,31 @@ def generate(conversations: list[list[dict]], model: str, temperature: float, ma
     # completion and produced 4,000-character repetition loops.
     outputs = llm.chat(conversations, SamplingParams(temperature=temperature, max_tokens=max_tokens))
     return [o.outputs[0].text if o.outputs else "" for o in outputs]
+
+
+def export_onnx(model, path: Path) -> None:
+    """Export the transformer alone: app/encoder.py reads token embeddings (output 0) and pools/normalizes itself.
+
+    Done with torch directly rather than sentence-transformers' `backend="onnx"`, whose optimum-onnx dependency caps
+    transformers below 5 and with it the whole training stack.
+    """
+    import torch
+
+    transformer = model[0].auto_model.cpu().eval()
+    names = ["input_ids", "attention_mask", "token_type_ids"]
+    sample = model.tokenizer(["export sample text"], return_tensors="pt")
+    batch, seq = torch.export.Dim("batch"), torch.export.Dim("sequence")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        transformer,
+        kwargs={n: sample[n] for n in names},
+        f=str(path),
+        input_names=names,
+        output_names=["token_embeddings"],
+        dynamic_shapes={n: {0: batch, 1: seq} for n in names},
+        dynamo=True,
+        external_data=False,
+    )
 
 
 @app.function(gpu=GPU, image=train_image, volumes=_volumes, timeout=8 * 3600)
@@ -97,7 +125,7 @@ def fit(dataset: bytes | None, base: str, epochs: int, batch_size: int, lr: floa
 
         out = Path(tmp) / "model"
         model.save_pretrained(str(out))
-        SentenceTransformer(str(out), backend="onnx").save_pretrained(str(out))
+        export_onnx(model, out / "onnx" / "model.onnx")
         if quantize:
             from onnxruntime.quantization import QuantType, quantize_dynamic
 

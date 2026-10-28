@@ -5,18 +5,20 @@ name = "oracle-tutor-train"
 version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [
-  "sentence-transformers[onnx]>=5.0.0",
-  "accelerate>=1.1.0",
-  "datasets>=3.0.0",
-  "boto3>=1.35",
-  "numpy>=1.26.0",
-  "onnxruntime>=1.20.0",
-  "tokenizers>=0.20.0",
+  "sentence-transformers>=6.2.0",
+  "accelerate>=1.15.0",
+  "datasets>=5.1.0",
+  "onnx>=1.20.0",
+  "onnxscript>=0.6.0",
+  "boto3>=1.43",
+  "numpy>=2.5.0",
+  "onnxruntime>=1.31.0",
+  "tokenizers>=0.23.0",
   "modal>=1.6.3",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=9.2.0"]
 
 [tool.uv]
 package = false
