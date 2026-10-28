@@ -1,0 +1,8 @@
+*
+!app/
+!pyproject.toml
+!uv.lock
+!frontend/
+frontend/node_modules
+frontend/dist
+**/__pycache__

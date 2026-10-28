@@ -1,10 +1,6 @@
 {
-  "include": ["backend/src", "backend/tests"],
-  "executionEnvironments": [
-    {
-      "root": ".",
-      "extraPaths": ["backend/src"]
-    }
-  ]
+  "include": ["app", "tests"],
+  "typeCheckingMode": "standard",
+  "venvPath": ".",
+  "venv": ".venv"
 }
-
