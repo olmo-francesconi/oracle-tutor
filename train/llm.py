@@ -83,7 +83,7 @@ def fill_cache(cache: dict[str, dict], printed: Mapping[str, str], normalized: M
 
     A text whose output parses to no query is cached with `queries: []`, so it is not re-generated every run."""
     todo = [h for h in sorted(printed) if h not in cache][:limit]
-    print(f"llm cache: {len(cache)} texts, {len(todo)} to generate", flush=True)
+    print(f"llm cache: {len(cache):,} texts cached · {len(todo):,} to generate ({LLM_MODEL})", flush=True)
     if not todo:
         return 0
     import modal
@@ -94,6 +94,9 @@ def fill_cache(cache: dict[str, dict], printed: Mapping[str, str], normalized: M
         raw = remote.generate.remote([conversation(printed[h]) for h in todo], LLM_MODEL, TEMPERATURE, MAX_TOKENS)
     for h, text in zip(todo, raw, strict=True):
         cache[h] = {"hash": h, "text": normalized[h], "queries": parse_queries(text), "llm": LLM_MODEL}
+    empty = sum(not cache[h]["queries"] for h in todo)
+    print(f"llm generated {len(todo):,}: {len(todo) - empty:,} with queries · {empty:,} empty (cached as empty)",
+          flush=True)
     return len(todo)
 
 

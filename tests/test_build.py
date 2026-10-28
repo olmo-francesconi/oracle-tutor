@@ -131,6 +131,7 @@ def test_promote_refuses_a_model_missing_from_the_bucket(monkeypatch):
     written = []
     monkeypatch.setattr(snapshot, "has_model", lambda model_id: model_id == "m1")
     monkeypatch.setattr(snapshot, "write_promoted", written.append)
+    monkeypatch.setattr(snapshot, "read_promoted", lambda: {"model": "m0"})
     with pytest.raises(SystemExit):
         build.promote("nope")
     build.promote("m1")

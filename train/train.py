@@ -12,9 +12,11 @@ import argparse
 import gzip
 import io
 import json
+import os
 import random
 import tarfile
 import time
+import warnings
 from pathlib import Path
 
 from app import snapshot
@@ -58,15 +60,21 @@ def main() -> None:
         if args.limit:
             data = subsample(data, args.limit, random.Random(0))
         stats = {**data["stats"], "trained_pairs": len(data["pairs"]), "trained_triplets": len(data["triplets"])}
-        print(f"dataset: {stats}", flush=True)
+        print(f"dataset: {len(data['pairs']):,} pairs · {len(data['triplets']):,} triplets", flush=True)
         dataset = gzip.compress(json.dumps(data, ensure_ascii=False).encode(), mtime=0)
 
+    print(f"model {model_id}: base {args.base} · " + ("no fine-tune" if args.skip_fine_tune else
+          f"{args.epochs} epochs · batch {args.batch_size} · lr {args.lr} · warmup {args.warmup}") +
+          (" · int8" if args.quantize else ""), flush=True)
     fit_args = (dataset, args.base, args.epochs, args.batch_size, args.lr, args.warmup, args.quantize)
     if args.local or args.skip_fine_tune:
+        print("training on this machine", flush=True)
+        warnings.filterwarnings("ignore", message="The fit function is executing locally")
         tar = remote.fit.local(*fit_args)
     else:
         import modal
 
+        print(f"training on Modal ({' or '.join(remote.GPU)}); the first run builds the image", flush=True)
         with modal.enable_output(), remote.app.run(environment_name=remote.ENVIRONMENT):
             tar = remote.fit.remote(*fit_args)
 
@@ -88,8 +96,10 @@ def main() -> None:
         return
     snapshot.upload_model(out, model_id)
     snapshot.write_json(f"models/{model_id}/meta.json", meta)
-    print(f"uploaded models/{model_id}/\nnext: python -m train.eval --model {model_id}\n"
-          f"ship: python -m app.build --promote {model_id}")
+    size = (out / snapshot.MODEL_FILES[0]).stat().st_size / 1e6
+    print(f"uploaded models/{model_id}/ ({size:.1f} MB ONNX)")
+    if not os.environ.get("TRAIN_PIPELINE"):
+        print(f"next: python -m train.eval --model {model_id}\nship: python -m app.build --promote {model_id}")
 
 
 if __name__ == "__main__":

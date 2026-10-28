@@ -7,8 +7,11 @@ Modal auth: ~/.modal.toml or MODAL_TOKEN_ID / MODAL_TOKEN_SECRET.
 """
 
 import io
+import logging
+import math
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 import modal
@@ -57,8 +60,14 @@ def export_onnx(model, path: Path) -> None:
     Done with torch directly rather than sentence-transformers' `backend="onnx"`, whose optimum-onnx dependency caps
     transformers below 5 and with it the whole training stack.
     """
+    import warnings
+
     import torch
 
+    # Both axes deliberately share one Dim per role; torch warns that the duplicate names go unused.
+    warnings.filterwarnings("ignore", message="# The axis name")
+    # "torchvision is not installed. Skipping torchvision::nms" and friends: no vision ops in a BERT.
+    logging.getLogger("torch.onnx").setLevel(logging.ERROR)
     transformer = model[0].auto_model.cpu().eval()
     names = ["input_ids", "attention_mask", "token_type_ids"]
     sample = model.tokenizer(["export sample text"], return_tensors="pt")
@@ -73,6 +82,7 @@ def export_onnx(model, path: Path) -> None:
         dynamic_shapes={n: {0: batch, 1: seq} for n in names},
         dynamo=True,
         external_data=False,
+        verbose=False,
     )
 
 
@@ -93,6 +103,20 @@ def fit(dataset: bytes | None, base: str, epochs: int, batch_size: int, lr: floa
         losses,
     )
     from sentence_transformers.training_args import BatchSamplers
+    from transformers import PrinterCallback, TrainerCallback
+
+    class Progress(TrainerCallback):
+        """One line per logging step, instead of HF's raw log dicts and tqdm bars (unreadable once piped to a log)."""
+
+        def on_train_begin(self, args, state, control, **kwargs):
+            self.t0 = time.monotonic()
+
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            if logs and "loss" in logs:
+                rate = state.global_step / (time.monotonic() - self.t0)
+                eta = (state.max_steps - state.global_step) / rate
+                print(f"epoch {math.ceil(state.epoch or 0)}/{args.num_train_epochs:g}  step {state.global_step:,}/"
+                      f"{state.max_steps:,}  loss {logs['loss']:.3f}  {rate:.1f} it/s  eta {eta / 60:.0f}m", flush=True)
 
     model = SentenceTransformer(base)
     with tempfile.TemporaryDirectory() as tmp:
@@ -110,23 +134,32 @@ def fit(dataset: bytes | None, base: str, epochs: int, batch_size: int, lr: floa
                 num_train_epochs=epochs,
                 per_device_train_batch_size=batch_size,
                 learning_rate=lr,
-                # A share of optimizer steps. v2 once counted it in examples, which spent 53% of a run ramping up.
-                warmup_ratio=warmup,
+                # A share of optimizer steps (a float < 1 is a ratio; transformers 5 deprecated warmup_ratio). v2 once
+                # counted it in examples, which spent 53% of a run ramping up.
+                warmup_steps=warmup,
                 fp16=torch.cuda.is_available(),
                 # The same text often sits in several rows ("mana dork" anchors 600, `Flying.` positives many tags);
                 # two such rows in one batch make each other's positive a false negative for MNRL.
                 batch_sampler=BatchSamplers.NO_DUPLICATES,
                 save_strategy="no",
-                logging_steps=100,
+                logging_steps=500,
+                disable_tqdm=True,
                 report_to="none",
             )
             loss = losses.MultipleNegativesRankingLoss(model)
-            SentenceTransformerTrainer(model=model, args=args, train_dataset=train_dataset, loss=loss).train()
+            trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=train_dataset, loss=loss,
+                                                 callbacks=[Progress()])
+            trainer.remove_callback(PrinterCallback)
+            print(f"training on {torch.cuda.get_device_name() if torch.cuda.is_available() else model.device}",
+                  flush=True)
+            trainer.train()
 
         out = Path(tmp) / "model"
         model.save_pretrained(str(out))
+        print("exporting ONNX", flush=True)
         export_onnx(model, out / "onnx" / "model.onnx")
         if quantize:
+            print("quantizing to int8", flush=True)
             from onnxruntime.quantization import QuantType, quantize_dynamic
 
             onnx = out / "onnx" / "model.onnx"

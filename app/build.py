@@ -201,8 +201,9 @@ def latest_bulk() -> tuple[str, str]:
 def promote(model_id: str) -> None:
     if not snapshot.has_model(model_id):
         raise SystemExit(f"models/{model_id}/ is not in the bucket; train.train uploads models there")
+    previous = (snapshot.read_promoted() or {}).get("model")
     snapshot.write_promoted({"model": model_id, "promoted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    print(f"promoted {model_id}; the next refresh run re-embeds with it")
+    print(f"promoted {model_id} (was {previous}); the next refresh run re-embeds with it")
 
 
 def publish(override: str | None, local_model: Path, keep: int = 5) -> None:
