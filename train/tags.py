@@ -14,7 +14,7 @@ from pathlib import Path
 
 BULK_URL = "https://api.scryfall.com/bulk-data/oracle-tags"
 # Scryfall rejects requests without an explicit User-Agent and Accept header (HTTP 400/403).
-HEADERS = {"User-Agent": "OracleTutor/3.0.1 (+https://oracletutor.org)", "Accept": "application/json"}
+HEADERS = {"User-Agent": "OracleTutor/3.0.2 (+https://oracletutor.org)", "Accept": "application/json"}
 TAGS_PATH = Path("train/tags.jsonl.gz")
 
 # Share of tags reserved for evaluation and excluded from training.
