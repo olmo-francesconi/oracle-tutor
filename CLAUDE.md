@@ -21,7 +21,8 @@ app/
   build.py         Scryfall bulk → cards + vectors; local (→ data/) or `--publish` (refresh worker → bucket)
   snapshot.py      Bucket layout + I/O: models/, snapshots/, current.json
 train/             tags.py (oracle-tags bulk), dataset.py (attribution, hard negatives, augmentations), llm.py (cached
-                   LLM queries), remote.py (the Modal GPU jobs), train.py (→ bucket models/), eval.py
+                   LLM queries), remote.py (the Modal GPU jobs), train.py (→ bucket models/), eval.py, pipeline.py
+                   (all of them + promote in one go)
 tests/             Pure pytest: fake encoder + tiny dataset (conftest.py), Scryfall fixture for the build
 frontend/          React SPA (unchanged API contract; `npm run build` → static/ in the image)
 Dockerfile         node build → python runtime; code only, same image for web and refresh
@@ -166,8 +167,9 @@ docker build -t oracle-tutor .                           # ~20s, code only
   merge back with `git checkout develop && git merge --no-ff production -m "Merge tag vX.Y.Z into develop"`, push
   production (with tags) then develop. Railway deploys on the production push; card data is the worker's job.
   `read-tree` instead of `merge --squash` avoids a conflict storm against an ancient common ancestor.
-- New model: `train.dataset`, `train.train`, `train.eval --model <id>`, `python -m app.build --promote <id>`, then
-  run `refresh` (or wait for the cron). No code release. Rollback: promote the previous id (re-embeds) or point
+- New model: `python -m train.pipeline <id>` (= `train.tags`, `train.dataset`, `train.train --model-id <id>`,
+  `train.eval --model <id>`, `python -m app.build --promote <id>`, stopping at the first failure), then run `refresh`
+  (or wait for the cron). No code release. Rollback: promote the previous id (re-embeds) or point
   `current.json` at an older snapshot.
 
 ## Git commits

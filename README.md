@@ -43,7 +43,14 @@ Checks: `uv run ruff check . && uv run basedpyright && uv run pytest -q`; fronte
 
 ## Training and shipping a model
 
-Models live only in the bucket. With the bucket credentials exported (and Modal auth in `~/.modal.toml`):
+Models live only in the bucket. With the bucket credentials exported (and Modal auth in `~/.modal.toml`), one command
+runs every step below and stops before promoting if any of them fails (extra options go to `train.train`):
+
+```bash
+uv run --project train python -m train.pipeline <model_id> [--epochs 4 --local ...]
+```
+
+Or step by step:
 
 ```bash
 uv run --project train python -m train.tags       # Scryfall oracle-tags bulk → train/tags.jsonl.gz

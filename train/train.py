@@ -39,6 +39,7 @@ def main() -> None:
     parser.add_argument("--dataset", type=Path, default=Path("train/dataset.json.gz"))
     parser.add_argument("--base", default="sentence-transformers/all-MiniLM-L6-v2", help="any HF model id or local dir")
     parser.add_argument("--name", help="model id prefix (default: the base model's name); a UTC timestamp is appended")
+    parser.add_argument("--model-id", help="exact model id, instead of --name plus timestamp")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -50,7 +51,7 @@ def main() -> None:
     args = parser.parse_args()
 
     now = time.gmtime()
-    model_id = model_id_for(args.base, args.name, now)
+    model_id = args.model_id or model_id_for(args.base, args.name, now)
     dataset, stats = None, None
     if not args.skip_fine_tune:
         data = json.loads(gzip.decompress(args.dataset.read_bytes()))
