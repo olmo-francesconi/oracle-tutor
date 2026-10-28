@@ -1,6 +1,10 @@
 """Score a model on held-out Scryfall tags through the real retrieval path (app.search).
 
-Run from repo root: uv run --project train python -m train.eval [--model DIR]
+Run from repo root: uv run --project train python -m train.eval --model MODEL_ID
+
+Scores the served model (current.json's, on the live snapshot's vectors) and, with `--model`, a candidate (a bucket
+model id or a local dir) whose corpus vectors are re-embedded in memory. A bucket candidate's scores are written into
+its models/<id>/meta.json. Without a bucket it reads data/ and model/.
 
 A tag name is a query a player might type and its cards are the gold set: ~1k queries for free. Queries run through
 `app.search.Index.search_text`, so query segmentation, IDF and scoring are inside the measurement.
@@ -11,13 +15,16 @@ A tag name is a query a player might type and its cards are the gold set: ~1k qu
 
 import argparse
 import json
+import os
+import tempfile
+import time
 from collections import defaultdict
 from pathlib import Path
 
-from app import search
+from app import search, snapshot
+from app.build import embed
 from app.encoder import Encoder
 from app.text import ability_text_hash
-from app.build import embed
 from train.dataset import load_ability_texts, load_cards
 from train.tags import TAGS_PATH, is_held_out_tag, load_tags
 
@@ -57,26 +64,10 @@ def metrics(ranked: list[str], gold: frozenset[str]) -> dict[str, float]:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", type=Path, default=Path("data"))
-    parser.add_argument("--model", type=Path, help="model dir to score; re-embeds the corpus in memory "
-                                                    "(default: the served model/ + data/vectors.npz)")
-    parser.add_argument("--tags", type=Path, default=TAGS_PATH)
-    args = parser.parse_args()
-
-    if args.model:
-        cards = load_cards(args.data / "cards.json.gz")
-        texts = {ability_text_hash(t): t for t in set(load_ability_texts(cards).values())}
-        hashes, vectors = embed(texts, args.model)
-        index = search.Index(cards, hashes.tolist(), vectors, Encoder(args.model))
-    else:
-        index = search.load(args.data, Encoder(Path("model")))
-
-    queries = eval_queries(load_tags(args.tags), set(index.cards))
+def score(index: search.Index, tags: dict) -> dict:
     alive = index.mask()
     by_kind = defaultdict(list)
-    for kind, query, gold in queries:
+    for kind, query, gold in eval_queries(tags, set(index.cards)):
         hits = index.search_text(search.query_abilities(query), 100, alive)
         ranked = list(dict.fromkeys(card["oracle_id"] for card, *_ in hits))
         by_kind[kind].append(metrics(ranked, gold))
@@ -86,7 +77,43 @@ def main() -> None:
 
     summary = {kind: mean(rows) for kind, rows in sorted(by_kind.items())}
     summary["all"] = mean([r for rows in by_kind.values() for r in rows])
-    print(json.dumps(summary, indent=2))
+    return summary
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--model", help="candidate: bucket model id or local model dir")
+    parser.add_argument("--data", type=Path, default=Path("data"), help="local data dir (no bucket only)")
+    parser.add_argument("--tags", type=Path, default=TAGS_PATH)
+    args = parser.parse_args()
+
+    tags = load_tags(args.tags)
+    cache = Path(os.environ.get("CACHE_DIR") or Path(tempfile.gettempdir()) / "oracle-tutor")
+    if snapshot.enabled():
+        pointer = snapshot.read_pointer()
+        if not pointer:
+            raise SystemExit(f"no {snapshot.POINTER} in the bucket")
+        data_dir, served = snapshot.download_data(pointer["snapshot"], cache), pointer["model"]
+        served_dir = snapshot.download_model(served, cache)
+    else:
+        data_dir, served, served_dir = args.data, "model", Path("model")
+    results = {served: score(search.load(data_dir, Encoder(served_dir)), tags)}
+
+    if args.model and args.model != served:
+        local = Path(args.model).is_dir()
+        model_dir = Path(args.model) if local else snapshot.download_model(args.model, cache)
+        cards, _ = load_cards(data_dir / "cards.json.gz")
+        texts = {ability_text_hash(t): t for t in set(load_ability_texts(cards).values())}
+        hashes, vectors = embed(texts, model_dir)
+        results[args.model] = score(search.Index(cards, hashes.tolist(), vectors, Encoder(model_dir)), tags)
+        if not local:
+            key = f"models/{args.model}/meta.json"
+            meta = snapshot.read_json(key) or {}
+            meta["eval"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "scores": results[args.model],
+                            "served": {"model": served, "scores": results[served]}}
+            snapshot.write_json(key, meta)
+            print(f"wrote scores to {key}")
+    print(json.dumps(results, indent=2))
 
 
 if __name__ == "__main__":

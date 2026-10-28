@@ -1,6 +1,13 @@
-"""Build train/dataset.json.gz (training pairs) from data/cards.json.gz + train/tags.jsonl.gz.
+"""Build train/dataset.json.gz (training pairs) from the bucket's live snapshot + train/tags.jsonl.gz.
 
-Run from repo root: uv run --project train python -m train.dataset
+Run from repo root: uv run --project train python -m train.dataset [--cards data/cards.json.gz] [--augment ...]
+
+Augmentations (`--augment`, comma-separated, default all three; v2's names):
+- tag_pairs: two abilities attributed to the same tag form a positive pair.
+- tag_descriptions: tag name and "name. description" anchors, each with a mined hard negative.
+- llm_queries: LLM-written queries per ability text (train/llm.py), generated on Modal for texts not yet cached.
+v2's template_queries stays dropped: its regex rules were type-blind (they called lands "mana dork") and v2 had it off.
+Self-pairs (SimCSE) are always in, as in v2.
 
 The unit of training is an **ability**, not a face: nothing at serve time embeds a face (vectors are per ability
 `text_hash`, retrieval probes per ability, rerank is a Chamfer mean over ability sets), so every positive,
@@ -16,14 +23,17 @@ import math
 import random
 import re
 from collections import Counter, defaultdict
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Collection, Hashable, Mapping, Sequence
 from pathlib import Path
 
-from app.text import build_face_abilities
+from app import snapshot
+from app.text import ability_text_hash, build_face_abilities
+from train import llm
 from train.tags import TAGS_PATH, is_held_out_tag, load_tags
 
 FaceId = tuple[str, int]
 AbilityId = tuple[str, int, int]
+AUGMENTATIONS = ("tag_pairs", "tag_descriptions", "llm_queries")
 
 # --- Tag attribution -------------------------------------------------------------------------------------------
 # Scryfall tags live on cards; similarity is computed over abilities, two layers below. Pairing `mana dork` with the
@@ -204,11 +214,12 @@ def build_examples(
     tag_to_ids: dict[str, list[AbilityId]],
     descriptions: Mapping[str, str | None],
     rng: random.Random,
+    augment: Collection[str] = AUGMENTATIONS,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str, str]]]:
     # Self-pairs (SimCSE): dropout noise is the only difference, which keeps every ability's embedding anchored.
     pairs = [(t, t) for t in dict.fromkeys(texts.values())]
 
-    for ids in tag_to_ids.values():
+    for ids in tag_to_ids.values() if "tag_pairs" in augment else ():
         distinct = _distinct_by_text(ids, texts)
         rng.shuffle(distinct)
         for left, right in list(zip(distinct[::2], distinct[1::2]))[:_MAX_TAG_PAIRS_PER_TAG]:
@@ -216,6 +227,8 @@ def build_examples(
                 pairs.append((texts[left], texts[right]))
 
     triplets = []
+    if "tag_descriptions" not in augment:
+        return pairs, triplets
     pools = hard_negative_pools(tag_to_ids)
     for tag, ids in tag_to_ids.items():
         usable = _distinct_by_text(ids, texts)
@@ -247,33 +260,80 @@ def load_ability_texts(cards: list[dict]) -> dict[AbilityId, str]:
     return texts
 
 
-def load_cards(path: Path) -> list[dict]:
-    return json.loads(gzip.decompress(path.read_bytes()))["cards"]
+def load_cards(path: Path | None) -> tuple[list[dict], str]:
+    """Cards from a local cards.json.gz, or else from the bucket's live snapshot. Returns (cards, source)."""
+    if path is None:
+        if not snapshot.enabled():
+            raise SystemExit("no bucket configured (BUCKET, ...); pass --cards data/cards.json.gz")
+        pointer = snapshot.read_pointer()
+        if not pointer:
+            raise SystemExit(f"no {snapshot.POINTER} in the bucket")
+        body = snapshot.get(f"snapshots/{pointer['snapshot']}/cards.json.gz")
+        if body is None:
+            raise SystemExit(f"snapshot {pointer['snapshot']} has no cards.json.gz")
+        source = f"snapshot {pointer['snapshot']}"
+    else:
+        body, source = path.read_bytes(), str(path)
+    return json.loads(gzip.decompress(body))["cards"], source
+
+
+def printed_texts(cards: list[dict]) -> dict[str, str]:
+    """text_hash -> printed ability text (what the LLM is prompted with). Faces without rules text have no abilities."""
+    return {h: a["text"] for card in cards for face in card["faces"] for a, h in zip(face["abilities"], face["_hashes"])}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cards", type=Path, default=Path("data/cards.json.gz"))
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--cards", type=Path, help="local cards.json.gz (default: the bucket's live snapshot)")
     parser.add_argument("--tags", type=Path, default=TAGS_PATH)
     parser.add_argument("--out", type=Path, default=Path("train/dataset.json.gz"))
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--augment", default=",".join(AUGMENTATIONS), help="comma-separated; 'none' for self-pairs only")
+    parser.add_argument("--llm-limit", type=int, help="generate queries for at most N uncached texts (0 = cache only)")
+    parser.add_argument("--llm-seed", type=Path, metavar="TRAINING_DATASET_JSON",
+                        help="first merge the LLM queries of a v2 bundle's training/training-dataset.json into the cache")
     args = parser.parse_args()
+    augment = set() if args.augment == "none" else set(args.augment.split(","))
+    if augment - set(AUGMENTATIONS):
+        parser.error(f"unknown augmentation(s) {sorted(augment - set(AUGMENTATIONS))}; choose from {AUGMENTATIONS}")
 
-    texts = load_ability_texts(load_cards(args.cards))
+    cards, source = load_cards(args.cards)
+    texts = load_ability_texts(cards)
     faces_of: dict[str, list[FaceId]] = defaultdict(list)
     for oracle_id, face_ix, ability_ix in texts:
         if ability_ix == 0:
             faces_of[oracle_id].append((oracle_id, face_ix))
 
+    all_tags = load_tags(args.tags)
     # Held-out tags are the eval set (train/eval.py); training on them would score memorisation.
-    tags = {t: v for t, v in load_tags(args.tags).items() if not is_held_out_tag(t)}
+    tags = {t: v for t, v in all_tags.items() if not is_held_out_tag(t)}
     descriptions = {t: desc for t, (desc, _) in tags.items()}
     members = {t: [f for oid in oids for f in faces_of.get(oid, ())] for t, (_, oids) in tags.items()}
     tag_to_ids = {t: ids for t, ids in attribute_tags(texts, members, descriptions).items() if ids}
 
-    pairs, triplets = build_examples(texts, tag_to_ids, descriptions, random.Random(args.seed))
-    stats = {"abilities": len(texts), "train_tags": len(tags), "attributed_tags": len(tag_to_ids),
-             "pairs": len(pairs), "triplets": len(triplets)}
+    rng = random.Random(args.seed)
+    pairs, triplets = build_examples(texts, tag_to_ids, descriptions, rng, augment)
+    stats = {"cards": source, "abilities": len(texts), "train_tags": len(tags), "attributed_tags": len(tag_to_ids),
+             "augment": sorted(augment)}
+    if "llm_queries" in augment:
+        cache = llm.load_cache()
+        printed = printed_texts(cards)
+        if args.llm_seed:
+            v2 = json.loads(args.llm_seed.read_text())
+            anchors = {a for t, (desc, _) in all_tags.items() for a in tag_anchors(t, desc)}
+            seeded = {h: r for h, r in llm.seed_from_v2(v2["direct_text_pairs"], anchors, llm.LLM_MODEL).items()
+                      if h in printed and h not in cache}
+            print(f"seeded {len(seeded)} texts from {args.llm_seed}")
+            cache |= seeded
+            llm.save_cache(cache)
+        normalized = {ability_text_hash(t): t for t in set(texts.values())}
+        if llm.fill_cache(cache, printed, normalized, args.llm_limit):
+            llm.save_cache(cache)
+        llm_pairs = llm.pairs(cache, texts.values())
+        pairs += llm_pairs
+        stats |= {"llm_query_examples": len(llm_pairs), "llm_model": llm.LLM_MODEL,
+                  "llm_uncached_texts": len(printed.keys() - cache.keys())}
+    stats |= {"pairs": len(pairs), "triplets": len(triplets)}
     payload = {"pairs": pairs, "triplets": triplets, "stats": stats}
     args.out.write_bytes(gzip.compress(json.dumps(payload, ensure_ascii=False).encode(), mtime=0))
     print(f"wrote {args.out}: {stats}")

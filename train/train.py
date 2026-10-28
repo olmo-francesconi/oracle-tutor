@@ -1,81 +1,94 @@
-"""Fine-tune an embedding model on train/dataset.json.gz and export it in the layout app/encoder.py loads.
+"""Fine-tune an embedding model on train/dataset.json.gz and upload it to the bucket as models/<model_id>/.
 
-Run from repo root: uv run --project train python -m train.train [--push user/repo]
+Run from repo root: uv run --project train python -m train.train [--base HF_ID] [--local] [--skip-fine-tune] ...
 
-The output dir holds the PyTorch weights (to fine-tune further) plus onnx/model.onnx, tokenizer.json and
-sentence_bert_config.json, so `MODEL_DIR=<out>` serves it directly and `python -m train.eval --model <out>` scores it.
+Trains on Modal (L4) by default; `--local` trains in-process on CUDA, MPS or CPU. `--skip-fine-tune` exports the base
+model as-is (locally, no GPU needed). The result is MODEL_FILES (the layout app/encoder.py loads) plus meta.json,
+kept under train/runs/<model_id>/ and uploaded to models/<model_id>/ when a bucket is configured. Nothing is served
+until `python -m app.build --promote <model_id>`.
 """
 
 import argparse
 import gzip
+import io
 import json
+import random
+import tarfile
 import time
 from pathlib import Path
 
+from app import snapshot
+from train import remote
+
+
+def subsample(data: dict, limit: int, rng: random.Random) -> dict:
+    """At most `limit` examples, pairs and triplets in their original proportion (for smoke runs)."""
+    total = len(data["pairs"]) + len(data["triplets"])
+    if total <= limit:
+        return data
+    n_pairs = round(limit * len(data["pairs"]) / total)
+    return {**data, "pairs": rng.sample(data["pairs"], n_pairs), "triplets": rng.sample(data["triplets"], limit - n_pairs)}
+
+
+def model_id_for(base: str, name: str | None, now: time.struct_time) -> str:
+    return f"{name or base.rstrip('/').rsplit('/', 1)[-1].lower()}-{time.strftime('%Y%m%d-%H%M', now)}"
+
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset", type=Path, default=Path("train/dataset.json.gz"))
-    parser.add_argument("--base", default="sentence-transformers/all-MiniLM-L6-v2", help="HF model id or local dir")
+    parser.add_argument("--base", default="sentence-transformers/all-MiniLM-L6-v2", help="any HF model id or local dir")
+    parser.add_argument("--name", help="model id prefix (default: the base model's name); a UTC timestamp is appended")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--out", type=Path, default=Path("train/runs") / time.strftime("%Y%m%d-%H%M%S"))
-    parser.add_argument("--push", metavar="REPO", help="upload the result to this Hugging Face Hub model repo")
+    parser.add_argument("--warmup", type=float, default=0.1, help="share of optimizer steps spent warming up")
+    parser.add_argument("--quantize", action="store_true", help="int8 dynamic quantization of the ONNX export")
+    parser.add_argument("--skip-fine-tune", action="store_true", help="export the base model as-is")
+    parser.add_argument("--local", action="store_true", help="train on this machine instead of Modal")
+    parser.add_argument("--limit", type=int, help="train on a random sample of N examples (smoke runs)")
     args = parser.parse_args()
 
-    import torch
-    from datasets import Dataset, DatasetDict
-    from sentence_transformers import (
-        SentenceTransformer,
-        SentenceTransformerTrainer,
-        SentenceTransformerTrainingArguments,
-        losses,
-    )
-    from sentence_transformers.training_args import BatchSamplers
+    now = time.gmtime()
+    model_id = model_id_for(args.base, args.name, now)
+    dataset, stats = None, None
+    if not args.skip_fine_tune:
+        data = json.loads(gzip.decompress(args.dataset.read_bytes()))
+        if args.limit:
+            data = subsample(data, args.limit, random.Random(0))
+        stats = {**data["stats"], "trained_pairs": len(data["pairs"]), "trained_triplets": len(data["triplets"])}
+        print(f"dataset: {stats}", flush=True)
+        dataset = gzip.compress(json.dumps(data, ensure_ascii=False).encode(), mtime=0)
 
-    data = json.loads(gzip.decompress(args.dataset.read_bytes()))
-    print(f"dataset: {data['stats']}")
-    # Two datasets because a column set is per dataset: (anchor, positive) relies on in-batch negatives only,
-    # (anchor, positive, negative) also scores the mined hard negative. Each batch is drawn from one of them.
-    train_dataset = DatasetDict({
-        name: Dataset.from_dict(dict(zip(cols, map(list, zip(*data[name])))))
-        for name, cols in (("pairs", ("anchor", "positive")), ("triplets", ("anchor", "positive", "negative")))
-        if data[name]
-    })
+    fit_args = (dataset, args.base, args.epochs, args.batch_size, args.lr, args.warmup, args.quantize)
+    if args.local or args.skip_fine_tune:
+        tar = remote.fit.local(*fit_args)
+    else:
+        import modal
 
-    model = SentenceTransformer(args.base)
-    training_args = SentenceTransformerTrainingArguments(
-        output_dir=str(args.out / "checkpoints"),
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        learning_rate=args.lr,
-        # Warmup is a share of optimizer steps. v2 once counted it in examples, which spent 53% of a run ramping up.
-        warmup_ratio=0.1,
-        fp16=torch.cuda.is_available(),
-        # The same text often sits in several rows ("mana dork" anchors 600 of them, `Flying.` positives many tags).
-        # Two such rows in one batch make each other's positive a false negative for MNRL.
-        batch_sampler=BatchSamplers.NO_DUPLICATES,
-        save_strategy="epoch",
-        save_total_limit=1,
-        logging_steps=100,
-        report_to="none",
-    )
-    loss = losses.MultipleNegativesRankingLoss(model)
-    SentenceTransformerTrainer(model=model, args=training_args, train_dataset=train_dataset, loss=loss).train()
+        with modal.enable_output(), remote.app.run(environment_name=remote.ENVIRONMENT):
+            tar = remote.fit.remote(*fit_args)
 
-    out = args.out / "model"
-    model.save_pretrained(str(out))
-    SentenceTransformer(str(out), backend="onnx").save_pretrained(str(out))
-    print(f"saved {out}")
-
-    if args.push:
-        from huggingface_hub import HfApi
-
-        api = HfApi()
-        api.create_repo(args.push, exist_ok=True)
-        commit = api.upload_folder(repo_id=args.push, folder_path=str(out), commit_message=f"train {args.out.name}")
-        print(f"pushed {args.push}; pin MODEL_REV={commit.oid}")
+    out = Path("train/runs") / model_id
+    with tarfile.open(fileobj=io.BytesIO(tar), mode="r:gz") as t:
+        t.extractall(out, filter="data")
+    meta = {
+        "model_id": model_id,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", now),
+        "base_model": args.base,
+        "options": {k: getattr(args, k) for k in ("epochs", "batch_size", "lr", "warmup", "quantize",
+                                                  "skip_fine_tune", "limit")},
+        "trained_on": "local" if args.local or args.skip_fine_tune else "modal L4",
+        "dataset": stats,
+    }
+    (out / "meta.json").write_text(json.dumps(meta, indent=1))
+    if not snapshot.enabled():
+        print(f"saved {out} (no bucket configured, not uploaded)")
+        return
+    snapshot.upload_model(out, model_id)
+    snapshot.write_json(f"models/{model_id}/meta.json", meta)
+    print(f"uploaded models/{model_id}/\nnext: python -m train.eval --model {model_id}\n"
+          f"ship: python -m app.build --promote {model_id}")
 
 
 if __name__ == "__main__":
