@@ -46,7 +46,7 @@ def main() -> None:
     # Served as application/gzip without Content-Encoding, so the bytes are the .gz file as-is.
     body = urllib.request.urlopen(urllib.request.Request(meta["jsonl_download_uri"], headers=HEADERS)).read()
     TAGS_PATH.write_bytes(body)
-    print(f"wrote {TAGS_PATH}: {len(load_tags())} tags, updated_at {meta['updated_at']}")
+    print(f"wrote {TAGS_PATH}: {len(load_tags()):,} tags, updated_at {meta['updated_at']}")
 
 
 if __name__ == "__main__":

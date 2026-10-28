@@ -9,12 +9,17 @@ re-embeds every card with the promoted model on its next run (daily cron, or sta
 """
 
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 from app import snapshot
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# Modal's "✓ Created objects." tree: one line per function, every run. Its "View run at …" link stays.
+MODAL_TREE = re.compile(r"(✓ Created objects\.|[├└]── )")
 
 
 def duration(seconds: float) -> str:
@@ -36,7 +41,7 @@ def main() -> None:
              ("eval", ["train.eval", "--model", model_id]), ("promote", ["app.build", "--promote", model_id]))
     log_path = Path("train/runs") / model_id / "pipeline.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "TRAIN_PIPELINE": "1"}
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "TRAIN_PIPELINE": "1", "TQDM_DISABLE": "1"}
     live = snapshot.read_pointer() or {}
     start = time.monotonic()
 
@@ -58,9 +63,9 @@ def main() -> None:
                                     text=True, env=env)
             assert proc.stdout is not None
             for line in proc.stdout:
-                # Progress bars redraw with \r; keep only their final state.
-                line = line.rstrip().rsplit("\r", 1)[-1]
-                if line.strip():
+                # Progress bars redraw with \r; keep only their final state, without terminal escape codes.
+                line = ANSI_ESCAPE.sub("", line.rstrip().rsplit("\r", 1)[-1])
+                if line.strip() and not MODAL_TREE.match(line):
                     emit("  " + line)
             took = duration(time.monotonic() - t0)
             if proc.wait():

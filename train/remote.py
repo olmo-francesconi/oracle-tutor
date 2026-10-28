@@ -33,12 +33,16 @@ llm_image = (
     # FlashInfer's sampler JIT-compiles with nvcc, which debian_slim lacks; the PyTorch sampler is fine for this load.
     # Still required on vLLM 0.32 (checked 2026-10-28).
     .env({"VLLM_USE_FLASHINFER_SAMPLER": "0"})
+    # Modal forwards every progress-bar redraw as a new log line (~2,500 per run), and vLLM logs its whole engine
+    # setup at INFO. generate() prints its own progress instead.
+    .env({"TQDM_DISABLE": "1", "VLLM_LOGGING_LEVEL": "WARNING"})
 )
 train_image = (
     modal.Image.debian_slim(python_version="3.12")
     # Same versions as train/uv.lock, so a Modal run and a --local run train identically.
     .uv_pip_install("sentence-transformers==6.2.0", "transformers==5.21.0", "torch==2.15.0", "accelerate==1.15.0",
                     "datasets==5.1.0", "onnx==1.23.2", "onnxscript==0.7.2", "onnxruntime==1.31.1")
+    .env({"TQDM_DISABLE": "1"})
 )
 
 
@@ -47,11 +51,21 @@ def generate(conversations: list[list[dict]], model: str, temperature: float, ma
     """One completion per chat conversation, in order."""
     from vllm import LLM, SamplingParams
 
+    print(f"loading {model}", flush=True)
     llm = LLM(model=model, trust_remote_code=True, gpu_memory_utilization=0.9, max_model_len=4096)
-    # chat() applies the model's own template. v2 once handed vLLM bare strings, which made an instruct model do raw
-    # completion and produced 4,000-character repetition loops.
-    outputs = llm.chat(conversations, SamplingParams(temperature=temperature, max_tokens=max_tokens))
-    return [o.outputs[0].text if o.outputs else "" for o in outputs]
+    params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
+    # Chunks only to report progress; each is still large enough to keep vLLM's batch full.
+    chunk = max(500, len(conversations) // 20)
+    out, t0 = [], time.monotonic()
+    for start in range(0, len(conversations), chunk):
+        # chat() applies the model's own template. v2 once handed vLLM bare strings, which made an instruct model do
+        # raw completion and produced 4,000-character repetition loops.
+        outputs = llm.chat(conversations[start:start + chunk], params, use_tqdm=False)
+        out += [o.outputs[0].text if o.outputs else "" for o in outputs]
+        rate = len(out) / (time.monotonic() - t0)
+        print(f"generated {len(out):,}/{len(conversations):,} · {rate:.0f}/s · eta "
+              f"{(len(conversations) - len(out)) / rate / 60:.0f}m", flush=True)
+    return out
 
 
 def export_onnx(model, path: Path) -> None:
