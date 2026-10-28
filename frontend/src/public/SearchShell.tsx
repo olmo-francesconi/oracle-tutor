@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { useApiReadyState } from '../lib/apiReadyContext'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getApiReady } from '../lib/api'
+import { useApiReady } from '../lib/useApiReady'
 import { useDelayedBoolean } from '../lib/useDelayedBoolean'
 import { getApiDownMessage, getSearchErrorMessage, isApiDownError } from './searchShellState'
 import { getActiveFilterCount, normalizeFilterState } from '../lib/filters'
@@ -82,7 +83,7 @@ export function SearchShell() {
   const [lastTextQuery, setLastTextQuery] = useState<string | null>(null)
   const viewport = useViewport()
   const queryClient = useQueryClient()
-  const apiReadyState = useApiReadyState()
+  const apiReadyState = useApiReady()
   const apiReady = apiReadyState.ready
 
   const oracleSamplesQuery = useOracleSamplesQuery()
@@ -125,6 +126,13 @@ export function SearchShell() {
     [activeQuery.data]
   )
 
+  // Server-side segmentation of a `//` query. Echoed back so the user can see
+  // how their text was split rather than inferring it from the results.
+  const queryAbilities = useMemo(
+    () => activeQuery.data?.pages[0]?.query_abilities ?? [],
+    [activeQuery.data]
+  )
+
   const apiDownError = useMemo(() => {
     for (const q of [activeQuery, oracleSamplesQuery]) {
       if (q.isError && isApiDownError(q.error)) return q.error
@@ -133,40 +141,21 @@ export function SearchShell() {
   }, [activeQuery, oracleSamplesQuery])
   const shouldShowApiDownOverlay = useDelayedBoolean(apiDownError !== null, API_DOWN_OVERLAY_DELAY_MS)
 
-  // While the API is failing, poll /api/ready in the background. As soon as
-  // it answers ready=true we invalidate the dormant queries so the oracle
-  // background and search-box autocomplete repopulate without a reload.
+  // While the API is failing, poll /ready in the background. Once it answers
+  // ready we invalidate the dormant queries so the oracle background and
+  // search-box autocomplete repopulate without a reload.
+  const recovery = useQuery({
+    queryKey: ['api-recovery'],
+    queryFn: ({ signal }) => getApiReady(signal),
+    enabled: apiDownError !== null,
+    refetchInterval: API_RECOVERY_POLL_MS,
+    retry: false,
+  })
   useEffect(() => {
-    if (apiDownError === null) return undefined
-    let cancelled = false
-    let timerId: ReturnType<typeof setTimeout> | null = null
-    const controller = new AbortController()
-
-    async function probe() {
-      if (cancelled) return
-      try {
-        const res = await fetch('/api/ready', { signal: controller.signal, cache: 'no-store' })
-        const body = (await res.json().catch(() => ({}))) as { ready?: boolean }
-        if (cancelled) return
-        if (res.ok && body.ready === true) {
-          void queryClient.invalidateQueries({ queryKey: ['oracle-samples'] })
-          void queryClient.invalidateQueries({ queryKey: ['card-autocomplete'] })
-          return
-        }
-      } catch {
-        // swallow — retry on next tick
-      }
-      if (!cancelled) timerId = setTimeout(probe, API_RECOVERY_POLL_MS)
-    }
-
-    void probe()
-
-    return () => {
-      cancelled = true
-      if (timerId !== null) clearTimeout(timerId)
-      controller.abort()
-    }
-  }, [apiDownError, queryClient])
+    if (recovery.data !== true) return
+    void queryClient.invalidateQueries({ queryKey: ['oracle-samples'] })
+    void queryClient.invalidateQueries({ queryKey: ['card-autocomplete'] })
+  }, [recovery.data, recovery.dataUpdatedAt, queryClient])
 
   const searchErrorMessage =
     activeQuery.isError && !isApiDownError(activeQuery.error)
@@ -373,6 +362,7 @@ export function SearchShell() {
           activeFilterCount={activeFilterCount}
           lastTextQuery={lastTextQuery}
           pinnedSummary={pinnedSummary}
+          queryAbilities={queryAbilities}
           abilitySelection={ui.pinnedCard?.abilities ?? EMPTY_ABILITY_SELECTION}
           onCycleAbility={handleCycleAbility}
           onSetAbilities={handleSetAbilities}

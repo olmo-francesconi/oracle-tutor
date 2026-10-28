@@ -5,9 +5,9 @@ import {
   buildSimilarCardsParams,
   getOracleSamples,
   getSimilarCards,
+  searchOracleText,
   normalizeCard,
   normalizeCardMatch,
-  normalizeSimilarCard,
 } from './api'
 
 const anySchema = z.unknown()
@@ -148,31 +148,6 @@ describe('normalizers', () => {
       colors: ['R'],
     })
   })
-
-  it('normalizes similar cards the same way', () => {
-    expect(
-      normalizeSimilarCard({
-        oracle_id: 'oracle-4',
-        scryfall_id: 'card-4',
-        name: 'Mystery Card',
-        face_ix: 0,
-        image_side: 'front',
-        similarity: 0.92,
-        faces: [
-          {
-            oracle_id: 'oracle-4',
-            face_ix: 0,
-            name: 'Mystery Card',
-            oracle_text: 'Mystery text',
-          },
-        ],
-      })
-    ).toMatchObject({
-      id: 'card-4',
-      oracle_text: 'Mystery text',
-      similarity: 0.92,
-    })
-  })
 })
 
 describe('getSimilarCards ability selection', () => {
@@ -212,5 +187,39 @@ describe('getSimilarCards ability selection', () => {
 
     expect(requestedParams().has('include_abilities')).toBe(false)
     expect(requestedParams().get('exclude_abilities')).toBe('1')
+  })
+})
+
+describe('multi-ability query passthrough', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockReset()
+  })
+
+  it('surfaces the segmentation the backend reports', async () => {
+    fetchMock.mockResolvedValue(
+      createJsonResponse(
+        { items: [], has_more: false, query_abilities: ['flying', 'draw a card'] },
+        { status: 200 }
+      )
+    )
+
+    const page = await searchOracleText('flying // draw a card')
+
+    expect(page.query_abilities).toEqual(['flying', 'draw a card'])
+  })
+
+  it('tolerates a response without the field', async () => {
+    fetchMock.mockResolvedValue(createJsonResponse({ items: [], has_more: false }, { status: 200 }))
+
+    const page = await searchOracleText('flying')
+
+    expect(page.query_abilities).toBeUndefined()
   })
 })

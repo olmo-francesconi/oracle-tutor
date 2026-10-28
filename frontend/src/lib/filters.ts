@@ -99,7 +99,6 @@ export function normalizeFilterState(filters: FilterState): FilterState {
   if (nextMatchMode && nextMatchMode !== 'at_least') next.matchMode = nextMatchMode
   const nextColorFeature = validColorFeature(filters.colorFeature)
   if (nextColorFeature && nextColorFeature !== 'identity') next.colorFeature = nextColorFeature
-  if (filters.ignoreKeywords) next.ignoreKeywords = true
 
   return next
 }
@@ -118,18 +117,8 @@ export function getActiveFilterCount(filters: FilterState): number {
   if (filters.rarities?.length) count += 1
   if (filters.matchMode && filters.matchMode !== 'at_least') count += 1
   if (filters.colorFeature && filters.colorFeature !== 'identity') count += 1
-  if (filters.ignoreKeywords) count += 1
 
   return count
-}
-
-export function toggleFilterValue(values: string[] | undefined, nextValue: string): string[] | undefined {
-  const currentValues = values ?? []
-  const nextValues = currentValues.includes(nextValue)
-    ? currentValues.filter((value) => value !== nextValue)
-    : [...currentValues, nextValue]
-
-  return normalizeStringArray(nextValues)
 }
 
 function encodeFilterCodes(

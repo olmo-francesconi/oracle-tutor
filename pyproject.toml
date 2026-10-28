@@ -1,0 +1,30 @@
+[project]
+name = "oracle-tutor"
+version = "3.0.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.162.0",
+  "uvicorn>=0.54.0",
+  "numpy>=2.5.0",
+  "onnxruntime>=1.31.0",
+  "tokenizers>=0.23.0",
+  "boto3>=1.43",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.2.0",
+  "httpx>=0.28.0",
+  "ruff>=0.17.0",
+  "basedpyright>=1.40.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

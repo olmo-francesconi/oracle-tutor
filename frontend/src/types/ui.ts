@@ -1,7 +1,5 @@
 import type { FilterState, SimilarCard } from './api'
 
-export type CardFilterState = FilterState
-
 /** Tri-state per ability: absent = untouched, plus wanted / unwanted. */
 export type AbilityChoice = 'include' | 'exclude'
 export type AbilitySelection = Record<number, AbilityChoice>
@@ -17,7 +15,7 @@ export type SearchShellState = {
   draftQuery: string
   submittedQuery: string | null
   pinnedCard: PinnedCard | null
-  filters: CardFilterState
+  filters: FilterState
   error: string | null
   results: SimilarCard[]
   hasMore: boolean

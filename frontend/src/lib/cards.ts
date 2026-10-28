@@ -34,14 +34,3 @@ export function getCardImageUrl(
 export function getCardCornerRadiusClass(setCode?: string | null): string {
   return setCode === 'lea' ? 'rounded-[7%_/_5.011%]' : 'rounded-xl'
 }
-
-export function getDisplayFace(card: Card | SimilarCard) {
-  if (!Array.isArray(card.faces) || card.faces.length === 0) {
-    return null
-  }
-
-  const faceIndex =
-    'image_side' in card && card.image_side === 'back' && card.faces.length > 1 ? 1 : 0
-
-  return card.faces[faceIndex] ?? card.faces[0]
-}

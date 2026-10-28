@@ -1,0 +1,24 @@
+# Offline training tools; never installed in the runtime image (Modal included). Run from the repo root so `app` and
+# `train` import:  uv run --project train python -m train.<tags|dataset|train|eval>
+[project]
+name = "oracle-tutor-train"
+version = "3.0.0"
+requires-python = ">=3.12"
+dependencies = [
+  "sentence-transformers>=6.2.0",
+  "accelerate>=1.15.0",
+  "datasets>=5.1.0",
+  "onnx>=1.20.0",
+  "onnxscript>=0.6.0",
+  "boto3>=1.43",
+  "numpy>=2.5.0",
+  "onnxruntime>=1.31.0",
+  "tokenizers>=0.23.0",
+  "modal>=1.6.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.2.0"]
+
+[tool.uv]
+package = false

@@ -6,15 +6,12 @@ import './mana-font.css'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { queryClient } from './lib/queryClient'
 import { PublicApp } from './public/PublicApp'
-import { ApiReadyProvider } from './lib/ApiReadyProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ApiReadyProvider>
-          <PublicApp />
-        </ApiReadyProvider>
+        <PublicApp />
       </QueryClientProvider>
     </ErrorBoundary>
   </StrictMode>
