@@ -34,7 +34,7 @@ from app.text import build_face_abilities
 
 BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
 # Scryfall rejects requests without an explicit User-Agent and Accept header (HTTP 400/403).
-SCRYFALL_HEADERS = {"User-Agent": "OracleTutor/3.0.1 (+https://oracletutor.org)", "Accept": "application/json"}
+SCRYFALL_HEADERS = {"User-Agent": "OracleTutor/3.0.2 (+https://oracletutor.org)", "Accept": "application/json"}
 SKIPPED_LAYOUTS = {"token", "double_faced_token", "art_series", "emblem", "planar", "scheme", "vanguard"}
 PAPER_FORMATS = ("standard", "pioneer", "modern", "legacy", "vintage", "commander", "pauper")
 TYPE_CATEGORIES = {"creature", "instant", "sorcery", "enchantment", "artifact", "planeswalker", "land"}
@@ -176,13 +176,24 @@ def embed(texts: dict[str, str], model_dir: Path, known: dict[str, np.ndarray] |
     known = known or {}
     hashes = sorted(texts)
     todo = [h for h in hashes if h not in known]
-    print(f"embedding {len(todo)} new texts, reusing {len(hashes) - len(todo)}", flush=True)
+    print(f"embedding {len(todo):,} new texts, reusing {len(hashes) - len(todo):,}", flush=True)
     encoded = {}
     if todo:
         # Encode in length order so each batch pads to similar lengths.
         todo.sort(key=lambda h: len(texts[h]))
-        vectors = Encoder(model_dir, threads=os.cpu_count() or 1).encode([texts[h] for h in todo])
-        encoded = dict(zip(todo, vectors.astype(np.float16)))
+        encoder = Encoder(model_dir, threads=os.cpu_count() or 1)
+        # Progress every ~10%. Cost grows with length and the texts are sorted by it, so the ETA extrapolates from
+        # characters encoded, not texts.
+        chunk, parts, t0 = max(1000, -(-len(todo) // 10)), [], time.monotonic()
+        total, done = sum(len(texts[h]) for h in todo), 0
+        for start in range(0, len(todo), chunk):
+            batch = [texts[h] for h in todo[start:start + chunk]]
+            parts.append(encoder.encode(batch))
+            done += sum(map(len, batch))
+            elapsed = time.monotonic() - t0
+            print(f"embedded {start + len(batch):,}/{len(todo):,} · {elapsed:.0f}s · eta "
+                  f"{elapsed * (total - done) / done:.0f}s", flush=True)
+        encoded = dict(zip(todo, np.concatenate(parts).astype(np.float16)))
     return np.array(hashes), np.stack([known[h] if h in known else encoded[h] for h in hashes]).astype(np.float16)
 
 
@@ -201,8 +212,9 @@ def latest_bulk() -> tuple[str, str]:
 def promote(model_id: str) -> None:
     if not snapshot.has_model(model_id):
         raise SystemExit(f"models/{model_id}/ is not in the bucket; train.train uploads models there")
+    previous = (snapshot.read_promoted() or {}).get("model")
     snapshot.write_promoted({"model": model_id, "promoted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    print(f"promoted {model_id}; the next refresh run re-embeds with it")
+    print(f"promoted {model_id} (was {previous}); the next refresh run re-embeds with it")
 
 
 def publish(override: str | None, local_model: Path, keep: int = 5) -> None:

@@ -299,6 +299,8 @@ def main() -> None:
 
     cards, source = load_cards(args.cards)
     texts = load_ability_texts(cards)
+    print(f"cards: {source}: {len(cards):,} cards · {len(texts):,} abilities · {len(set(texts.values())):,} distinct "
+          "texts")
     faces_of: dict[str, list[FaceId]] = defaultdict(list)
     for oracle_id, face_ix, ability_ix in texts:
         if ability_ix == 0:
@@ -309,10 +311,15 @@ def main() -> None:
     tags = {t: v for t, v in all_tags.items() if not is_held_out_tag(t)}
     descriptions = {t: desc for t, (desc, _) in tags.items()}
     members = {t: [f for oid in oids for f in faces_of.get(oid, ())] for t, (_, oids) in tags.items()}
+    print(f"tags: {len(tags):,} for training ({len(all_tags) - len(tags):,} held out for eval)")
     tag_to_ids = {t: ids for t, ids in attribute_tags(texts, members, descriptions).items() if ids}
+    print(f"attributed {len(tag_to_ids):,} tags to abilities ({len(tags) - len(tag_to_ids):,} dropped: name/type-line "
+          "tags or below margin)")
 
     rng = random.Random(args.seed)
     pairs, triplets = build_examples(texts, tag_to_ids, descriptions, rng, augment)
+    print(f"tag examples ({', '.join(sorted(augment - {'llm_queries'})) or 'self-pairs only'}): {len(pairs):,} pairs · "
+          f"{len(triplets):,} triplets with hard negatives")
     stats = {"cards": source, "abilities": len(texts), "train_tags": len(tags), "attributed_tags": len(tag_to_ids),
              "augment": sorted(augment)}
     if "llm_queries" in augment:
@@ -330,13 +337,15 @@ def main() -> None:
         if llm.fill_cache(cache, printed, normalized, args.llm_limit):
             llm.save_cache(cache)
         llm_pairs = llm.pairs(cache, texts.values())
+        print(f"llm query examples: {len(llm_pairs):,}")
         pairs += llm_pairs
         stats |= {"llm_query_examples": len(llm_pairs), "llm_model": llm.LLM_MODEL,
                   "llm_uncached_texts": len(printed.keys() - cache.keys())}
     stats |= {"pairs": len(pairs), "triplets": len(triplets)}
     payload = {"pairs": pairs, "triplets": triplets, "stats": stats}
     args.out.write_bytes(gzip.compress(json.dumps(payload, ensure_ascii=False).encode(), mtime=0))
-    print(f"wrote {args.out}: {stats}")
+    print(f"wrote {args.out} ({args.out.stat().st_size / 1e6:.1f} MB): {len(pairs):,} pairs · {len(triplets):,} "
+          "triplets")
 
 
 if __name__ == "__main__":

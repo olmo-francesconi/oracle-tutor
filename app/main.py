@@ -36,8 +36,8 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
     "Content-Security-Policy": (
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; "
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
     ),
 }
@@ -251,11 +251,15 @@ def _origin(request: Request) -> str:
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request):
     origin = html.escape(_origin(request))
+    index = request.app.state.index
     # The sitemap protocol caps one file at 50,000 URLs; the corpus is ~34k oracle ids.
-    ids = sorted(request.app.state.index.cards)[:49_999]
+    ids = sorted(index.cards)[:49_999]
+    # Only the homepage gets a lastmod: the data says when the snapshot was built, not when a card last changed, and
+    # crawlers stop trusting lastmod on a sitemap that claims every URL changes daily.
+    lastmod = f"<lastmod>{index.bulk_updated_at[:10]}</lastmod>" if index.bulk_updated_at else ""
     body = "".join([
         '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-        f"<url><loc>{origin}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>",
+        f"<url><loc>{origin}/</loc>{lastmod}<changefreq>daily</changefreq><priority>1.0</priority></url>",
         *(f"<url><loc>{origin}/?card={html.escape(i)}</loc><changefreq>weekly</changefreq>"
           "<priority>0.7</priority></url>" for i in ids),
         "</urlset>",
@@ -311,21 +315,52 @@ def _query_head(origin: str, q: str) -> str:
     return _head_tags(f'"{q}" | {_SITE_NAME}', description, f"{origin}/?q={quote_plus(q)}", "website", None)
 
 
+def _card_body(card: dict) -> str:
+    """The card as plain HTML, for crawlers that do not run JavaScript. React replaces it on mount."""
+    e, faces = html.escape, card["faces"]
+    sections = "".join(
+        "<section>" + (f"<h2>{e(f['name'])}</h2>" if len(faces) > 1 else "") + f"<p>{e(f.get('type_line') or '')}</p>"
+        + "".join(f"<p>{e(line)}</p>" for line in (f.get("oracle_text") or "").splitlines()) + "</section>"
+        for f in faces
+    )
+    return f"<main><h1>{e(card['name'])}</h1>{sections}</main>"
+
+
+_HOME_BODY = ("<main><h1>Oracle Tutor</h1><p>Semantic search for Magic: The Gathering: describe what a card does and "
+              "find every card that matches, by meaning rather than exact name.</p></main>")
+_ROBOTS_META = re.compile(r'<meta\s+name="robots"[^>]*>')
+_NOINDEX = '<meta name="robots" content="noindex,follow" />'
+
+
 @app.get("/{path:path}", include_in_schema=False)
 def spa(request: Request, path: str):
-    """Built frontend: real files as-is, everything else index.html with per-page meta for link unfurls."""
+    """Built frontend: real files as-is, everything else index.html with per-page meta and a static body.
+
+    The SPA has no router, so `/` is the only page: other paths and unknown card ids get the app (it still renders)
+    with a 404 and noindex, instead of a 200 duplicate of the homepage. Query pages are noindex: an unbounded set of
+    thin pages that would compete with the card pages.
+    """
     root = STATIC_DIR.resolve()
     if path == "api" or path.startswith("api/") or not root.is_dir():
         raise HTTPException(404, "Not Found")
     file = (root / path).resolve()
     if path and file.is_relative_to(root) and file.is_file():
-        headers = {"Cache-Control": "public, max-age=2592000, immutable"} if path.startswith("assets/") else None
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"} if path.startswith("assets/") else None
         return FileResponse(file, headers=headers)
 
     page = (root / "index.html").read_text()
-    card = request.app.state.index.cards.get(request.query_params.get("card", ""))
+    card_id = request.query_params.get("card")
+    card = request.app.state.index.cards.get(card_id or "")
     q = request.query_params.get("q", "").strip()[:MAX_QUERY_LENGTH]
-    if card or q:
-        head = _card_head(_origin(request), card) if card else _query_head(_origin(request), q)
-        page = _DEFAULT_HEAD_TAGS.sub("", page).replace("</head>", head + "\n</head>", 1)
-    return HTMLResponse(page, headers={"Cache-Control": "no-cache"})
+    status, body = 200, _HOME_BODY
+    if path or (card_id is not None and card is None):
+        status, body = 404, ""
+        page = _ROBOTS_META.sub(_NOINDEX, page)
+    elif card:
+        page = _DEFAULT_HEAD_TAGS.sub("", page).replace("</head>", _card_head(_origin(request), card) + "\n</head>", 1)
+        body = _card_body(card)
+    elif q:
+        page = _DEFAULT_HEAD_TAGS.sub("", page).replace("</head>", _query_head(_origin(request), q) + "\n</head>", 1)
+        page, body = _ROBOTS_META.sub(_NOINDEX, page), ""
+    page = page.replace('<div id="root"></div>', f'<div id="root">{body}</div>', 1)
+    return HTMLResponse(page, status_code=status, headers={"Cache-Control": "no-cache"})

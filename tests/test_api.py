@@ -11,7 +11,7 @@ def client(index, tmp_path, monkeypatch):
     (tmp_path / "index.html").write_text(
         '<html><head>\n<title>Oracle Tutor</title>\n<meta\n  name="description"\n  content="home" />\n'
         '<meta property="og:title" content="home" />\n<meta name="robots" content="index,follow" />\n</head>'
-        '<body></body></html>'
+        '<body><div id="root"></div></body></html>'
     )
     monkeypatch.setattr(main, "STATIC_DIR", tmp_path)
     main.app.state.index = index
@@ -89,12 +89,20 @@ def test_include_and_exclude_overlap_is_not_an_error(client):
 
 def test_spa_serves_files_and_falls_back_to_index(client):
     asset = client.get("/assets/app-abc.js")
-    assert asset.headers["cache-control"] == "public, max-age=2592000, immutable"
-    home = client.get("/some/route")
-    assert "<title>Oracle Tutor</title>" in home.text
+    assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+    home = client.get("/")
+    assert home.status_code == 200 and "<title>Oracle Tutor</title>" in home.text
+    assert '<div id="root"><main><h1>Oracle Tutor</h1>' in home.text and 'content="index,follow"' in home.text
     assert home.headers["x-frame-options"] == "DENY" and "frame-ancestors 'none'" in home.headers["content-security-policy"]
     assert client.get("/api/nope").status_code == 404
-    assert client.get("/../../etc/passwd").text == home.text
+    assert client.get("/../../etc/passwd").status_code == 404
+
+
+@pytest.mark.parametrize("url", ["/some/route", "/?card=nope"])
+def test_unknown_pages_are_404_noindex_but_still_render_the_app(client, url):
+    page = client.get(url)
+    assert page.status_code == 404 and "<title>Oracle Tutor</title>" in page.text
+    assert 'content="noindex,follow"' in page.text and 'content="index,follow"' not in page.text
 
 
 def test_card_page_gets_its_own_meta(client):
@@ -102,10 +110,19 @@ def test_card_page_gets_its_own_meta(client):
     assert page.count("<title>") == 1 and "<title>Night Bird | Oracle Tutor</title>" in page
     assert 'content="home"' not in page and 'name="robots"' in page
     assert 'href="http://testserver/?card=bird"' in page and '"@type": "Game"' in page
-    page = client.get("/", params={"q": '<script>"x"'}).text
-    assert "<title>&quot;&lt;script&gt;&quot;x&quot;&quot; | Oracle Tutor</title>" in page
+    assert '<div id="root"><main><h1>Night Bird</h1><section><p>Creature' in page and "<p>Flying</p>" in page
+    page = client.get("/", params={"q": '<script>"x"'})
+    assert page.status_code == 200 and 'content="noindex,follow"' in page.text
+    assert "<title>&quot;&lt;script&gt;&quot;x&quot;&quot; | Oracle Tutor</title>" in page.text
+    assert "<script>" not in page.text.split("<body>")[1]
+
+
+def test_double_faced_card_body_names_each_face(client):
+    page = client.get("/", params={"card": "dfc"}).text
+    assert "<h1>Wing Squire // Trample Knight</h1>" in page and "<h2>Trample Knight</h2>" in page
 
 
 def test_sitemap(client):
     body = client.get("/sitemap.xml").text
     assert "<loc>http://testserver/?card=bird</loc>" in body and body.count("<url>") == 9
+    assert "<loc>http://testserver/</loc><lastmod>2026-08-18</lastmod>" in body and body.count("<lastmod>") == 1

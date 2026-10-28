@@ -97,15 +97,24 @@ def main() -> None:
         served_dir = snapshot.download_model(served, cache)
     else:
         data_dir, served, served_dir = args.data, "model", Path("model")
-    results = {served: score(search.load(data_dir, Encoder(served_dir)), tags)}
+    t0 = time.monotonic()
+    served_index = search.load(data_dir, Encoder(served_dir))
+    kinds = defaultdict(int)
+    for kind, *_ in eval_queries(tags, set(served_index.cards)):
+        kinds[kind] += 1
+    print("held-out queries: " + " · ".join(f"{n:,} {k}" for k, n in sorted(kinds.items())), flush=True)
+    results = {served: score(served_index, tags)}
+    print(f"served    {served} scored in {time.monotonic() - t0:.0f}s", flush=True)
 
     if args.model and args.model != served:
+        t0 = time.monotonic()
         local = Path(args.model).is_dir()
         model_dir = Path(args.model) if local else snapshot.download_model(args.model, cache)
         cards, _ = load_cards(data_dir / "cards.json.gz")
         texts = {ability_text_hash(t): t for t in set(load_ability_texts(cards).values())}
         hashes, vectors = embed(texts, model_dir)
         results[args.model] = score(search.Index(cards, hashes.tolist(), vectors, Encoder(model_dir)), tags)
+        print(f"candidate {args.model} scored in {time.monotonic() - t0:.0f}s", flush=True)
         if not local:
             key = f"models/{args.model}/meta.json"
             meta = snapshot.read_json(key) or {}
@@ -113,7 +122,17 @@ def main() -> None:
                             "served": {"model": served, "scores": results[served]}}
             snapshot.write_json(key, meta)
             print(f"wrote scores to {key}")
-    print(json.dumps(results, indent=2))
+    print(table(results))
+
+
+def table(results: dict[str, dict]) -> str:
+    """Models side by side, one row per query kind."""
+    names, cols = list(results), ("mrr", "p_at_10", "recall_at_100")
+    head = "kind        " + "".join(f"{n[:30]:<32}" for n in names)
+    sub = " " * 12 + "".join(f"{'mrr':<8}{'p@10':<8}{'r@100':<16}" for _ in names)
+    rows = [f"{kind:<12}" + "".join("".join(f"{results[n][kind][c]:<8.3f}" for c in cols) + " " * 8 for n in names)
+            for kind in results[names[0]]]
+    return "\n".join([head, sub, *rows])
 
 
 if __name__ == "__main__":

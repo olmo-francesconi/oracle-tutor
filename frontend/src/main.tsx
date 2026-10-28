@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClientProvider } from '@tanstack/react-query'
+import './fonts.css'
 import './styles.css'
 import './mana-font.css'
 import { ErrorBoundary } from './components/ErrorBoundary'

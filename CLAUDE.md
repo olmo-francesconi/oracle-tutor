@@ -21,9 +21,11 @@ app/
   build.py         Scryfall bulk → cards + vectors; local (→ data/) or `--publish` (refresh worker → bucket)
   snapshot.py      Bucket layout + I/O: models/, snapshots/, current.json
 train/             tags.py (oracle-tags bulk), dataset.py (attribution, hard negatives, augmentations), llm.py (cached
-                   LLM queries), remote.py (the Modal GPU jobs), train.py (→ bucket models/), eval.py
+                   LLM queries), remote.py (the Modal GPU jobs), train.py (→ bucket models/), eval.py, pipeline.py
+                   (all of them + promote in one go)
 tests/             Pure pytest: fake encoder + tiny dataset (conftest.py), Scryfall fixture for the build
 frontend/          React SPA (unchanged API contract; `npm run build` → static/ in the image)
+train.sh           ./train.sh <model_id> [options]: the whole training pipeline with .env loaded
 Dockerfile         node build → python runtime; code only, same image for web and refresh
 ```
 
@@ -121,7 +123,11 @@ Similarity is over **abilities**, not whole cards: `[card] → [face] → [oracl
 | `GET /sitemap.xml` | One URL per oracle_id (`/?card=<id>`), origin = `PUBLIC_URL` or request |
 
 Any other path serves the SPA; `/?card=` and `/?q=` get their OG/Twitter/JSON-LD tags injected into `index.html`
-for every visitor (no bot sniffing). One stdout log line per `/similar-cards` call, no client IP.
+for every visitor (no bot sniffing). `/` and card pages also get a plain-HTML body inside `#root` (h1, type line,
+rules text) for crawlers that skip JavaScript; `createRoot` replaces it on mount, so never switch to `hydrateRoot`.
+`/` is the only page (no router): other paths and unknown card ids return the app with 404 + noindex, and `/?q=`
+pages are noindex,follow. The sitemap's `lastmod` is on `/` only (snapshot date; per-card change dates aren't known).
+One stdout log line per `/similar-cards` call, no client IP.
 
 ### Frontend conventions
 - Server state: TanStack Query hooks in `public/use*Query.ts`; `useApiReady` polls `/api/ready`.
@@ -130,6 +136,14 @@ for every visitor (no bot sniffing). One stdout log line per `/similar-cards` ca
   are `z.infer`). A malformed response throws.
 - 502/503/504 show the API-down overlay.
 - Design system: `DESIGN.md`.
+- Fonts are self-hosted (`src/fonts.css`, `src/fonts/`, OFL licenses alongside); no third-party origins, so the CSP
+  allows `'self'` only. `font-display: block` on purpose: `swap` reflowed the header and shifted the results grid (CLS
+  0.24). The two first-paint faces are preloaded in `index.html`.
+- The mana font is an 8 KB subset of `mana-font` (41 glyphs). After changing `src/lib/manaSymbols.ts` or upgrading
+  mana-font, run `uvx --from 'fonttools[woff]==4.60.1' python scripts/subset-mana-font.py` from `frontend/`, or new
+  symbols render as blank boxes.
+- `CardDetailOverlay` (mounted on first open, then kept for its close animation) and `FilterBar` are `lazy()` chunks.
+- Hashed `/assets/` are cached for a year (`immutable`).
 
 ## Dev workflows
 
@@ -139,11 +153,18 @@ uv run python -m app.build [--bulk path.jsonl.gz]       # → data/ (no bucket)
 uv run uvicorn app.main:app --reload                     # :8000
 uv run ruff check . && uv run basedpyright && uv run pytest -q
 uv run --project train pytest train/tests -q
+uv run --env-file .env python -m app.build --promote <id>   # anything touching the bucket loads .env
 cd frontend && npm run dev | npm run lint | npm run test | npm run build
 docker build -t oracle-tutor .                           # ~20s, code only
 ```
 
 ## Environment variables
+One local env file: `.env` (gitignored), copied from the tracked template `.env.example`. It holds the bucket
+credentials (Railway → bucket → Credentials); `./train.sh` loads it, and so does `uv run --env-file .env …` for every
+other local command that touches the bucket (promote, publish, running web against the bucket). Never add a second
+env file; extend the template instead. Railway services get the same variables from the bucket reference, not from a
+file. Modal auth lives in `~/.modal.toml`.
+
 | Variable | Default | Notes |
 |---|---|---|
 | `DATA_DIR` | `data` | Built data |
@@ -166,9 +187,12 @@ docker build -t oracle-tutor .                           # ~20s, code only
   merge back with `git checkout develop && git merge --no-ff production -m "Merge tag vX.Y.Z into develop"`, push
   production (with tags) then develop. Railway deploys on the production push; card data is the worker's job.
   `read-tree` instead of `merge --squash` avoids a conflict storm against an ancient common ancestor.
-- New model: `train.dataset`, `train.train`, `train.eval --model <id>`, `python -m app.build --promote <id>`, then
-  run `refresh` (or wait for the cron). No code release. Rollback: promote the previous id (re-embeds) or point
-  `current.json` at an older snapshot.
+- New model: `./train.sh <id> [train.train options]` (`train.pipeline` with `.env`: `train.tags`, `train.dataset`,
+  `train.train --model-id <id>`, `train.eval --model <id>`, `app.build --promote <id>`, stopping at the first
+  failure), then run `refresh`
+  (or wait for the cron). No code release. Logs: `train/runs/<id>/pipeline.log`, also uploaded to
+  `models/<id>/pipeline.log`. Rollback: promote the previous id (re-embeds) or point `current.json` at an older
+  snapshot. A smoke run (`--limit 1000`) promotes too: promote the real model back before the 06:00 UTC cron.
 
 ## Git commits
 
@@ -183,7 +207,8 @@ The repo is public. Before any push:
 git diff origin/$(git rev-parse --abbrev-ref HEAD)...HEAD -- . ':(exclude)*.lock' ':(exclude)package-lock.json' \
   | grep -iE '(password|secret|api[_-]?key|token|bearer|authorization|private[_-]?key|aws_)=' || echo "clean"
 git diff --name-only origin/$(git rev-parse --abbrev-ref HEAD)...HEAD \
-  | grep -iE '(^|/)(\.env($|\..+)|credentials|secrets|.*\.pem$|.*\.key$)' || echo "clean"
+  | grep -iE '(^|/)(\.env($|\..+)|credentials|secrets|.*\.pem$|.*\.key$)' | grep -v '\.env\.example$' || echo "clean"
 ```
+`.env.example` is the template and must keep every value empty; `.env` itself is gitignored.
 
 Secrets that must never be committed: `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`, bucket `ACCESS_KEY_ID` / `SECRET_ACCESS_KEY`. If one leaks, rotate it and rewrite history.

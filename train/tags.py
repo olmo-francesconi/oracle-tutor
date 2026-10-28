@@ -14,7 +14,7 @@ from pathlib import Path
 
 BULK_URL = "https://api.scryfall.com/bulk-data/oracle-tags"
 # Scryfall rejects requests without an explicit User-Agent and Accept header (HTTP 400/403).
-HEADERS = {"User-Agent": "OracleTutor/3.0.1 (+https://oracletutor.org)", "Accept": "application/json"}
+HEADERS = {"User-Agent": "OracleTutor/3.0.2 (+https://oracletutor.org)", "Accept": "application/json"}
 TAGS_PATH = Path("train/tags.jsonl.gz")
 
 # Share of tags reserved for evaluation and excluded from training.
@@ -46,7 +46,7 @@ def main() -> None:
     # Served as application/gzip without Content-Encoding, so the bytes are the .gz file as-is.
     body = urllib.request.urlopen(urllib.request.Request(meta["jsonl_download_uri"], headers=HEADERS)).read()
     TAGS_PATH.write_bytes(body)
-    print(f"wrote {TAGS_PATH}: {len(load_tags())} tags, updated_at {meta['updated_at']}")
+    print(f"wrote {TAGS_PATH}: {len(load_tags()):,} tags, updated_at {meta['updated_at']}")
 
 
 if __name__ == "__main__":

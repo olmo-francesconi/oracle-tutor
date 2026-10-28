@@ -43,21 +43,39 @@ Checks: `uv run ruff check . && uv run basedpyright && uv run pytest -q`; fronte
 
 ## Training and shipping a model
 
-Models live only in the bucket. With the bucket credentials exported (and Modal auth in `~/.modal.toml`):
+Models live only in the bucket, so training needs its credentials. Set them up once:
 
 ```bash
-uv run --project train python -m train.tags       # Scryfall oracle-tags bulk → train/tags.jsonl.gz
-uv run --project train python -m train.dataset    # live snapshot + tags → train/dataset.json.gz; LLM queries for
-                                                  # ability texts not yet cached are generated on Modal first
-uv run --project train python -m train.train      # fine-tune on Modal (L4) → uploads models/<model_id>/
-uv run --project train python -m train.eval --model <model_id>   # vs the served model; scores go to meta.json
-uv run python -m app.build --promote <model_id>   # writes model.json
+cp .env.example .env    # fill in: Railway → bucket → Credentials, or `railway bucket credentials --bucket oracle-tutor`
+modal token new         # Modal auth for the GPU jobs, stored in ~/.modal.toml
+```
+
+`.env` is gitignored and is the only env file: `./train.sh` and every command that touches the bucket load it with
+`uv run --env-file .env`. One command runs the whole pipeline and stops before promoting if any step fails (extra
+options go to `train.train`); every line is timestamped and saved to `train/runs/<model_id>/pipeline.log`, which is
+also uploaded next to the model:
+
+```bash
+./train.sh <model_id> [--epochs 4 --local --limit 1000 ...]
+```
+
+Or step by step:
+
+```bash
+uv run --env-file .env --project train python -m train.tags      # Scryfall oracle-tags bulk → train/tags.jsonl.gz
+uv run --env-file .env --project train python -m train.dataset   # live snapshot + tags → train/dataset.json.gz; LLM
+                                                                 # queries for uncached ability texts run on Modal first
+uv run --env-file .env --project train python -m train.train --model-id <model_id>   # Modal L4 → models/<model_id>/
+uv run --env-file .env --project train python -m train.eval --model <model_id>       # vs the served model → meta.json
+uv run --env-file .env python -m app.build --promote <model_id>                      # writes model.json
 ```
 
 The next `refresh` run (cron, or start it from Railway) re-embeds every card with the promoted model and flips
-`current.json`. Rolling back is promoting the previous id. Options: `train.dataset --augment
-tag_pairs,tag_descriptions,llm_queries --llm-limit N`; `train.train --base <hf-id> --epochs --batch-size --lr --warmup
---quantize --skip-fine-tune --local --limit N`. A full run costs roughly an hour of L4 time.
+`current.json`. Rolling back is promoting the previous id (`--promote <previous_id>`). A smoke run
+(`./train.sh smoke-test --limit 1000`) promotes too: promote the real model back before the 06:00 UTC cron.
+Options: `train.dataset --augment tag_pairs,tag_descriptions,llm_queries --llm-limit N`; `train.train --base <hf-id>
+--epochs --batch-size --lr --warmup --quantize --skip-fine-tune --local --limit N`. A full run costs roughly an hour of
+L4 time.
 
 ## API
 
@@ -81,8 +99,9 @@ Variables: `web` needs the bucket credentials and `PUBLIC_URL`; `refresh` needs 
 Optional: `POLL_SECONDS` (web, default 300), `CACHE_DIR`, `BUCKET_PATH_STYLE=1` for path-style buckets (older
 Railway buckets, local MinIO). Rate limiting and caching are Cloudflare's job.
 
-First deploy: run the worker once locally with the bucket credentials and `--publish --model-id <id> --model model`
-(uploads the local model, promotes it, publishes) before `web` starts; `web` refuses to boot without `current.json`.
+First deploy: run the worker once locally before `web` starts (`web` refuses to boot without `current.json`); it
+uploads the local model, promotes it and publishes:
+`uv run --env-file .env python -m app.build --publish --model-id <id> --model model`.
 
 ## Attribution
 
