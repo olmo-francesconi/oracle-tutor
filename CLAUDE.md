@@ -123,7 +123,11 @@ Similarity is over **abilities**, not whole cards: `[card] → [face] → [oracl
 | `GET /sitemap.xml` | One URL per oracle_id (`/?card=<id>`), origin = `PUBLIC_URL` or request |
 
 Any other path serves the SPA; `/?card=` and `/?q=` get their OG/Twitter/JSON-LD tags injected into `index.html`
-for every visitor (no bot sniffing). One stdout log line per `/similar-cards` call, no client IP.
+for every visitor (no bot sniffing). `/` and card pages also get a plain-HTML body inside `#root` (h1, type line,
+rules text) for crawlers that skip JavaScript; `createRoot` replaces it on mount, so never switch to `hydrateRoot`.
+`/` is the only page (no router): other paths and unknown card ids return the app with 404 + noindex, and `/?q=`
+pages are noindex,follow. The sitemap's `lastmod` is on `/` only (snapshot date; per-card change dates aren't known).
+One stdout log line per `/similar-cards` call, no client IP.
 
 ### Frontend conventions
 - Server state: TanStack Query hooks in `public/use*Query.ts`; `useApiReady` polls `/api/ready`.
