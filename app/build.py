@@ -34,7 +34,7 @@ from app.text import build_face_abilities
 
 BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
 # Scryfall rejects requests without an explicit User-Agent and Accept header (HTTP 400/403).
-SCRYFALL_HEADERS = {"User-Agent": "OracleTutor/3.0 (+https://oracletutor.org)", "Accept": "application/json"}
+SCRYFALL_HEADERS = {"User-Agent": "OracleTutor/3.0.0 (+https://oracletutor.org)", "Accept": "application/json"}
 SKIPPED_LAYOUTS = {"token", "double_faced_token", "art_series", "emblem", "planar", "scheme", "vanguard"}
 PAPER_FORMATS = ("standard", "pioneer", "modern", "legacy", "vintage", "commander", "pauper")
 TYPE_CATEGORIES = {"creature", "instant", "sorcery", "enchantment", "artifact", "planeswalker", "land"}

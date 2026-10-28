@@ -160,7 +160,7 @@ docker build -t oracle-tutor .                           # ~20s, code only
 ## Branches and releases
 
 - `develop`: default branch, all work lands here. `production`: Railway builds and deploys `web` + `refresh` from it.
-- Versions: `pyproject.toml` and `frontend/package.json` (keep equal).
+- Versions: `pyproject.toml`, `train/pyproject.toml` and `frontend/package.json` (keep equal).
 - Release: bump versions on develop, wait for CI, then
   `git checkout production && git read-tree --reset -u develop && git commit -m "vX.Y.Z" && git tag vX.Y.Z`,
   merge back with `git checkout develop && git merge --no-ff production -m "Merge tag vX.Y.Z into develop"`, push
