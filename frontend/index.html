@@ -31,12 +31,9 @@
       content="Semantic search for Magic: The Gathering. Describe what a card does and find every card that matches, by meaning rather than exact name."
     />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800;900&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap"
-      rel="stylesheet"
-    />
+    <!-- The two faces every page paints first; the rest of src/fonts.css loads on demand. -->
+    <link rel="preload" href="/src/fonts/big-shoulders-display-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/src/fonts/dm-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <div id="root"></div>

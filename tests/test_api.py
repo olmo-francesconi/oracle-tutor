@@ -89,7 +89,7 @@ def test_include_and_exclude_overlap_is_not_an_error(client):
 
 def test_spa_serves_files_and_falls_back_to_index(client):
     asset = client.get("/assets/app-abc.js")
-    assert asset.headers["cache-control"] == "public, max-age=2592000, immutable"
+    assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
     home = client.get("/")
     assert home.status_code == 200 and "<title>Oracle Tutor</title>" in home.text
     assert '<div id="root"><main><h1>Oracle Tutor</h1>' in home.text and 'content="index,follow"' in home.text

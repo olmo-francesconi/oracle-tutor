@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getApiReady } from '../lib/api'
 import { useApiReady } from '../lib/useApiReady'
@@ -9,7 +9,6 @@ import { readSearchStateFromUrl, writeSearchStateToUrl } from '../lib/urlState'
 import { cycleAbilityChoice, setAbilityChoices } from '../lib/abilitySelection'
 import type { CardMatch, FilterState, OracleSamples, SimilarCard } from '../types/api'
 import type { AbilityChoice, AbilitySelection, PinnedCard, SearchShellState } from '../types/ui'
-import { CardDetailOverlay } from '../components/CardDetailOverlay'
 import { DenseTextBackground } from '../components/background/DenseTextBackground'
 import { ApiDownOverlay } from '../components/errors/ApiDownOverlay'
 import { HomeView } from './HomeView'
@@ -30,6 +29,11 @@ import { useSearchQuery } from './useSearchQuery'
 import { useSimilarQuery } from './useSimilarQuery'
 import { useUrlSync } from './useUrlSync'
 import { useViewport } from './useViewport'
+
+// Not needed until a card is opened; keeps it out of the first-load bundle.
+const CardDetailOverlay = lazy(() =>
+  import('../components/CardDetailOverlay').then((m) => ({ default: m.CardDetailOverlay }))
+)
 
 const EMPTY_ORACLE_SAMPLES: OracleSamples = { texts: [], terms: [] }
 const EMPTY_ABILITY_SELECTION: AbilitySelection = {}
@@ -80,6 +84,9 @@ export function SearchShell() {
   const [ui, setUi] = useState<ShellUiState>(getInitialUiState)
   const [showFilters, setShowFilters] = useState(false)
   const [detail, setDetail] = useState<DetailTarget | null>(null)
+  // Mounted from the first open on and never unmounted, so its close animation still runs.
+  const [overlayMounted, setOverlayMounted] = useState(false)
+  if (detail && !overlayMounted) setOverlayMounted(true)
   const [lastTextQuery, setLastTextQuery] = useState<string | null>(null)
   const viewport = useViewport()
   const queryClient = useQueryClient()
@@ -380,12 +387,16 @@ export function SearchShell() {
           onRestoreTextQuery={handleRestoreTextQuery}
         />
       )}
-      <CardDetailOverlay
-        oracleId={detail?.oracle_id ?? null}
-        similarity={detail?.similarity ?? null}
-        onClose={handleDetailClose}
-        onFindSimilar={handleDetailFindSimilar}
-      />
+      {overlayMounted ? (
+        <Suspense fallback={null}>
+          <CardDetailOverlay
+            oracleId={detail?.oracle_id ?? null}
+            similarity={detail?.similarity ?? null}
+            onClose={handleDetailClose}
+            onFindSimilar={handleDetailFindSimilar}
+          />
+        </Suspense>
+      ) : null}
       {shouldShowApiDownOverlay && apiDownError ? (
         <ApiDownOverlay
           message={getApiDownMessage(apiDownError)}

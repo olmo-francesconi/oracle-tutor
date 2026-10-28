@@ -36,8 +36,8 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
     "Content-Security-Policy": (
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; "
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
     ),
 }
@@ -345,7 +345,7 @@ def spa(request: Request, path: str):
         raise HTTPException(404, "Not Found")
     file = (root / path).resolve()
     if path and file.is_relative_to(root) and file.is_file():
-        headers = {"Cache-Control": "public, max-age=2592000, immutable"} if path.startswith("assets/") else None
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"} if path.startswith("assets/") else None
         return FileResponse(file, headers=headers)
 
     page = (root / "index.html").read_text()

@@ -136,6 +136,14 @@ One stdout log line per `/similar-cards` call, no client IP.
   are `z.infer`). A malformed response throws.
 - 502/503/504 show the API-down overlay.
 - Design system: `DESIGN.md`.
+- Fonts are self-hosted (`src/fonts.css`, `src/fonts/`, OFL licenses alongside); no third-party origins, so the CSP
+  allows `'self'` only. `font-display: block` on purpose: `swap` reflowed the header and shifted the results grid (CLS
+  0.24). The two first-paint faces are preloaded in `index.html`.
+- The mana font is an 8 KB subset of `mana-font` (41 glyphs). After changing `src/lib/manaSymbols.ts` or upgrading
+  mana-font, run `uvx --from 'fonttools[woff]==4.60.1' python scripts/subset-mana-font.py` from `frontend/`, or new
+  symbols render as blank boxes.
+- `CardDetailOverlay` (mounted on first open, then kept for its close animation) and `FilterBar` are `lazy()` chunks.
+- Hashed `/assets/` are cached for a year (`immutable`).
 
 ## Dev workflows
 

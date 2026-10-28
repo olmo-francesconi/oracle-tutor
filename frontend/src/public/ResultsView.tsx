@@ -1,11 +1,14 @@
+import { Suspense, lazy } from 'react'
 import { AbilityTuner } from '../components/AbilityTuner'
-import { FilterBar } from '../components/FilterBar'
 import { ResultsGrid } from '../components/ResultsGrid'
 import { SearchBox } from '../components/SearchBox/SearchBox'
 import { SymbolText } from '../components/SymbolText'
 import { SearchErrorPanel } from '../components/errors/SearchErrorPanel'
 import type { CardAbility, CardMatch, FilterState, SimilarCard } from '../types/api'
 import type { AbilityChoice, AbilitySelection, SearchShellState } from '../types/ui'
+
+// Only rendered once the filters toggle is opened.
+const FilterBar = lazy(() => import('../components/FilterBar').then((m) => ({ default: m.FilterBar })))
 
 type PinnedSummary = {
   oracleText: string | null
@@ -194,7 +197,9 @@ export function ResultsView({
           ) : null}
 
           {showFilters && (
-            <FilterBar filters={state.filters} onChange={onFiltersChange} onClear={onClearFilters} />
+            <Suspense fallback={null}>
+              <FilterBar filters={state.filters} onChange={onFiltersChange} onClear={onClearFilters} />
+            </Suspense>
           )}
         </div>
 
