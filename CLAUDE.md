@@ -24,8 +24,6 @@ train/             tags.py (oracle-tags bulk), dataset.py (attribution + hard ne
 tests/             Pure pytest: fake encoder + tiny dataset (conftest.py), Scryfall fixture for the build
 frontend/          React SPA (unchanged API contract; `npm run build` → static/ in the image)
 Dockerfile         node build → python runtime; code only, same image for web and refresh
-railway.json       web service: healthcheck /api/ready
-railway.worker.json refresh service: start command + daily cron
 ```
 
 Local dev without a bucket reads gitignored `model/` (sentence-transformers ONNX export) and `data/` (built).

@@ -61,13 +61,15 @@ filters `card_type`, `colors`, `color_feature`, `match_mode`, `cmc_min`, `cmc_ma
 
 ## Deployment (Railway)
 
-One project, built from this repo's `production` branch:
+One project; both services build this repo's root `Dockerfile` (service settings live in Railway, not in the repo):
 
-| Service | Config | Runs |
+| Service | Settings | Runs |
 |---|---|---|
-| `web` | `railway.json` | uvicorn; healthcheck `/api/ready` gates every deploy, so swaps have no downtime |
-| `refresh` | `railway.worker.json` (set as the service's config path) | `python -m app.build --publish`, daily cron, exits |
+| `web` | healthcheck `/api/ready`, restart on failure | uvicorn; the healthcheck gates every deploy, so swaps have no downtime |
+| `refresh` | start `python -m app.build --publish`, cron `0 6 * * *`, restart never | builds a snapshot if anything changed, exits |
 | bucket | Railway Bucket | `BUCKET`, `ENDPOINT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION` referenced by both services |
+
+Environments: `v3` deploys branch `v3`.
 
 Variables: `web` needs the bucket credentials and `PUBLIC_URL`; `refresh` needs the bucket credentials and `MODEL_ID`.
 Optional: `POLL_SECONDS` (web, default 300), `CACHE_DIR`, `BUCKET_PATH_STYLE=1` for path-style buckets (older
