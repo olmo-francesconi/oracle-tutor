@@ -1,7 +1,7 @@
 """Train, evaluate and promote a model in one go: train.tags, train.dataset, train.train, train.eval, app.build --promote.
 
-Run from repo root with the bucket credentials exported (and Modal auth, unless --local):
-  uv run --project train python -m train.pipeline MODEL_ID [train.train options, e.g. --epochs 4 --local]
+Run with the bucket credentials in .env (and Modal auth, unless --local):
+  ./train.sh MODEL_ID [train.train options, e.g. --epochs 4 --local --limit 1000]
 
 Stops at the first failing step, so nothing is promoted unless training, upload and eval all succeeded. Every line is
 timestamped and teed to train/runs/<model_id>/pipeline.log, which is uploaded next to the model. The refresh worker

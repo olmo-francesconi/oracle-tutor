@@ -25,6 +25,7 @@ train/             tags.py (oracle-tags bulk), dataset.py (attribution, hard neg
                    (all of them + promote in one go)
 tests/             Pure pytest: fake encoder + tiny dataset (conftest.py), Scryfall fixture for the build
 frontend/          React SPA (unchanged API contract; `npm run build` → static/ in the image)
+train.sh           ./train.sh <model_id> [options]: the whole training pipeline with .env loaded
 Dockerfile         node build → python runtime; code only, same image for web and refresh
 ```
 
@@ -140,11 +141,18 @@ uv run python -m app.build [--bulk path.jsonl.gz]       # → data/ (no bucket)
 uv run uvicorn app.main:app --reload                     # :8000
 uv run ruff check . && uv run basedpyright && uv run pytest -q
 uv run --project train pytest train/tests -q
+uv run --env-file .env python -m app.build --promote <id>   # anything touching the bucket loads .env
 cd frontend && npm run dev | npm run lint | npm run test | npm run build
 docker build -t oracle-tutor .                           # ~20s, code only
 ```
 
 ## Environment variables
+One local env file: `.env` (gitignored), copied from the tracked template `.env.example`. It holds the bucket
+credentials (Railway → bucket → Credentials); `./train.sh` loads it, and so does `uv run --env-file .env …` for every
+other local command that touches the bucket (promote, publish, running web against the bucket). Never add a second
+env file; extend the template instead. Railway services get the same variables from the bucket reference, not from a
+file. Modal auth lives in `~/.modal.toml`.
+
 | Variable | Default | Notes |
 |---|---|---|
 | `DATA_DIR` | `data` | Built data |
@@ -167,10 +175,12 @@ docker build -t oracle-tutor .                           # ~20s, code only
   merge back with `git checkout develop && git merge --no-ff production -m "Merge tag vX.Y.Z into develop"`, push
   production (with tags) then develop. Railway deploys on the production push; card data is the worker's job.
   `read-tree` instead of `merge --squash` avoids a conflict storm against an ancient common ancestor.
-- New model: `python -m train.pipeline <id>` (= `train.tags`, `train.dataset`, `train.train --model-id <id>`,
-  `train.eval --model <id>`, `python -m app.build --promote <id>`, stopping at the first failure), then run `refresh`
-  (or wait for the cron). No code release. Rollback: promote the previous id (re-embeds) or point
-  `current.json` at an older snapshot.
+- New model: `./train.sh <id> [train.train options]` (`train.pipeline` with `.env`: `train.tags`, `train.dataset`,
+  `train.train --model-id <id>`, `train.eval --model <id>`, `app.build --promote <id>`, stopping at the first
+  failure), then run `refresh`
+  (or wait for the cron). No code release. Logs: `train/runs/<id>/pipeline.log`, also uploaded to
+  `models/<id>/pipeline.log`. Rollback: promote the previous id (re-embeds) or point `current.json` at an older
+  snapshot. A smoke run (`--limit 1000`) promotes too: promote the real model back before the 06:00 UTC cron.
 
 ## Git commits
 
@@ -185,7 +195,8 @@ The repo is public. Before any push:
 git diff origin/$(git rev-parse --abbrev-ref HEAD)...HEAD -- . ':(exclude)*.lock' ':(exclude)package-lock.json' \
   | grep -iE '(password|secret|api[_-]?key|token|bearer|authorization|private[_-]?key|aws_)=' || echo "clean"
 git diff --name-only origin/$(git rev-parse --abbrev-ref HEAD)...HEAD \
-  | grep -iE '(^|/)(\.env($|\..+)|credentials|secrets|.*\.pem$|.*\.key$)' || echo "clean"
+  | grep -iE '(^|/)(\.env($|\..+)|credentials|secrets|.*\.pem$|.*\.key$)' | grep -v '\.env\.example$' || echo "clean"
 ```
+`.env.example` is the template and must keep every value empty; `.env` itself is gitignored.
 
 Secrets that must never be committed: `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`, bucket `ACCESS_KEY_ID` / `SECRET_ACCESS_KEY`. If one leaks, rotate it and rewrite history.
