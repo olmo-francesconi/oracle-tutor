@@ -75,7 +75,7 @@ One project; both services build this repo's root `Dockerfile` (service settings
 | `refresh` | start `python -m app.build --publish`, cron `0 6 * * *`, restart never | builds a snapshot if Scryfall or `model.json` changed, exits |
 | bucket | Railway Bucket | `BUCKET`, `ENDPOINT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION` referenced by both services |
 
-Environments: `v3` deploys branch `v3`.
+Environment: `production` deploys branch `production`.
 
 Variables: `web` needs the bucket credentials and `PUBLIC_URL`; `refresh` needs the bucket credentials.
 Optional: `POLL_SECONDS` (web, default 300), `CACHE_DIR`, `BUCKET_PATH_STYLE=1` for path-style buckets (older
