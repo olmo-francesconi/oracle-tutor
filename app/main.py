@@ -1,6 +1,7 @@
 import asyncio
 import html
 import json
+import logging
 import os
 import re
 import shutil
@@ -12,10 +13,11 @@ from typing import Literal
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from app import search, snapshot
 from app.encoder import Encoder
+from app.log import log, ms_since
 from app.text import MAX_QUERY_ABILITIES
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
@@ -43,17 +45,32 @@ SECURITY_HEADERS = {
 }
 
 
-def _load_snapshot(pointer: dict, encoder: Encoder | None) -> search.Index:
+class _UvicornToLog(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        exc = record.exc_info[1] if record.exc_info else None
+        log(record.getMessage(), level=record.levelname.lower(), exc=exc)
+
+
+# uvicorn configures its loggers before importing the app, so this replaces its stderr handler (which Railway
+# shows as errors). Its access log stays uvicorn's own: off in the image, Railway's HTTP log covers it.
+logging.getLogger("uvicorn").handlers = [_UvicornToLog()]
+
+
+def _load_snapshot(pointer: dict, encoder: Encoder | None) -> tuple[search.Index, dict]:
     """Download (or reuse from disk) the pointer's model + data and build a complete index off to the side."""
+    t0 = time.monotonic()
     model_dir = snapshot.download_model(pointer["model"], CACHE_DIR)
+    data_dir = snapshot.download_data(pointer["snapshot"], CACHE_DIR)
+    t1 = time.monotonic()
     if encoder is None or encoder.model_dir != model_dir:
         encoder = Encoder(model_dir)
-    index = search.load(snapshot.download_data(pointer["snapshot"], CACHE_DIR), encoder)
+    index = search.load(data_dir, encoder)
     index.snapshot = pointer["snapshot"]
-    for stale in (CACHE_DIR / "snapshots").iterdir():
-        if stale.name != pointer["snapshot"]:
-            shutil.rmtree(stale, ignore_errors=True)
-    return index
+    for kind, keep in (("snapshots", pointer["snapshot"]), ("models", pointer["model"])):
+        for stale in (CACHE_DIR / kind).iterdir():
+            if stale.name != keep:
+                shutil.rmtree(stale, ignore_errors=True)
+    return index, {"download_ms": round((t1 - t0) * 1000), "load_ms": ms_since(t1)}
 
 
 async def _follow_pointer(app: FastAPI) -> None:
@@ -64,22 +81,29 @@ async def _follow_pointer(app: FastAPI) -> None:
         try:
             pointer = await asyncio.to_thread(snapshot.read_pointer)
             if pointer and pointer["snapshot"] != app.state.index.snapshot:
-                app.state.index = await asyncio.to_thread(_load_snapshot, pointer, app.state.index.encoder)
-                print(f"swapped to snapshot {pointer['snapshot']} (model {pointer['model']})", flush=True)
+                previous = app.state.index.snapshot
+                app.state.index, timings = await asyncio.to_thread(_load_snapshot, pointer, app.state.index.encoder)
+                log("snapshot swapped", previous=previous, snapshot=pointer["snapshot"], model=pointer["model"],
+                    **timings)
         except Exception as exc:  # noqa: BLE001 - keep serving the current snapshot; retry next poll
-            print(f"snapshot poll failed: {exc!r}", flush=True)
+            log("snapshot poll failed", level="warning", exc=exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    t0 = time.monotonic()
     if not snapshot.enabled():
         app.state.index = search.load(DATA_DIR, Encoder(MODEL_DIR))
+        log("ready", data=str(DATA_DIR), model=app.state.index.model, boot_ms=ms_since(t0))
         yield
         return
     pointer = snapshot.read_pointer()
     if pointer is None:
         raise RuntimeError("bucket has no current.json yet; run the refresh worker once (python -m app.build --publish)")
-    app.state.index = _load_snapshot(pointer, None)
+    pointer_ms = ms_since(t0)
+    app.state.index, timings = _load_snapshot(pointer, None)
+    log("ready", snapshot=pointer["snapshot"], model=pointer["model"], pointer_ms=pointer_ms, **timings,
+        boot_ms=ms_since(t0))
     poller = asyncio.create_task(_follow_pointer(app))
     yield
     poller.cancel()
@@ -91,7 +115,11 @@ api = APIRouter(prefix="/api")
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:  # noqa: BLE001 - one log line instead of uvicorn's multi-line traceback
+        log("request failed", level="error", exc=exc, method=request.method, path=request.url.path)
+        response = PlainTextResponse("Internal Server Error", 500)
     response.headers.update(SECURITY_HEADERS)
     return response
 
@@ -234,9 +262,8 @@ def similar_cards(
     }.items() if v is not None}
     if colors:
         filters |= {"color_feature": color_feature, "match_mode": match_mode}
-    seed = f"oracle_id={oracle_id} face_ix={face_ix}" if oracle_id is not None else f"q={q!r}"
-    print(f"similar-cards mode={'card' if oracle_id is not None else 'text'} {seed} filters={filters} "
-          f"offset={offset} results={len(items)} ms={(time.monotonic() - t0) * 1000:.0f}", flush=True)
+    seed = {"mode": "card", "oracle_id": oracle_id, "face_ix": face_ix} if oracle_id is not None else {"mode": "text", "q": q}
+    log("search", **seed, **filters, offset=offset, results=len(items), ms=ms_since(t0))
     return {"items": items, "has_more": len(hits) > offset + limit,
             "query_abilities": [display for display, _ in abilities] or None}
 
