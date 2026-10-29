@@ -2,7 +2,7 @@
 # `train` import:  uv run --project train python -m train.<tags|dataset|train|eval>
 [project]
 name = "oracle-tutor-train"
-version = "3.0.2"
+version = "3.1.0"
 requires-python = ">=3.12"
 dependencies = [
   "sentence-transformers>=6.2.0",
