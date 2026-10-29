@@ -175,7 +175,7 @@ file. Modal auth lives in `~/.modal.toml`.
 | `BUCKET`, `ENDPOINT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `REGION` | — | Railway Bucket credentials (web + refresh); unset = local mode |
 | `BUCKET_PATH_STYLE` | unset | `1` for path-style buckets (older Railway buckets, MinIO) |
 | `POLL_SECONDS` | `300` | web: how often to check `current.json` |
-| `CACHE_DIR` | `$TMPDIR/oracle-tutor` | Downloaded models and snapshots |
+| `CACHE_DIR` | `$TMPDIR/oracle-tutor` | Downloaded models and snapshots; web sets it to its volume so boots skip the download (only the live model + snapshot are kept) |
 | `API_PROXY_TARGET` | `http://localhost:8000` | Vite dev proxy target |
 
 ## Branches and releases

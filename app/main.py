@@ -50,9 +50,10 @@ def _load_snapshot(pointer: dict, encoder: Encoder | None) -> search.Index:
         encoder = Encoder(model_dir)
     index = search.load(snapshot.download_data(pointer["snapshot"], CACHE_DIR), encoder)
     index.snapshot = pointer["snapshot"]
-    for stale in (CACHE_DIR / "snapshots").iterdir():
-        if stale.name != pointer["snapshot"]:
-            shutil.rmtree(stale, ignore_errors=True)
+    for kind, keep in (("snapshots", pointer["snapshot"]), ("models", pointer["model"])):
+        for stale in (CACHE_DIR / kind).iterdir():
+            if stale.name != keep:
+                shutil.rmtree(stale, ignore_errors=True)
     return index
 
 
