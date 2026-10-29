@@ -127,7 +127,11 @@ for every visitor (no bot sniffing). `/` and card pages also get a plain-HTML bo
 rules text) for crawlers that skip JavaScript; `createRoot` replaces it on mount, so never switch to `hydrateRoot`.
 `/` is the only page (no router): other paths and unknown card ids return the app with 404 + noindex, and `/?q=`
 pages are noindex,follow. The sitemap's `lastmod` is on `/` only (snapshot date; per-card change dates aren't known).
-One stdout log line per `/similar-cards` call, no client IP.
+Logs: `app.log.log(msg, **fields)`, one line per event on stdout: JSON when piped (Railway reads `level` and the
+fields), readable in a terminal. Events: `ready` (boot timings), `snapshot swapped`, `snapshot poll failed`, `search`
+(one per `/similar-cards` call, no client IP), `request failed`; refresh: `bulk downloaded`, `embedding`, `published`,
+`up to date`, `refresh failed`. uvicorn's logger goes through it too; its access log is off in the image (Railway's
+HTTP log has every request).
 
 ### Frontend conventions
 - Server state: TanStack Query hooks in `public/use*Query.ts`; `useApiReady` polls `/api/ready`.

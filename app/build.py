@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 
 from app import snapshot
+from app.log import log, ms_since
 from app.text import build_face_abilities
 
 BULK_DATA_URL = "https://api.scryfall.com/bulk-data/default-cards"
@@ -176,7 +177,7 @@ def embed(texts: dict[str, str], model_dir: Path, known: dict[str, np.ndarray] |
     known = known or {}
     hashes = sorted(texts)
     todo = [h for h in hashes if h not in known]
-    print(f"embedding {len(todo):,} new texts, reusing {len(hashes) - len(todo):,}", flush=True)
+    log("embedding", new=len(todo), reused=len(hashes) - len(todo))
     encoded = {}
     if todo:
         # Encode in length order so each batch pads to similar lengths.
@@ -191,8 +192,8 @@ def embed(texts: dict[str, str], model_dir: Path, known: dict[str, np.ndarray] |
             parts.append(encoder.encode(batch))
             done += sum(map(len, batch))
             elapsed = time.monotonic() - t0
-            print(f"embedded {start + len(batch):,}/{len(todo):,} · {elapsed:.0f}s · eta "
-                  f"{elapsed * (total - done) / done:.0f}s", flush=True)
+            log("embed progress", done=start + len(batch), total=len(todo), elapsed_s=round(elapsed),
+                eta_s=round(elapsed * (total - done) / done))
         encoded = dict(zip(todo, np.concatenate(parts).astype(np.float16)))
     return np.array(hashes), np.stack([known[h] if h in known else encoded[h] for h in hashes]).astype(np.float16)
 
@@ -214,17 +215,18 @@ def promote(model_id: str) -> None:
         raise SystemExit(f"models/{model_id}/ is not in the bucket; train.train uploads models there")
     previous = (snapshot.read_promoted() or {}).get("model")
     snapshot.write_promoted({"model": model_id, "promoted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    print(f"promoted {model_id} (was {previous}); the next refresh run re-embeds with it")
+    log("promoted", model=model_id, previous=previous)
 
 
 def publish(override: str | None, local_model: Path, keep: int = 5) -> None:
+    t0 = time.monotonic()
     cache = Path(os.environ.get("CACHE_DIR") or Path(tempfile.gettempdir()) / "oracle-tutor")
     if override:
         model_id = override
         if not snapshot.has_model(model_id):
             if not (local_model / snapshot.MODEL_FILES[0]).exists():
                 raise SystemExit(f"models/{model_id}/ is not in the bucket and {local_model} holds no model")
-            print(f"uploading model {model_id}", flush=True)
+            log("uploading model", model=model_id)
             snapshot.upload_model(local_model, model_id)
         promote(model_id)
     else:
@@ -235,12 +237,13 @@ def publish(override: str | None, local_model: Path, keep: int = 5) -> None:
     live = snapshot.read_pointer()
     source, updated_at = latest_bulk()
     if live and live["model"] == model_id and live["scryfall"] == updated_at:
-        print(f"snapshot {live['snapshot']} is current (model {model_id}, scryfall {updated_at}); nothing to do")
+        log("up to date", snapshot=live["snapshot"], model=model_id, scryfall=updated_at)
         return
     model_dir = snapshot.download_model(model_id, cache)
 
-    print(f"downloading {source}", flush=True)
+    t1 = time.monotonic()
     cards, texts = build_cards(iter_bulk(source))
+    log("bulk downloaded", scryfall=updated_at, cards=len(cards), texts=len(texts), ms=ms_since(t1))
     known = {}
     if live and live["model"] == model_id:
         with np.load(snapshot.download_data(live["snapshot"], cache) / "vectors.npz") as prev:
@@ -253,7 +256,7 @@ def publish(override: str | None, local_model: Path, keep: int = 5) -> None:
     snapshot.upload_data(out, snapshot_id)
     snapshot.write_pointer({"snapshot": snapshot_id, "model": model_id, "scryfall": updated_at})
     snapshot.prune_snapshots(keep)
-    print(f"published snapshot {snapshot_id}: {len(cards)} cards, {len(hashes)} texts, model {model_id}")
+    log("published", snapshot=snapshot_id, cards=len(cards), texts=len(hashes), model=model_id, ms=ms_since(t0))
 
 
 def main() -> None:
@@ -270,18 +273,22 @@ def main() -> None:
         promote(args.promote)
         return
     if args.publish:
-        publish(args.model_id, Path(args.model))
+        t0 = time.monotonic()
+        try:
+            publish(args.model_id, Path(args.model))
+        except Exception as exc:  # noqa: BLE001 - one error line for the cron run, then a failing exit code
+            log("refresh failed", level="error", exc=exc, ms=ms_since(t0))
+            raise SystemExit(1) from None
         return
 
     source, updated_at = (args.bulk, None) if args.bulk else latest_bulk()
-    print(f"reading {source}", flush=True)
+    t0 = time.monotonic()
     cards, texts = build_cards(iter_bulk(source))
-    print(f"{len(cards)} cards, {sum(len(f['_hashes']) for c in cards for f in c['faces'])} abilities, "
-          f"{len(texts)} distinct texts", flush=True)
+    log("bulk downloaded", scryfall=updated_at, cards=len(cards), texts=len(texts), ms=ms_since(t0))
     model_id = args.model_id or Path(args.model).resolve().name
     hashes, vectors = embed(texts, Path(args.model))
     write(Path(args.out), cards, updated_at, model_id, hashes, vectors)
-    print(f"wrote {args.out}/cards.json.gz, {args.out}/vectors.npz ({vectors.shape})")
+    log("wrote", out=args.out, vectors=list(vectors.shape))
 
 
 if __name__ == "__main__":
