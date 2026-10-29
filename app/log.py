@@ -18,7 +18,7 @@ def log(msg: str, level: str = "info", exc: BaseException | None = None, **field
     if not TTY:
         print(json.dumps({"level": level, "msg": msg, **fields}, default=str), flush=True)
         return
-    tb = fields.pop("traceback", "")
+    tb = fields.pop("traceback", "").rstrip("\n")
     pairs = " ".join(f"{k}={json.dumps(v) if isinstance(v, str) and (' ' in v or not v) else v}"
                      for k, v in fields.items())
     print(f"{time.strftime('%H:%M:%S')} {level:<7} {msg} {pairs}".rstrip() + (f"\n{tb}" if tb else ""), flush=True)
