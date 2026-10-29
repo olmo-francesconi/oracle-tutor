@@ -28,6 +28,7 @@ CACHE_DIR = Path(os.environ.get("CACHE_DIR") or Path(tempfile.gettempdir()) / "o
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "300"))
 
 MAX_QUERY_LENGTH = 200
+MAX_OFFSET = 500
 MAX_FILTER_CODE_LENGTH = 16
 MAX_ABILITY_SELECTION_LENGTH = 64
 DOUBLE_SIDED_LAYOUTS = frozenset({"transform", "modal_dfc", "meld", "double_faced_token", "art_series"})
@@ -186,7 +187,7 @@ def search_cards(
     request: Request,
     q: str = Query(..., max_length=MAX_QUERY_LENGTH),
     limit: int = Query(10, ge=1, le=25),
-    offset: int = Query(0, ge=0, le=500),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
 ):
     return [
         {"name": f["name"], "card_name": c["name"], "similarity": 1.0, "rank": c["edhrec_rank"],
@@ -211,7 +212,7 @@ def similar_cards(
     face_ix: int = Query(0, ge=0),
     q: str | None = Query(None, max_length=MAX_QUERY_LENGTH),
     limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0, le=500),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     card_type: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
     colors: str | None = Query(None, max_length=MAX_FILTER_CODE_LENGTH),
     cmc_min: float | None = None,
@@ -264,7 +265,7 @@ def similar_cards(
         filters |= {"color_feature": color_feature, "match_mode": match_mode}
     seed = {"mode": "card", "oracle_id": oracle_id, "face_ix": face_ix} if oracle_id is not None else {"mode": "text", "q": q}
     log("search", **seed, **filters, offset=offset, results=len(items), ms=ms_since(t0))
-    return {"items": items, "has_more": len(hits) > offset + limit,
+    return {"items": items, "has_more": len(hits) > offset + limit and offset + limit <= MAX_OFFSET,
             "query_abilities": [display for display, _ in abilities] or None}
 
 

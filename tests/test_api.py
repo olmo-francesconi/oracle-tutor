@@ -51,6 +51,14 @@ def test_similar_cards_contract(client):
     assert paged["items"][0]["oracle_id"] == body["items"][1]["oracle_id"]
 
 
+def test_has_more_stops_at_the_offset_limit(client, monkeypatch):
+    """Infinite scroll asks for the next page while has_more is true; past MAX_OFFSET that request would 422."""
+    monkeypatch.setattr(main, "MAX_OFFSET", 1)
+    assert client.get("/api/similar-cards", params={"oracle_id": "bird", "limit": 1}).json()["has_more"] is True
+    page = client.get("/api/similar-cards", params={"oracle_id": "bird", "limit": 1, "offset": 1}).json()
+    assert page["items"] and page["has_more"] is False
+
+
 def test_similar_cards_text_mode_echoes_segmentation(client):
     body = client.get("/api/similar-cards", params={"q": "flying // draw a card", "card_type": "c"}).json()
     assert body["query_abilities"] == ["flying", "draw a card"]
